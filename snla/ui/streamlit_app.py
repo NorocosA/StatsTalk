@@ -254,22 +254,82 @@ def process_analysis(user_input: str) -> None:
         with st.expander("📝 查看生成的 SPSS 语法", expanded=False):
             st.code(syntax, language="text")
 
-        # Step 6: Execute in SPSS
+        # Step 6: Execute in SPSS (with 4-layer error recovery)
         st.session_state.stage = "EXECUTING"
-        with st.spinner("⚙️ 正在 SPSS 中执行分析..."):
-            result = _execute_syntax(syntax, bool(val_result.get("warnings")))
-        if sess.cancellation_token:
-            _fail("⏹ 操作已取消")
-            sess.reset_cancellation()
-            return
-        if not result.success:
-            _fail(f"❌ SPSS 执行失败 (退出码: {result.exit_code})\n\n"
-                  f"```\n{result.stderr[:500] if result.stderr else '(无错误输出)'}\n```")
-            return
+        max_retries = 2
+        attempt = 0
+        exec_result = None
+
+        while attempt <= max_retries:
+            with st.spinner(f"⚙️ 正在 SPSS 中执行分析... (第 {attempt + 1} 次)"
+                            if attempt > 0 else "⚙️ 正在 SPSS 中执行分析..."):
+                exec_result = _execute_syntax(syntax, bool(val_result.get("warnings")))
+            if sess.cancellation_token:
+                _fail("⏹ 操作已取消")
+                sess.reset_cancellation()
+                return
+            if exec_result.success:
+                break  # ── success, exit retry loop
+
+            # ── Layer 2: LLM auto-fix ──
+            if attempt < max_retries:
+                error_text = exec_result.stderr[:800] if exec_result.stderr else f"退出码: {exec_result.exit_code}"
+                st.warning(f"⚠️ SPSS 执行失败，正在请求 LLM 自动修正...")
+                fixed_syntax = _llm_fix_syntax(syntax, error_text, sess)
+                if fixed_syntax and fixed_syntax != syntax:
+                    # Re-validate the fixed syntax
+                    val_result = validate_syntax(fixed_syntax, sess.get_variable_names())
+                    if val_result["valid"]:
+                        syntax = fixed_syntax
+                        with st.expander("📝 查看修正后的 SPSS 语法", expanded=False):
+                            st.code(syntax, language="text")
+                        attempt += 1
+                        continue
+                st.warning("⚠️ LLM 修正失败，尝试模板兜底...")
+                break  # fall through to template
+
+            attempt += 1
+
+        # ── Layer 3: Template fallback ──
+        if not exec_result or not exec_result.success:
+            st.warning("⚠️ 自动修正已用尽，切换至标准模板语法...")
+            template_syntax = _syntax_template_fallback(recommended_method)
+            if template_syntax:
+                val_result = validate_syntax(template_syntax, sess.get_variable_names())
+                if val_result["valid"]:
+                    syntax = template_syntax
+                    with st.expander("📝 查看模板语法（可能无法完全匹配原始意图）", expanded=True):
+                        st.caption("具体差异：已从 LLM 生成语法切换为标准模板")
+                        st.code(syntax, language="text")
+                    with st.spinner("⚙️ 正在执行模板语法..."):
+                        exec_result = _execute_syntax(syntax, False)
+
+        # ── Layer 4: User manual edit ──
+        if not exec_result or not exec_result.success:
+            error_detail = (exec_result.stderr[:500] if exec_result and exec_result.stderr
+                            else f"退出码: {exec_result.exit_code if exec_result else 'N/A'}")
+            st.error(f"❌ 所有自动修正均已用尽，SPSS 执行仍失败\n\n"
+                     f"```\n{error_detail}\n```")
+            with st.expander("📝 手动编辑语法后重试", expanded=True):
+                edited = st.text_area("编辑 SPSS 语法", value=syntax, height=150, key="manual_edit")
+                if st.button("🔄 重新执行", key="retry_manual"):
+                    val_result = validate_syntax(edited, sess.get_variable_names())
+                    if val_result["valid"]:
+                        exec_result = _execute_syntax(edited, False)
+                        if exec_result and exec_result.success:
+                            st.success("✅ 手动修正后执行成功！")
+                            syntax = edited
+                        else:
+                            st.error("❌ 手动修正后执行仍失败，请检查语法")
+                    else:
+                        st.error("❌ 语法校验失败:\n" + "\n".join(f"- {e}" for e in val_result["errors"]))
+            if not (exec_result and exec_result.success):
+                _fail("❌ 无法完成 SPSS 执行，请检查数据或语法后重试")
+                return
 
         # Step 7: Parse output
         with st.spinner("📊 正在解析结果..."):
-            analysis_result = _parse_output(result, recommended_method)
+            analysis_result = _parse_output(exec_result, recommended_method)
 
         # Step 8: Explain results
         with st.spinner("💬 正在生成白话解读..."):
@@ -472,6 +532,72 @@ class _MockExecResult:
     lst_path = None
     success = True
     error_message = None
+
+
+def _llm_fix_syntax(failed_syntax: str, error_text: str, sess: SessionState) -> str | None:
+    """Ask LLM to fix SPSS syntax based on the execution error.
+
+    Layer 2 of the error recovery chain: sends the failed syntax and the
+    SPSS error message to the LLM, requesting a corrected version.  Falls
+    back to ``None`` on any failure so the caller proceeds to Layer 3.
+
+    Args:
+        failed_syntax: The SPSS syntax that failed execution.
+        error_text: The stderr / error message from SPSS.
+        sess: Current ``SessionState`` with variable metadata.
+
+    Returns:
+        Corrected syntax string, or ``None`` if the fix attempt failed.
+    """
+    if LLM_MOCK:
+        return None  # MOCK mode can't fix syntax
+
+    from snla.llm.client import LLMClient
+    from snla.data.sanitizer import filter_for_cloud
+
+    try:
+        client = LLMClient()
+        vars_filtered = filter_for_cloud({"variables": sess.variables})
+        var_list = vars_filtered.get("variables", sess.variables)
+
+        var_desc = "\n".join(
+            f"- {v['name']} ({v.get('type', '?')})"
+            + (f" [{', '.join(f'{k}={val}' for k, val in v.get('value_labels', {}).items())}]"
+               if v.get('value_labels') else "")
+            for v in var_list[:20]
+        )
+
+        system = (
+            "你是 SPSS 语法专家。用户提供的语法执行失败，请根据错误信息修正语法。"
+            "仅返回修正后的完整 SPSS 语法字符串（以句点结尾），不要返回任何解释或 JSON。"
+        )
+        user = (
+            "[DATASET VARIABLES]\n"
+            f"{var_desc}\n\n"
+            "[FAILED SYNTAX]\n"
+            f"{failed_syntax}\n\n"
+            "[SPSS ERROR]\n"
+            f"{error_text}\n\n"
+            "请修正以上语法，仅返回修正后的语法字符串："
+        )
+
+        response = client.chat(
+            messages=[{"role": "user", "content": user}],
+            system_prompt=system,
+            temperature=0.1,
+            max_tokens=500,
+        )
+        fixed = response.get("content", "").strip()
+        if fixed and "." in fixed:
+            # Extract just the SPSS command (strip any extra text)
+            # Take everything up to the last period + period
+            last_dot = fixed.rfind(".")
+            if last_dot > 0:
+                fixed = fixed[:last_dot + 1]
+            return fixed
+        return None
+    except Exception:
+        return None
 
 
 def _method_label(method: str) -> str:
