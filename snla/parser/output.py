@@ -1334,17 +1334,24 @@ def parse(
     # --- 1. Try OMS XML (primary strategy) ---
     if oms_xml_path and os.path.exists(oms_xml_path):
         if HAS_LXML:
-            try:
-                result = parse_oms_xml(oms_xml_path)
-                logger.info("Successfully parsed OMS XML: %s", oms_xml_path)
-                return result
-            except Exception as exc:
-                last_error = exc
+            # Skip OMS XML if file is too small (e.g., ONEWAY produces 15-byte empty XML)
+            if os.path.getsize(oms_xml_path) < 100:
                 logger.warning(
-                    "OMS XML parsing failed for %s: %s. Falling back to LST.",
-                    oms_xml_path,
-                    exc,
+                    "OMS XML too small (%d bytes), falling back to LST.",
+                    os.path.getsize(oms_xml_path),
                 )
+            else:
+                try:
+                    result = parse_oms_xml(oms_xml_path)
+                    logger.info("Successfully parsed OMS XML: %s", oms_xml_path)
+                    return result
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "OMS XML parsing failed for %s: %s. Falling back to LST.",
+                        oms_xml_path,
+                        exc,
+                    )
         else:
             logger.info(
                 "lxml not available; skipping OMS XML parsing for %s.",

@@ -42,6 +42,37 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from snla.config import DEBUG, LLM_MOCK, SPSS_EXEC_MODE
 
 
+def _safe_json_parse(text: str) -> dict:
+    """Parse LLM output that may contain markdown fences or malformed JSON."""
+    import json as _json
+
+    text = text.strip()
+    try:
+        return _json.loads(text)
+    except _json.JSONDecodeError:
+        pass
+
+    # Strip markdown code fences
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    # Find the outermost JSON object
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            return _json.loads(text[start : end + 1])
+        except _json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Failed to parse JSON from LLM output: {text[:200]}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 1: Data Loading & Metadata Extraction
 # ═══════════════════════════════════════════════════════════════════════════
@@ -104,7 +135,7 @@ def recognize_intent(user_input: str, variables: list[dict]) -> dict:
         from snla.llm.prompts.intent import build_intent_prompt
         client = LLMClient()
         messages = build_intent_prompt(user_message=user_input, variables=variables)
-        result = json.loads(client.chat(messages)["content"])
+        result = _safe_json_parse(client.chat(messages)["content"])
 
     intent = result.get("intent", "unknown")
     confidence = result.get("confidence", 0)
@@ -182,7 +213,7 @@ def recommend_method(intent_data: dict, variables: list[dict], user_input: str,
         client = LLMClient()
         messages = build_method_prompt(intent=intent, variables=variables,
                                        conversation_context=user_input)
-        result = json.loads(client.chat(messages)["content"])
+        result = _safe_json_parse(client.chat(messages)["content"])
         method = result.get("recommended_method", "descriptives")
         cat_var = result.get("grouping_variable")
         num_var = result.get("test_variable")

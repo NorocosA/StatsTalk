@@ -29,9 +29,21 @@ _command_cache: dict[str, dict[str, Any]] = {}
 
 
 def _get_retriever():
-    """Lazy-load the retriever (avoids loading embedding model on import)."""
-    from snla.rag.retriever import get_retriever
-    return get_retriever()
+    """Lazy-load the retriever.
+
+    Returns None if the SKIP_RAG environment variable is set, or if
+    sentence-transformers/ChromaDB are unavailable.  RAG is an optional
+    enhancement — the system functions normally without it.
+    """
+    import os
+    if os.getenv("SKIP_RAG", "").lower() in ("1", "true", "yes"):
+        return None
+    try:
+        from snla.rag.retriever import get_retriever
+        return get_retriever()
+    except (ImportError, OSError) as exc:
+        logger.debug("RAG retriever unavailable: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -40,15 +52,10 @@ def _get_retriever():
 
 
 def is_valid_spss_command(command: str) -> bool:
-    """Check if a command keyword exists in the official SPSS syntax reference.
-
-    Args:
-        command: SPSS command name (e.g., "FREQUENCIES", "T-TEST").
-
-    Returns:
-        True if the command is documented in the knowledge base.
-    """
+    """Check if a command keyword exists in the official SPSS syntax reference."""
     retriever = _get_retriever()
+    if retriever is None:
+        return False
     try:
         info = retriever.validate_command(command)
         return info.get("exists", False)
@@ -58,18 +65,13 @@ def is_valid_spss_command(command: str) -> bool:
 
 
 def get_command_subcommands(command: str) -> list[str]:
-    """Get the official subcommand list for a SPSS command.
-
-    Args:
-        command: SPSS command name.
-
-    Returns:
-        List of subcommand names, or empty list if unknown.
-    """
+    """Get the official subcommand list for a SPSS command."""
     if command in _command_cache:
         return _command_cache[command].get("subcommands", [])
 
     retriever = _get_retriever()
+    if retriever is None:
+        return []
     try:
         info = retriever.validate_command(command)
         if info.get("exists"):
@@ -82,19 +84,14 @@ def get_command_subcommands(command: str) -> list[str]:
 
 
 def get_command_category(command: str) -> str:
-    """Get the category of a SPSS command.
-
-    Args:
-        command: SPSS command name.
-
-    Returns:
-        Category string (e.g., "descriptive", "comparison"), or "unknown".
-    """
+    """Get the category of a SPSS command."""
     if command in _command_cache:
         cats = _command_cache[command].get("category", [])
         return cats[0] if cats else "unknown"
 
     retriever = _get_retriever()
+    if retriever is None:
+        return "unknown"
     try:
         info = retriever.validate_command(command)
         if info.get("exists"):
@@ -168,27 +165,11 @@ def enhance_validation(
 # ---------------------------------------------------------------------------
 
 
-def get_syntax_context(
-    method: str,
-    n_chunks: int = 3,
-    max_chars: int = 3000,
-) -> str:
-    """Get SPSS documentation context for syntax generation.
-
-    Retrieves relevant command documentation from the knowledge base
-    to inject into LLM syntax generation prompts.
-
-    Args:
-        method: Statistical method name (e.g., "independent_t_test").
-                Also accepts SPSS command names directly (e.g., "T-TEST").
-        n_chunks: Number of documentation chunks to retrieve.
-        max_chars: Maximum total context characters.
-
-    Returns:
-        Formatted context string for prompt injection, or empty string
-        if no relevant documentation found.
-    """
+def get_syntax_context(method, n_chunks=3, max_chars=3000):
+    """Get SPSS documentation context for syntax generation."""
     retriever = _get_retriever()
+    if retriever is None:
+        return ""
     try:
         context = retriever.get_context_for_method(method, n_chunks=n_chunks)
         if context and len(context) > max_chars:
