@@ -366,10 +366,24 @@ def process_analysis(user_input: str) -> None:
 
 
 def _get_cloud_vars() -> list[dict[str, Any]]:
-    """Return cloud-safe variable list for LLM prompts."""
-    from snla.data.sanitizer import filter_for_cloud
-    filtered = filter_for_cloud({"variables": st.session_state.session.variables})
-    return filtered.get("variables", st.session_state.session.variables)
+    """Return cloud-safe variable list for LLM prompts.
+
+    Desensitized variable names are mapped to their cloud-safe versions
+    (var_01, var_02, etc.) and only safe fields (name, type, label,
+    value_labels) are included in each variable dict sent to the LLM.
+    """
+    from snla.data.sanitizer import CLOUD_SAFE_FIELDS
+    sess: SessionState = st.session_state.session
+    # Use map_to_cloud to get desensitized names
+    cloud_vars = sess.map_to_cloud(sess.variables) if sess.var_name_map else sess.variables
+    # Strip each variable dict to only cloud-safe fields
+    safe_vars = []
+    for v in cloud_vars:
+        safe_vars.append({
+            k: v[k] for k in ("name", "type", "label", "value_labels")
+            if k in v
+        })
+    return safe_vars
 
 
 def _call_intent(user_input: str) -> dict[str, Any]:

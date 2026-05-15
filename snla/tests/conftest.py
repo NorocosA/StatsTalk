@@ -15,6 +15,14 @@ import tempfile
 import pytest
 
 
+def pytest_configure(config):
+    """Register custom pytest markers."""
+    config.addinivalue_line(
+        "markers",
+        "slow: marks tests that require real LLM/SPSS (deselect with '-m \"not slow\"')",
+    )
+
+
 # ── Variable definitions ─────────────────────────────────────────────────────
 
 
