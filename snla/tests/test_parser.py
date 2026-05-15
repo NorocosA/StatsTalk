@@ -356,3 +356,211 @@ Equal variances assumed  1.23  0.281  2.340   18    0.021
         """parse() raises ValueError when neither source is available."""
         with pytest.raises(ValueError):
             parse()
+
+
+# =========================================================================
+# Test 7: OMS XML — REGRESSION (dedicated extractor)
+# =========================================================================
+
+
+class TestRegressionOmsXml:
+    """OMS XML parsing for a REGRESSION output with dedicated extractor."""
+
+    def test_oms_regression_xml_parse(self):
+        """Parse REGRESSION OMS XML and verify dedicated extractor stats."""
+        pytest.importorskip("lxml", reason="lxml is required for OMS XML parsing")
+
+        xml_content = """\
+<oms>
+  <command text="REGRESSION">
+    <pivotTable subType="Model Summary">
+      <dimension axis="statistics">
+        <category text="R Square"><cell number="0.45"/></category>
+      </dimension>
+    </pivotTable>
+    <pivotTable subType="ANOVA">
+      <dimension axis="row">
+        <category text="Regression">
+          <dimension axis="column">
+            <category text="F"><cell number="12.5"/></category>
+            <category text="Sig."><cell number="0.003"/></category>
+          </dimension>
+        </category>
+      </dimension>
+    </pivotTable>
+    <pivotTable subType="Coefficients">
+      <dimension axis="row">
+        <category text="score" variable="true">
+          <dimension axis="column">
+            <category text="B"><cell number="0.85"/></category>
+            <category text="Beta"><cell number="0.67"/></category>
+            <category text="t"><cell number="3.54"/></category>
+          </dimension>
+        </category>
+      </dimension>
+    </pivotTable>
+  </command>
+</oms>"""
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        try:
+            tmp.write(xml_content)
+            tmp.close()
+
+            result = parse_oms_xml(tmp.name)
+
+            assert result.analysis_type == "REGRESSION"
+            assert result.statistics.get("r_squared") == 0.45
+            assert result.statistics.get("f_value") == 12.5
+            assert result.statistics.get("p_value") == 0.003
+            assert result.statistics.get("b") == 0.85
+            assert result.statistics.get("beta") == 0.67
+
+        finally:
+            os.unlink(tmp.name)
+
+
+# =========================================================================
+# Test 8: OMS XML — CORRELATIONS (dedicated extractor)
+# =========================================================================
+
+
+class TestCorrelationsOmsXml:
+    """OMS XML parsing for a CORRELATIONS output with dedicated extractor."""
+
+    def test_oms_correlations_xml_parse(self):
+        """Parse CORRELATIONS OMS XML and verify dedicated extractor stats."""
+        pytest.importorskip("lxml", reason="lxml is required for OMS XML parsing")
+
+        xml_content = """\
+<oms>
+  <command text="CORRELATIONS">
+    <pivotTable subType="Correlations">
+      <dimension axis="row">
+        <category text="score" variable="true">
+          <dimension axis="column">
+            <category text="Pearson Correlation"><cell number="1" text="1"/></category>
+            <category text="Sig. (2-tailed)"><cell text=""/></category>
+            <category text="N"><cell number="30" text="30"/></category>
+          </dimension>
+          <dimension axis="row">
+            <category text="age" variable="true">
+              <dimension axis="column">
+                <category text="Pearson Correlation"><cell number="0.156"/></category>
+                <category text="Sig. (2-tailed)"><cell number="0.412"/></category>
+                <category text="N"><cell number="30"/></category>
+              </dimension>
+            </category>
+          </dimension>
+        </category>
+      </dimension>
+    </pivotTable>
+  </command>
+</oms>"""
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        try:
+            tmp.write(xml_content)
+            tmp.close()
+
+            result = parse_oms_xml(tmp.name)
+
+            assert result.analysis_type == "CORRELATIONS"
+            assert result.statistics.get("r") == 0.156
+            assert result.statistics.get("p_value") == 0.412
+            assert result.statistics.get("n_valid") == 30
+
+        finally:
+            os.unlink(tmp.name)
+
+
+# =========================================================================
+# Test 9: OMS XML — ANOVA (dedicated extractor)
+# =========================================================================
+
+
+class TestAnovaOmsXml:
+    """OMS XML parsing for an ANOVA (UNIANOVA) output with dedicated extractor."""
+
+    def test_oms_anova_xml_parse(self):
+        """Parse ANOVA OMS XML and verify dedicated extractor stats."""
+        pytest.importorskip("lxml", reason="lxml is required for OMS XML parsing")
+
+        xml_content = """\
+<oms>
+  <command text="UNIANOVA">
+    <pivotTable subType="Tests of Between-Subjects Effects">
+      <dimension axis="row">
+        <category text="Corrected Model"/>
+        <category text="class" variable="true">
+          <dimension axis="column">
+            <category text="F"><cell number="4.52"/></category>
+            <category text="Sig."><cell number="0.012"/></category>
+            <category text="df"><cell number="3"/></category>
+          </dimension>
+        </category>
+        <category text="Error"/>
+      </dimension>
+    </pivotTable>
+  </command>
+</oms>"""
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        try:
+            tmp.write(xml_content)
+            tmp.close()
+
+            result = parse_oms_xml(tmp.name)
+
+            assert result.analysis_type == "ANOVA"
+            assert result.statistics.get("f_value") == 4.52
+            assert result.statistics.get("p_value") == 0.012
+            assert result.statistics.get("df") == 3
+
+        finally:
+            os.unlink(tmp.name)
+
+
+# =========================================================================
+# Test 10: OMS XML — CROSSTABS (dedicated extractor)
+# =========================================================================
+
+
+class TestCrosstabsOmsXml:
+    """OMS XML parsing for a CROSSTABS output with dedicated extractor."""
+
+    def test_oms_crosstabs_xml_parse(self):
+        """Parse CROSSTABS OMS XML and verify dedicated extractor stats."""
+        pytest.importorskip("lxml", reason="lxml is required for OMS XML parsing")
+
+        xml_content = """\
+<oms>
+  <command text="CROSSTABS">
+    <pivotTable subType="Chi-Square Tests">
+      <dimension axis="row">
+        <category text="Pearson Chi-Square">
+          <dimension axis="column">
+            <category text="Value"><cell number="4.80"/></category>
+            <category text="df"><cell number="1"/></category>
+            <category text="Asymptotic Significance (2-sided)"><cell number="0.028"/></category>
+          </dimension>
+        </category>
+      </dimension>
+    </pivotTable>
+  </command>
+</oms>"""
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        try:
+            tmp.write(xml_content)
+            tmp.close()
+
+            result = parse_oms_xml(tmp.name)
+
+            assert result.analysis_type == "CROSSTABS"
+            assert result.statistics.get("chi_square") == 4.80
+            assert result.statistics.get("p_value") == 0.028
+            assert result.statistics.get("df") == 1
+
+        finally:
+            os.unlink(tmp.name)

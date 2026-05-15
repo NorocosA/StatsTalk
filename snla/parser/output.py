@@ -768,6 +768,84 @@ def _extract_regression_from_oms(xml_path: str) -> dict[str, float]:
     return stats
 
 
+def _extract_anova_from_oms(xml_path: str) -> dict[str, float]:
+    """Extract ANOVA (UNIANOVA) statistics from OMS XML.
+
+    Navigates the 'Tests of Between-Subjects Effects' pivot table to
+    find factor variable rows and extract F, p-value, and df.
+
+    Returns dict with keys: f_value, p_value, df.
+    """
+    tree = etree.parse(xml_path)
+    root = tree.getroot()
+    stats: dict[str, float] = {}
+
+    for pivot in root.iter("{*}pivotTable"):
+        if pivot.get("subType", "") != "Tests of Between-Subjects Effects":
+            continue
+
+        for cat in pivot.iter("{*}category"):
+            if cat.get("variable") != "true":
+                continue
+
+            col_dim = cat.find("{*}dimension")
+            if col_dim is None:
+                continue
+
+            for stat_cat in col_dim.iter("{*}category"):
+                sname = stat_cat.get("text", "")
+                val = _find_cell_number(stat_cat)
+                if val is None:
+                    continue
+                if sname == "F":
+                    stats["f_value"] = val
+                elif sname == "Sig.":
+                    stats["p_value"] = val
+                elif sname == "df":
+                    stats["df"] = int(val)
+
+    return stats
+
+
+def _extract_crosstabs_from_oms(xml_path: str) -> dict[str, float]:
+    """Extract CROSSTABS statistics from OMS XML.
+
+    Navigates the 'Chi-Square Tests' pivot table to find the
+    'Pearson Chi-Square' row and extract Value, df, and p-value.
+
+    Returns dict with keys: chi_square, p_value, df.
+    """
+    tree = etree.parse(xml_path)
+    root = tree.getroot()
+    stats: dict[str, float] = {}
+
+    for pivot in root.iter("{*}pivotTable"):
+        if pivot.get("subType", "") != "Chi-Square Tests":
+            continue
+
+        for cat in pivot.iter("{*}category"):
+            if cat.get("text", "") != "Pearson Chi-Square":
+                continue
+
+            col_dim = cat.find("{*}dimension")
+            if col_dim is None:
+                continue
+
+            for stat_cat in col_dim.iter("{*}category"):
+                sname = stat_cat.get("text", "")
+                val = _find_cell_number(stat_cat)
+                if val is None:
+                    continue
+                if sname == "Value":
+                    stats["chi_square"] = val
+                elif sname == "df":
+                    stats["df"] = int(val)
+                elif sname == "Asymptotic Significance (2-sided)":
+                    stats["p_value"] = val
+
+    return stats
+
+
 # Map analysis types to their dedicated extractors
 _DEDICATED_EXTRACTORS: dict[str, Any] = {
     "T-TEST": _extract_ttest_from_oms,
@@ -775,8 +853,8 @@ _DEDICATED_EXTRACTORS: dict[str, Any] = {
     "CORRELATIONS": _extract_correlations_from_oms,
     "REGRESSION": _extract_regression_from_oms,
     "FREQUENCIES": None,  # Uses generic parser
-    "CROSSTABS": None,
-    "ANOVA": None,
+    "CROSSTABS": _extract_crosstabs_from_oms,
+    "ANOVA": _extract_anova_from_oms,
 }
 
 
