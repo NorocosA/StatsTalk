@@ -113,18 +113,46 @@ def recognize_intent(user_input: str, variables: list[dict]) -> dict:
 
 
 def _mock_intent(user_input: str) -> dict:
-    """Keyword-based intent classification (mock mode)."""
-    lower = user_input.lower()
-    compare_words = ("比较", "差异", "compare", "diff", "男生", "女生", "男女", "不同", "区别")
-    relation_words = ("关系", "相关", "影响", "预测", "correlation", "regression")
-    describe_words = ("平均", "均值", "标准差", "描述", "统计", "频率", "分布", "mean", "describe", "frequen")
+    """Keyword-based intent classification (mock mode).
 
+    Priority order (first match wins):
+    1. crosstabs/chi-square — categorical association queries
+    2. frequency/count — "多少人", "计数", etc.
+    3. compare_groups — binary/multi-group comparison
+    4. relationship — correlation/regression
+    5. describe — descriptive statistics (fallback)
+    """
+    lower = user_input.lower()
+
+    # ── 1. Crosstabs / Chi-square (before generic "关系" to avoid Pearson false-positive) ──
+    crosstab_words = ("卡方", "交叉表", "列联表", "独立性检验")
+    if any(w in lower for w in crosstab_words):
+        return {"intent": "relationship", "confidence": 0.9, "rationale": "MOCK crosstab keyword",
+                "modified_variable": None, "suggested_method": "chi_square"}
+
+    # ── 2. Frequency / count queries (before compare, "男女" shouldn't trigger t-test for "多少人") ──
+    freq_words = ("多少人", "几个人", "多少个", "计数", "人数", "频数", "个案数")
+    if any(w in lower for w in freq_words):
+        return {"intent": "describe", "confidence": 0.9, "rationale": "MOCK frequency keyword",
+                "modified_variable": None, "suggested_method": "frequencies"}
+
+    # ── 3. Group comparison (t-test / ANOVA) ──
+    compare_words = ("比较", "差异", "差别", "显著", "差得", "compare", "diff", "男生", "女生", "男女", "不同", "区别")
     if any(w in lower for w in compare_words):
+        # Hint: "不同班级" / "各班级" / "几个班" → multi-group → ANOVA rather than t-test
+        multi_group_hints = ("各", "不同班", "多个", "三种", "三级", "四组", "几组", "各组", "几个班", "几个组")
+        method = "oneway_anova" if any(w in lower for w in multi_group_hints) else "independent_t_test"
         return {"intent": "compare_groups", "confidence": 0.9, "rationale": "MOCK keyword match",
-                "modified_variable": None, "suggested_method": "independent_t_test"}
+                "modified_variable": None, "suggested_method": method}
+
+    # ── 4. Relationship (correlation / regression) ──
+    relation_words = ("关系", "相关", "影响", "预测", "correlation", "regression")
     if any(w in lower for w in relation_words):
         return {"intent": "relationship", "confidence": 0.9, "rationale": "MOCK keyword match",
                 "modified_variable": None, "suggested_method": "pearson_correlation"}
+
+    # ── 5. Descriptive statistics (catch-all) ──
+    describe_words = ("平均", "均值", "标准差", "描述", "统计", "频率", "分布", "mean", "describe", "frequen")
     if any(w in lower for w in describe_words):
         return {"intent": "describe", "confidence": 0.9, "rationale": "MOCK keyword match",
                 "modified_variable": None, "suggested_method": "descriptives"}
@@ -146,7 +174,8 @@ def recommend_method(intent_data: dict, variables: list[dict], user_input: str,
     if LLM_MOCK:
         # Auto-detect grouping and test variables from the dataset
         cat_var, num_var = _auto_detect_vars(variables, intent)
-        method = _mock_method(intent, cat_var, num_var)
+        suggested = intent_data.get("suggested_method")
+        method = _mock_method(intent, cat_var, num_var, suggested)
     else:
         from snla.llm.client import LLMClient
         from snla.llm.prompts.method import build_method_prompt
@@ -205,8 +234,11 @@ def _auto_detect_vars(variables: list[dict], intent: str) -> tuple[str | None, s
     return cat_var, num_var
 
 
-def _mock_method(intent: str, cat_var: str | None, num_var: str | None) -> str:
-    """Mock method recommendation based on intent."""
+def _mock_method(intent: str, cat_var: str | None, num_var: str | None,
+                 suggested_method: str | None = None) -> str:
+    """Mock method recommendation based on intent. Respects suggested_method from intent."""
+    if suggested_method:
+        return suggested_method
     mapping = {
         "compare_groups": "independent_t_test",
         "relationship": "pearson_correlation",

@@ -329,8 +329,13 @@ def _call_intent(user_input: str) -> dict[str, Any]:
 
 def _call_method(intent: str, user_input: str) -> dict[str, Any]:
     """Run method recommendation (or mock)."""
+    sess: SessionState = st.session_state.session
+    # Read suggested_method hint set by _mock_intent
+    hinted = getattr(sess, "_intent_suggested_method", None)
+    if hinted is not None:
+        delattr(sess, "_intent_suggested_method")  # consume once
     if LLM_MOCK:
-        return _mock_method(intent)
+        return _mock_method(intent, hinted)
     from snla.llm.client import LLMClient
     from snla.llm.prompts.method import build_method_prompt
     client = LLMClient()
@@ -502,9 +507,28 @@ def _mock_intent(user_input: str) -> dict[str, Any]:
             if modified_var:
                 return {"intent": "follow_up", "confidence": 0.85, "rationale": "MOCK follow_up",
                         "modified_variable": modified_var, "suggested_method": None}
-    if any(w in lower for w in ("比较", "差异", "compare", "diff", "男生", "女生", "男女")):
+    # ── Frequency / count queries (before compare, "男女" shouldn't trigger t-test for "多少人") ──
+    freq_words = ("多少人", "几个人", "多少个", "计数", "人数", "频数", "个案数")
+    if any(w in lower for w in freq_words):
+        sess._intent_suggested_method = "frequencies"
+        return {"intent": "describe", "confidence": 0.9, "rationale": "MOCK frequency keyword",
+                "modified_variable": None, "suggested_method": "frequencies"}
+
+    # ── Crosstabs / chi-square (before generic "关系" to avoid Pearson false-positive) ──
+    crosstab_words = ("卡方", "交叉表", "列联表", "独立性检验")
+    if any(w in lower for w in crosstab_words):
+        sess._intent_suggested_method = "chi_square"
+        return {"intent": "relationship", "confidence": 0.9, "rationale": "MOCK crosstab keyword",
+                "modified_variable": None, "suggested_method": "chi_square"}
+
+    if any(w in lower for w in ("比较", "差异", "差别", "显著", "差得", "compare", "diff", "男生", "女生", "男女")):
+        # Multi-group hints → ANOVA, else t-test
+        multi_group = any(w in lower for w in ("各", "不同班", "多个", "三种", "三级", "四组", "几组", "各组", "几个班"))
+        method = "oneway_anova" if multi_group else "independent_t_test"
+        if multi_group:
+            sess._intent_suggested_method = method
         return {"intent": "compare_groups", "confidence": 0.9, "rationale": "MOCK",
-                "modified_variable": None, "suggested_method": "independent_t_test"}
+                "modified_variable": None, "suggested_method": method}
     if any(w in lower for w in ("关系", "相关", "影响", "预测", "correlation", "regression")):
         return {"intent": "relationship", "confidence": 0.9, "rationale": "MOCK",
                 "modified_variable": None, "suggested_method": "pearson_correlation"}
@@ -515,7 +539,7 @@ def _mock_intent(user_input: str) -> dict[str, Any]:
             "modified_variable": None, "suggested_method": "descriptives"}
 
 
-def _mock_method(intent: str) -> dict[str, Any]:
+def _mock_method(intent: str, hinted_method: str | None = None) -> dict[str, Any]:
     """Return a reasonable mock method recommendation."""
     if intent == "follow_up":
         sess = st.session_state.session
@@ -538,9 +562,9 @@ def _mock_method(intent: str) -> dict[str, Any]:
             num_var = v["name"]
 
     methods = {
-        "compare_groups": ("independent_t_test", cat_var, num_var),
-        "relationship": ("pearson_correlation", None, None),
-        "describe": ("descriptives", None, num_var),
+        "compare_groups": (hinted_method or "independent_t_test", cat_var, num_var),
+        "relationship": (hinted_method or "pearson_correlation", None, None),
+        "describe": (hinted_method or "descriptives", None, num_var),
         "visualize": ("histogram", None, num_var),
     }
     method_name, gv, tv = methods.get(intent, methods["describe"])
