@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import time
+from datetime import datetime
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -33,9 +34,19 @@ def init_session() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = [{
             "role": "assistant",
-            "content": "👋 欢迎使用 SPSS 自然语言助手！"
-                       "请先上传你的数据文件（.sav 或 .csv），"
-                       "然后告诉我你想做什么分析。",
+            "content": (
+                "### 👋 欢迎使用 SPSS 自然语言助手！\n\n"
+                "用说话的方式完成统计分析——无需学习 SPSS 操作。\n\n"
+                "**快速开始：**\n"
+                "1. 👈 在左侧上传你的数据文件（.sav 或 .csv）\n"
+                "2. ✍️ 用自然语言描述你的分析需求\n"
+                "3. 📊 查看白话解读的结果\n\n"
+                "**示例需求（试试看）：**\n"
+                "- 计算各班级成绩的平均分和标准差\n"
+                "- 比较男女生在成绩上是否有显著差异\n"
+                "- 研究年龄和成绩之间的关系\n"
+                "- 画一个按性别分组的成绩箱线图"
+            ),
         }]
     if "stage" not in st.session_state:
         st.session_state.stage = "UPLOADING"
@@ -58,19 +69,25 @@ def render_sidebar() -> None:
         if sess.has_data:
             st.divider()
             st.header("📋 变量概览")
-            with st.expander(f"共 {len(sess.variables)} 个变量", expanded=False):
+            meta = sess.dataset_meta
+            st.caption(
+                f"样本量: {meta.get('row_count', '?')} · "
+                f"变量数: {meta.get('column_count', len(sess.variables))}"
+            )
+            with st.expander(f"查看全部 {len(sess.variables)} 个变量", expanded=False):
                 for var in sess.variables:
-                    col1, col2 = st.columns([2, 1])
-                    with col1:
-                        st.text(var["name"])
-                    with col2:
-                        st.caption(var.get("type", ""))
+                    type_badge = {
+                        "Numeric": "🔢", "String": "🔤", "Date": "📅",
+                    }.get(var.get("type", ""), "❓")
+                    st.markdown(f"**{type_badge} {var['name']}** `{var.get('type', '?')}`")
                     if var.get("label"):
                         st.caption(f"  {var['label']}")
                     if var.get("value_labels"):
                         labels_str = ", ".join(
                             f"{k}={v}" for k, v in var["value_labels"].items())
-                        st.caption(f"  [{labels_str}]")
+                        st.caption(f"  值: [{labels_str}]")
+                    if var.get("desensitized"):
+                        st.caption(f"  🔒 已脱敏 (原名: {var.get('original_name', '?')})")
 
 
 def handle_file_upload(uploaded_file: Any) -> None:
@@ -357,6 +374,36 @@ def process_analysis(user_input: str) -> None:
                 for key, value in analysis_result.statistics.items():
                     st.metric(label=key.replace("_", " ").title(), value=value)
         st.caption(f"⏱ 总耗时 {elapsed_total:.1f}s")
+
+        # ── Export button ──
+        _, export_col, _ = st.columns([2, 1, 2])
+        with export_col:
+            if st.button("📥 导出 Word 报告", use_container_width=True, key="export_docx"):
+                try:
+                    from snla.explainer.export import export_to_docx
+                    export_path = os.path.join(
+                        tempfile.gettempdir(),
+                        f"SNLA_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                    )
+                    path = export_to_docx(
+                        output_path=export_path,
+                        user_query=user_input,
+                        method=recommended_method,
+                        analysis_result=analysis_result,
+                        explanation=explanation,
+                        data_file=sess.dataset_meta.get("filename", ""),
+                    )
+                    with open(path, "rb") as f:
+                        st.download_button(
+                            label="⬇️ 下载报告",
+                            data=f,
+                            file_name=os.path.basename(path),
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            use_container_width=True,
+                            key="download_report",
+                        )
+                except Exception as exc:
+                    st.error(f"导出失败: {exc}")
 
         # Record in session
         sess.add_message("assistant", explanation)
