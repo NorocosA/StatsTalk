@@ -1,86 +1,80 @@
-"""SNLA Standalone Launcher — double-click to run.
- 
-Starts the Streamlit server and opens the default browser.
-No command-line required.
+"""SNLA Desktop Launcher — PyWebView Edition.
+
+Starts an embedded Flask server, then opens a native desktop window
+via the system WebView (Edge WebView2 on Windows). No browser needed.
 """
 import os
-import socket
-import subprocess
 import sys
 import threading
 import time
+import socket
 import webbrowser
 
+from snla.ui.server import app as flask_app
 
-def _wait_for_port(port: int, timeout: int = 60) -> bool:
-    """Block until localhost:port is accepting connections, or timeout."""
+
+def _wait_for_port(port: int, timeout: int = 30) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            s = socket.create_connection(("localhost", port), timeout=1)
+            s = socket.create_connection(("127.0.0.1", port), timeout=1)
             s.close()
             return True
         except (ConnectionRefusedError, socket.timeout, OSError):
-            time.sleep(0.5)
+            time.sleep(0.3)
     return False
 
 
 def main():
-    # When bundled by PyInstaller, sys._MEIPASS contains extracted files
-    base = sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
-    app_path = os.path.join(base, "snla", "ui", "streamlit_app.py")
-
-    if not os.path.exists(app_path):
-        print(f"ERROR: Streamlit app not found at {app_path}")
-        input("Press Enter to exit...")
-        sys.exit(1)
+    port = 8501
+    url = f"http://127.0.0.1:{port}"
 
     print("=" * 50)
     print("  SPSS Natural Language Assistant")
     print("=" * 50)
-    print()
+    print(f"  Starting server on port {port}...")
 
-    port = 8501
+    # Start Flask in a daemon thread
+    def _run_flask():
+        flask_app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
 
-    # Use streamlit CLI module directly (works both dev and PyInstaller)
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run", app_path,
-         "--server.headless", "true",
-         "--server.port", str(port),
-         "--browser.serverAddress", "localhost"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    server_thread = threading.Thread(target=_run_flask, daemon=True)
+    server_thread.start()
 
-    # Port-check thread (decoupled from stdout consumption)
-    def _wait_and_open():
-        print(f"  Waiting for server on port {port} ...")
-        if _wait_for_port(port):
-            print(f"  Server ready. Opening http://localhost:{port} ...")
-            webbrowser.open(f"http://localhost:{port}")
-        else:
-            print(f"  WARNING: Server did not respond within 60 seconds.")
-            print(f"  Please open http://localhost:{port} manually in your browser.")
+    print("  Waiting for server...")
+    if not _wait_for_port(port):
+        print("  ERROR: Server failed to start within 30 seconds.")
+        input("Press Enter to exit...")
+        sys.exit(1)
 
-    threading.Thread(target=_wait_and_open, daemon=True).start()
-
-    print(f"  Press Ctrl+C or close this window to stop.")
+    print(f"  Server ready at {url}")
     print("=" * 50)
 
-    # Main thread: stream Streamlit's stdout to console
+    # ── PyWebView native window ──────────────────────────────────────
     try:
-        for line in proc.stdout:
-            print(line, end="")
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-        proc.terminate()
-    finally:
-        proc.wait()
+        import webview
+        print("  Opening desktop window...")
+        webview.create_window(
+            "SPSS Natural Language Assistant",
+            url,
+            width=1100,
+            height=800,
+            min_size=(800, 600),
+            resizable=True,
+            text_select=True,
+        )
+        webview.start()
+    except ImportError:
+        print("  pywebview not installed. Opening in browser instead...")
+        webbrowser.open(url)
+        print("  Press Ctrl+C to stop.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
 
-    print("Server stopped.")
+    print("Goodbye.")
 
 
 if __name__ == "__main__":
