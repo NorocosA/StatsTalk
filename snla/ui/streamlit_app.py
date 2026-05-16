@@ -50,8 +50,94 @@ def init_session() -> None:
         }]
     if "stage" not in st.session_state:
         st.session_state.stage = "UPLOADING"
+    # Pre-fill settings from env/config
+    if "llm_endpoint" not in st.session_state:
+        from snla.config import LLM_ENDPOINT, LLM_API_KEY, LLM_MODEL, SPSS_PYTHON_PATH
+        st.session_state["llm_endpoint"] = LLM_ENDPOINT
+        st.session_state["llm_api_key"] = LLM_API_KEY
+        st.session_state["llm_model"] = LLM_MODEL
+        st.session_state["spss_python_path"] = SPSS_PYTHON_PATH
 
 # ── Sidebar — File Upload & Variable Overview ──────────────────────────────
+
+
+def render_settings() -> None:
+    """Render the settings panel: LLM API config + SPSS path auto-detect."""
+    import glob as _glob
+
+    # ── LLM API 配置 ──
+    st.markdown("##### 🔑 LLM API")
+    llm_endpoint = st.text_input(
+        "API 端点", value=st.session_state.get("llm_endpoint", ""),
+        placeholder="https://opencode.ai/zen/go/v1/chat/completions",
+        help="OpenAI 兼容的 Chat Completions 端点",
+    )
+    llm_key = st.text_input(
+        "API Key", type="password",
+        value=st.session_state.get("llm_api_key", ""),
+        placeholder="sk-...",
+        help="你的 API 密钥（仅本地存储）",
+    )
+    llm_model = st.text_input(
+        "模型", value=st.session_state.get("llm_model", ""),
+        placeholder="deepseek-v4-flash",
+        help="模型 ID，如 deepseek-v4-flash, kimi-k2.6",
+    )
+    if st.button("💾 保存 LLM 配置", use_container_width=True):
+        st.session_state["llm_endpoint"] = llm_endpoint
+        st.session_state["llm_api_key"] = llm_key
+        st.session_state["llm_model"] = llm_model
+        # Update config module at runtime
+        import snla.config as cfg
+        if llm_endpoint:
+            cfg.LLM_ENDPOINT = llm_endpoint
+        if llm_key:
+            cfg.LLM_API_KEY = llm_key
+        if llm_model:
+            cfg.LLM_MODEL = llm_model
+        st.toast("✅ LLM 配置已保存", icon="🔑")
+
+    # ── SPSS 路径 ──
+    st.markdown("##### 📍 SPSS 路径")
+    auto_paths = _detect_spss_paths()
+    if auto_paths:
+        st.caption(f"🔍 自动检测到 {len(auto_paths)} 个 SPSS 安装：")
+        for p in auto_paths:
+            st.caption(f"  • {p}")
+    else:
+        st.caption("⚠️ 未检测到 SPSS，请手动填入路径")
+
+    spss_path = st.text_input(
+        "SPSS Python 路径",
+        value=st.session_state.get(
+            "spss_python_path",
+            auto_paths[0] if auto_paths else "",
+        ),
+        placeholder=r"C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe",
+        help="SPSS 安装目录下的 Python3/python.exe",
+    )
+    if st.button("💾 保存 SPSS 路径", use_container_width=True):
+        st.session_state["spss_python_path"] = spss_path
+        import snla.config as cfg
+        cfg.SPSS_PYTHON_PATH = spss_path
+        if spss_path and __import__("os").path.exists(spss_path):
+            st.toast("✅ SPSS 路径已保存且有效", icon="📍")
+        else:
+            st.toast("⚠️ 路径已保存但文件不存在，请检查", icon="⚠️")
+
+
+def _detect_spss_paths() -> list[str]:
+    """Auto-detect SPSS installations under Program Files."""
+    import os as _os
+    base = r"C:\Program Files\IBM\SPSS\Statistics"
+    if not _os.path.exists(base):
+        return []
+    found = []
+    for ver in range(20, 31):
+        py_path = _os.path.join(base, str(ver), "Python3", "python.exe")
+        if _os.path.exists(py_path):
+            found.append(py_path)
+    return found
 
 
 def render_sidebar() -> None:
@@ -64,6 +150,11 @@ def render_sidebar() -> None:
         )
         if uploaded_file is not None and st.session_state.stage == "UPLOADING":
             handle_file_upload(uploaded_file)
+
+        # ── Settings panel (LLM API + SPSS path) ──
+        st.divider()
+        with st.expander("⚙️ 设置", expanded=False):
+            render_settings()
 
         sess: SessionState = st.session_state.session
         if sess.has_data:
