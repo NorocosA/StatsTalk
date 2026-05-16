@@ -1,5 +1,5 @@
 ﻿# SNLA Core Dependencies
-# SPSS Natural Language Assistant
+# SPSS Natural Language Assistant — PyWebView Desktop Edition
 
 # Data I/O
 pyreadstat>=1.2          # .sav file reading
@@ -9,8 +9,9 @@ numpy>=1.24              # numerical operations
 # LLM API
 requests>=2.31           # HTTP client for LLM endpoints
 
-# Frontend
-streamlit>=1.28          # Web UI
+# Frontend — Desktop
+flask>=3.0               # Embedded HTTP API server
+# pywebview>=5.0          # Native WebView window (optional; requires .NET SDK to build)
 
 # Configuration
 python-dotenv>=1.0       # .env file loading

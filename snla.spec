@@ -1,4 +1,4 @@
-# SNLA PyInstaller build script
+# SNLA PyInstaller build script — PyWebView Desktop Edition
 # Run: pyinstaller snla.spec
 # Output: dist/SNLA.exe
 
@@ -13,7 +13,7 @@ a = Analysis(
         ('.env.example', '.'),     # Config template
     ],
     hiddenimports=[
-        'streamlit', 'pandas', 'pyreadstat', 'lxml',
+        'flask', 'pywebview', 'pandas', 'pyreadstat', 'lxml',
         'dotenv', 'docx', 'numpy', 'requests',
         'snla.config', 'snla.session',
         'snla.data.reader', 'snla.data.sanitizer',
@@ -23,7 +23,7 @@ a = Analysis(
         'snla.executor.spss',
         'snla.parser.output', 'snla.parser.schema',
         'snla.explainer.naturalize', 'snla.explainer.export',
-        'snla.ui.streamlit_app',
+        'snla.ui.server',
     ],
     hookspath=[],
     hooksconfig={},
@@ -31,6 +31,7 @@ a = Analysis(
     excludes=[
         'tkinter', 'matplotlib', 'scipy', 'PIL',
         'chromadb', 'sentence_transformers', 'torch',
+        'streamlit',
     ],
     noarchive=False,
     optimize=0,
@@ -51,7 +52,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,           # Show console for status messages
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
