@@ -38,7 +38,7 @@ def main():
         t0 = time.perf_counter()
         try:
             report = run_pipeline(
-                str(Path("data/fixtures/test_data.sav")),
+                str(Path("data/fixtures/test_data_v2.sav")),
                 query,
                 "./p0_output",
             )
