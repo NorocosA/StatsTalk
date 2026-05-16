@@ -240,12 +240,58 @@ def correlations(var1: str, var2: str) -> str:
     )
 
 
+def mann_whitney(group_var: str, test_var: str, groups: tuple = (1, 2)) -> str:
+    """Build a Mann-Whitney U test (non-parametric independent t-test).
+
+    Uses ``NPAR TESTS /M-W`` for two independent samples.
+    """
+    return (
+        f"NPAR TESTS\n"
+        f"  /M-W= {test_var} BY {group_var}({groups[0]} {groups[1]})\n"
+        f"  /STATISTICS DESCRIPTIVES."
+    )
+
+
+def kruskal_wallis(group_var: str, test_var: str) -> str:
+    """Build a Kruskal-Wallis test (non-parametric one-way ANOVA).
+
+    Uses ``NPAR TESTS /K-W`` for k independent samples.
+    """
+    return (
+        f"NPAR TESTS\n"
+        f"  /K-W= {test_var} BY {group_var}(1 99)\n"
+        f"  /STATISTICS DESCRIPTIVES."
+    )
+
+
+def spearman_correlation(var1: str, var2: str) -> str:
+    """Build a Spearman rank correlation (non-parametric).
+
+    Uses ``NONPAR CORR`` with SPEARMAN keyword.
+    """
+    return (
+        f"NONPAR CORR\n"
+        f"  /VARIABLES={var1} {var2}\n"
+        f"  /PRINT=SPEARMAN TWOTAIL NOSIG."
+    )
+
+
+def paired_ttest(var1: str, var2: str) -> str:
+    """Build a paired-samples t-test."""
+    return (
+        f"T-TEST PAIRS={var1} WITH {var2} (PAIRED)\n"
+        f"  /CRITERIA=CI(0.95)\n"
+        f"  /MISSING=ANALYSIS."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Template Registry
 # ---------------------------------------------------------------------------
 
 TEMPLATE_MAP: Dict[str, Callable[..., str]] = {
     "independent_t_test": ttest_independent,
+    "paired_t_test": paired_ttest,
     "oneway_anova": anova_oneway,
     "simple_regression": regression_simple,
     "chi_square": crosstabs,
@@ -253,6 +299,9 @@ TEMPLATE_MAP: Dict[str, Callable[..., str]] = {
     "descriptives": descriptives,
     "correlations": correlations,
     "pearson_correlation": correlations,
+    "spearman_correlation": spearman_correlation,
+    "mann_whitney_u": mann_whitney,
+    "kruskal_wallis": kruskal_wallis,
     # Graph aliases — fall back to closest statistical equivalent
     "bar_chart": anova_oneway,
     "histogram": frequencies,
