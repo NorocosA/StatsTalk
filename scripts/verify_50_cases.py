@@ -21,8 +21,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Force MOCK mode for deterministic LLM responses
-os.environ["LLM_MOCK"] = "true"
+# Respect .env LLM_MOCK setting unless overridden by --mock flag
+if "--mock" in sys.argv:
+    os.environ["LLM_MOCK"] = "true"
+# else: use whatever .env says (real LLM if configured)
 
 from snla.data.reader import read_and_extract
 from snla.syntax.validator import validate
