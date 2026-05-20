@@ -734,7 +734,7 @@ def _syntax_template(method: str, grouping_var: str | None = None,
     args_map = {
         "independent_t_test": {"group_var": cat, "test_var": num, "groups": (1, 2)},
         "oneway_anova": {"group_var": cat, "test_var": num},
-        "paired_t_test": {"group_var": cat, "test_var": num, "groups": (1, 2)},
+        "paired_t_test": _corr_args(),  # two paired numeric variables (before/after)
         "simple_regression": {"dep_var": num, "indep_var": num_var2 or num},
         "pearson_correlation": _corr_args(),
         "spearman_correlation": _corr_args(),
@@ -747,7 +747,10 @@ def _syntax_template(method: str, grouping_var: str | None = None,
         "kruskal_wallis": {"group_var": cat, "test_var": num},
     }
     args = args_map.get(method, {"var": num})
-    return get_syntax_by_method(method, **args)
+    # Map method aliases to template keys
+    template_method = {"crosstabs": "chi_square", "mann_whitney": "mann_whitney_u",
+                       "kruskal_wallis": "kruskal_wallis"}.get(method, method)
+    return get_syntax_by_method(template_method, **args)
 
 def _make_executor():
     """Create a new SPSSExecutor instance (avoids repeated imports)."""
