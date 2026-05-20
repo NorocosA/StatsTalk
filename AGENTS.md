@@ -124,18 +124,18 @@ docs/                # user_guide.md
 
 ### Next: P5–P7 (multi-backend + multi-channel)
 
-| # | Phase | Task | Est. |
-|---|-------|------|------|
-| P5-1 | P5 | Add Python backend (`snla/executor/python.py` — pingouin) | 8h |
-| P5-2 | P5 | Backend router + settings UI | 4h |
-| P5-3 | P5 | Dual-backend comparison validation | 2h |
-| P5-4 | P5 | Make SPSS optional (no-SPSS mode) | 2h |
-| P6-1 | P6 | MCP Server wrapper (`snla/mcp_server.py`) | 4h |
-| P6-2 | P6 | OpenClaw Skill (`SKILL.md`) | 2h |
-| P6-3 | P6 | Multi-channel E2E (WhatsApp/Telegram/WeChat) | 4h |
-| P7-1 | P7 | Flask API tests (`test_server.py`) | 3h |
-| P7-2 | P7 | Split `server.py` → `orchestrator/` module | 2h |
-| P7-3 | P7 | Black + Ruff code formatting | 0.5h |
-| P7-4 | P7 | Project rename evaluation | 1h |
+| # | Phase | Task | Status |
+|---|-------|------|--------|
+| P5-1 | P5 | Add Python backend (`snla/executor/python.py` — pingouin) | ✅ Done |
+| P5-2 | P5 | Backend router + settings UI | ✅ Done |
+| P5-3 | P5 | Dual-backend comparison validation | ⬜ Next |
+| P5-4 | P5 | Make SPSS optional (no-SPSS mode) | ⬜ |
+| P6-1 | P6 | MCP Server wrapper (`snla/mcp_server.py`) | ⬜ |
+| P6-2 | P6 | OpenClaw Skill (`SKILL.md`) | ⬜ |
+| P6-3 | P6 | Multi-channel E2E (WhatsApp/Telegram/WeChat) | ⬜ |
+| P7-1 | P7 | Flask API tests (`test_server.py`) | ⬜ |
+| P7-2 | P7 | Split `server.py` → `orchestrator/` module | ⬜ |
+| P7-3 | P7 | Black + Ruff code formatting | ⬜ |
+| P7-4 | P7 | Project rename evaluation | ⬜ |
 
 > Full plan: `.sisyphus/improvement-plan.md` | Strategy: `.sisyphus/strategy.md`
