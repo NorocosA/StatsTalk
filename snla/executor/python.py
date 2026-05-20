@@ -161,6 +161,12 @@ class PythonStatsExecutor:
 
         v1 = var1 or grouping_var or data.columns[0]
         v2 = var2 or test_var or data.columns[1]
+        if v1 == v2:
+            return AnalysisResult(
+                analysis_type="T-TEST",
+                notes=[f"Python backend: paired t-test requires two different variables (got '{v1}' twice)"],
+                parser_used="python_pingouin",
+            )
         d1 = data[v1].dropna()
         d2 = data[v2].dropna()
         # Align lengths
@@ -251,6 +257,13 @@ class PythonStatsExecutor:
 
         dep = dep_var or test_var or data.columns[0]
         ind = indep_var or grouping_var or data.columns[1]
+        if dep == ind:
+            return AnalysisResult(
+                analysis_type="REGRESSION",
+                notes=[f"Python backend: dependent and independent variable "
+                       f"are the same ('{dep}') — need different variables"],
+                parser_used="python_pingouin",
+            )
         clean = data[[dep, ind]].dropna()
 
         res = pg.linear_regression(clean[ind], clean[dep])
