@@ -272,6 +272,16 @@ class SPSSExecutor:
         duration = time.perf_counter() - start_time
         xml_exists = os.path.isfile(xml_path)
 
+        # Detect empty/minimal XML (e.g. ONEWAY on string grouping var)
+        xml_empty = False
+        if xml_exists:
+            try:
+                xml_size = os.path.getsize(xml_path)
+                if xml_size < 100:  # less than 100 bytes → no output
+                    xml_empty = True
+            except OSError:
+                pass
+
         # Capture stdout as fallback LST for edge cases
         lst_path: str | None = None
         if stdout.strip():
@@ -279,7 +289,7 @@ class SPSSExecutor:
             with open(lst_path, "w", encoding="utf-8", errors="replace") as lf:
                 lf.write(stdout)
 
-        success = exit_code == 0 or xml_exists
+        success = (exit_code == 0 or xml_exists) and not xml_empty
         error_message = None
         if not success:
             reasons = []
@@ -287,6 +297,11 @@ class SPSSExecutor:
                 reasons.append("exit code {}".format(exit_code))
             if not xml_exists:
                 reasons.append("XML output missing")
+            if xml_empty:
+                reasons.append("OMS XML output is empty — check that all "
+                               "variables are of the correct type for this "
+                               "analysis (e.g. ONEWAY requires numeric "
+                               "grouping variable)")
             error_message = "SPSS execution failed ({})".format("; ".join(reasons))
             if stderr.strip():
                 error_message += " — stderr: {}".format(stderr.strip()[:500])
@@ -362,11 +377,19 @@ class SPSSExecutor:
 
         duration: float = time.perf_counter() - start_time
         xml_exists: bool = os.path.isfile(xml_path)
+        # Detect empty XML (e.g. ONEWAY on string grouping var)
+        xml_empty: bool = False
+        if xml_exists:
+            try:
+                if os.path.getsize(xml_path) < 100:
+                    xml_empty = True
+            except OSError:
+                pass
         lst_path: str | None = self._find_lst_output(run_dir)
         # The SPSS process writes a non-zero exit code even on success when
         # run in batch mode, so we consider exit_code 0 *or* the existence of
         # the OMS XML as a success indicator.
-        success: bool = exit_code == 0 or xml_exists
+        success: bool = (exit_code == 0 or xml_exists) and not xml_empty
 
         error_message: str | None = None
         if not success:
@@ -375,6 +398,8 @@ class SPSSExecutor:
                 reasons.append(f"exit code {exit_code}")
             if not xml_exists:
                 reasons.append("XML output missing")
+            if xml_empty:
+                reasons.append("OMS XML output is empty — check variable types")
             error_message = f"SPSS execution failed ({'; '.join(reasons)})"
             if stderr.strip():
                 error_message += f" — stderr: {stderr.strip()[:500]}"

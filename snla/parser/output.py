@@ -857,13 +857,119 @@ def _extract_crosstabs_from_oms(xml_path: str) -> dict[str, float]:
     return stats
 
 
+def _extract_frequencies_from_oms(xml_path: str) -> dict[str, Any]:
+    """Extract FREQUENCIES statistics from OMS XML.
+
+    Handles both numeric (with value labels) and string variables.
+    SPSS FREQUENCIES outputs a multi-dimensional pivot table where
+    category labels and statistic names are interleaved in the row
+    dimension, with separate column dimensions for each category.
+
+    Returns dict with keys: n_valid, n_missing, categories (list of
+    {label, frequency, percent, valid_percent, cumulative_percent}).
+    """
+    tree = etree.parse(xml_path)
+    root = tree.getroot()
+    stats: dict[str, Any] = {"n_valid": 0, "n_missing": 0, "categories": []}
+
+    # Phase 1: Extract N from "Statistics" table
+    for pivot in root.iter("{*}pivotTable"):
+        if pivot.get("subType", "") != "Statistics":
+            continue
+        for dim in pivot.iter("{*}dimension"):
+            if dim.get("axis") != "row":
+                continue
+            for cat in dim.iter("{*}category"):
+                text = cat.get("text", "").strip()
+                val = _find_cell_number(cat)
+                if text == "Valid" and val is not None:
+                    stats["n_valid"] = int(val)
+                elif text == "Missing" and val is not None:
+                    stats["n_missing"] = int(val)
+
+    # Phase 2: Extract frequency data from "Frequencies" table
+    for pivot in root.iter("{*}pivotTable"):
+        if pivot.get("subType", "") != "Frequencies":
+            continue
+
+        # Collect row-dimension categories with their cells
+        row_cats: list[dict] = []
+        for dim in pivot.iter("{*}dimension"):
+            if dim.get("axis") != "row":
+                continue
+            for cat in dim.iter("{*}category"):
+                text = cat.get("text", "").strip()
+                if not text:
+                    continue
+                cells = []
+                for cell in cat.iter("{*}cell"):
+                    ctext = cell.get("text", "")
+                    cnum = cell.get("number")
+                    cells.append(ctext if ctext else (cnum if cnum else ""))
+                row_cats.append({"text": text, "cells": cells})
+
+        # Identify category labels (have >1 cell)
+        cat_labels = [rc for rc in row_cats if len(rc["cells"]) > 1]
+        stat_labels = [rc for rc in row_cats if len(rc["cells"]) == 1]
+
+        if not cat_labels:
+            continue
+
+        # Collect unique stat names in order
+        stat_names = []
+        seen = set()
+        for sl in stat_labels:
+            if sl["text"] not in seen:
+                stat_names.append(sl["text"])
+                seen.add(sl["text"])
+            if len(stat_names) >= 4:
+                break
+        if not stat_names:
+            stat_names = ["Frequency", "Percent", "Valid Percent", "Cumulative Percent"]
+
+        num_stats = len(stat_names)
+        idx = 0
+        while idx < len(row_cats):
+            rc = row_cats[idx]
+            if len(rc["cells"]) > 1 and rc["text"] not in ("Total",):
+                cat_entry: dict[str, Any] = {"label": rc["text"]}
+                for si in range(num_stats):
+                    if idx + 1 + si < len(row_cats):
+                        src = row_cats[idx + 1 + si]
+                        if src["cells"]:
+                            val = _safe_float(src["cells"][0])
+                            if val is not None and si < len(stat_names):
+                                cat_entry[stat_names[si]] = val
+                if "Frequency" in cat_entry:
+                    stats["categories"].append(cat_entry)
+                idx += 1 + num_stats
+            elif rc["text"] == "Total":
+                total_entry: dict[str, Any] = {"label": "Total"}
+                for si in range(num_stats):
+                    if idx + 1 + si < len(row_cats):
+                        src = row_cats[idx + 1 + si]
+                        if src["cells"]:
+                            val = _safe_float(src["cells"][0])
+                            if val is not None and si < len(stat_names):
+                                total_entry[stat_names[si]] = val
+                if "Frequency" in total_entry:
+                    stats["total"] = total_entry
+                idx += 1 + num_stats
+            else:
+                idx += 1
+
+        break  # Only first Frequencies table
+
+    return stats
+
+
 # Map analysis types to their dedicated extractors
 _DEDICATED_EXTRACTORS: dict[str, Any] = {
     "T-TEST": _extract_ttest_from_oms,
     "DESCRIPTIVES": _extract_descriptives_from_oms,
     "CORRELATIONS": _extract_correlations_from_oms,
     "REGRESSION": _extract_regression_from_oms,
-    "FREQUENCIES": None,  # Uses generic parser
+    "FREQUENCIES": _extract_frequencies_from_oms,
     "CROSSTABS": _extract_crosstabs_from_oms,
     "ANOVA": _extract_anova_from_oms,
 }
