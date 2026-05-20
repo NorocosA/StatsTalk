@@ -116,5 +116,21 @@ docs/                # user_guide.md
 - [x] P4: Frontend migrated Streamlit → Flask + PyWebView
 - [x] P4: Server rewrite — greylist flow, cancellation, settings persistence, template-based syntax
 - [x] P4: PyInstaller packaging → `dist/SNLA.exe` (77.5 MB)
-- [x] P4: E2E verification — 3/3 real SPSS pipelines pass (T-Test, Descriptives, Correlations)
-- [x] P4: 50-case test checklist verification — 50/50 valid syntax, 28/50 method match
+- [x] P4: E2E verification — 3/3 real SPSS pipelines pass
+- [x] P4: 50-case checklist — 50/50 valid syntax
+- [x] P4: 65-case real-LLM verification (incl. airline.sav 25K rows)
+- [x] P0-1: Fix FREQUENCIES OMS parser for string variables
+- [x] P0-1: ONEWAY empty XML detection on string grouping vars
+
+### Remaining (from improvement plan)
+
+| # | Priority | Task | Est. |
+|---|----------|------|------|
+| 3 | P1 | Add Flask API tests (`test_server.py`) | 3h |
+| 4 | P1 | Split `server.py` → `orchestrator/` module | 2h |
+| 5 | P1 | Add `executor/spss.py` integration tests | 2h |
+| 6 | P2 | Configure Black + Ruff | 30m |
+| 7 | P2 | Upgrade MOCK classifier keywords | 2h |
+| 9 | P3 | SPSS GRAPH chart support | 4h |
+
+> Full plan: `.sisyphus/improvement-plan.md`
