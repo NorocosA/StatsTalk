@@ -117,4 +117,4 @@ docs/                # user_guide.md
 - [x] P4: Server rewrite — greylist flow, cancellation, settings persistence, template-based syntax
 - [x] P4: PyInstaller packaging → `dist/SNLA.exe` (77.5 MB)
 - [x] P4: E2E verification — 3/3 real SPSS pipelines pass (T-Test, Descriptives, Correlations)
-- [ ] P4: 50-case test checklist verification
+- [x] P4: 50-case test checklist verification — 50/50 valid syntax, 28/50 method match
