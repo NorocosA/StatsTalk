@@ -95,6 +95,8 @@ _was_cancelled              # Set by /api/cancel
 | `snla/executor/python.py` | Python backend — pingouin covering 12 analysis types |
 | `snla/executor/adapter.py` | BackendAdapter — unified SPSS/Python interface with trust routing |
 | `snla/trust.py` | Trust whitelist loader — JSON at runtime, compile-time constant fallback |
+| `snla/orchestrator/` | Planner + greylist state machine — shared by Flask and MCP servers |
+| `snla/mcp_server.py` | MCP Server — FastMCP 7 tools for OpenClaw/Claude Desktop |
 | `snla/parser/output.py` | OMS XML + regex dual parser (OMS primary, regex fallback) |
 | `snla/parser/schema.py` | `AnalysisResult`, `TableResult` dataclasses |
 | `snla/explainer/naturalize.py` | Constraint layer (p-value rules) + LLM polish (rules first, LLM decorates) |
@@ -127,6 +129,9 @@ docs/                # user_guide.md
 - [x] P5: Python backend — pingouin 12 methods, BackendAdapter, trust whitelist
 - [x] P5: SPSS optional — auto-detect, strategy C, restricted mode UI
 - [x] P5: Dual-backend validation — 51 cases, 0 conflicts, 11/12 trusted
+- [x] P6: MCP Server — FastMCP 7 tools (analyze/confirm/cancel/export/status/upload/variables)
+- [x] P6: OpenClaw Skill — thin config, runtime method discovery from snla_status()
+- [x] P7: orchestrator/ module — Planner + greylist state machine, server.py 1099→766 lines
 
 ### Next: P6–P7 (multi-channel + quality)
 
@@ -136,9 +141,9 @@ docs/                # user_guide.md
 | P5-2 | P5 | Backend router + settings UI | ✅ Done |
 | P5-3 | P5 | Dual-backend comparison validation (51 cases, 11/12 trusted) | ✅ Done |
 | P5-4 | P5 | Make SPSS optional (no-SPSS mode, strategy C) | ✅ Done |
-| P6-1 | P6 | MCP Server wrapper (`snla/mcp_server.py`) | ⬜ Next |
-| P6-2 | P6 | OpenClaw Skill (`SKILL.md`) | ⬜ |
-| P6-3 | P6 | Multi-channel E2E (WhatsApp/Telegram/WeChat) | ⬜ |
+| P6-1 | P6 | MCP Server wrapper (`snla/mcp_server.py`) | ✅ Done |
+| P6-2 | P6 | OpenClaw Skill (`SKILL.md`) | ✅ Done |
+| P6-3 | P6 | Multi-channel E2E (WhatsApp/Telegram/WeChat) | ⬜ Next |
 | P7-1 | P7 | Flask API tests (`test_server.py`) | ⬜ |
 | P7-2 | P7 | Split `server.py` → `orchestrator/` module | ⬜ |
 | P7-3 | P7 | Black + Ruff code formatting | ⬜ |

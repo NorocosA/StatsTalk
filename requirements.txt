@@ -27,6 +27,9 @@ python-docx>=1.0         # Word document generation
 # Statistical Engine (Python backend)
 pingouin>=0.6.1           # Inferential statistics (t-test, ANOVA, regression, etc.)
 
+# MCP Server (multi-channel frontend)
+mcp>=1.24                 # Model Context Protocol Python SDK
+
 # Testing
 pytest>=8.0              # Unit/integration testing
 
