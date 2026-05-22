@@ -1,0 +1,793 @@
+# ============================================================================
+# P5-3 Backend Comparison Test Matrix
+# SPSS (templates) vs Python (pingouin) validation
+# ============================================================================
+#
+# Consumed by: scripts/compare_backends.py
+#
+# Structure:
+#   test_cases: list of test case objects
+#
+# Each test case defines the parameters to pass to both
+# `SPSSExecutor.execute()` and `PythonStatsExecutor.execute()`.
+# Variable names must exist in either test_data.sav or test_data_v2.sav
+# (or be noted as future/extended variables).
+#
+# Fields:
+#   id:            Unique identifier (method_nnn)
+#   method:        Dispatch key matching both snla/syntax/templates.py
+#                  TEMPLATE_MAP and snla/executor/python.py dispatch dict
+#   description:   Human-readable test scenario name
+#   data_file:     Path to .sav file relative to project root
+#   grouping_var:  Grouping/factor variable (t-test, ANOVA, MW, KW, chi-sq)
+#   test_var:      Test/dependent variable (t-test, ANOVA, MW, KW, chi-sq)
+#   dep_var:       Dependent variable (regression)
+#   indep_var:     Independent variable (regression)
+#   var1:          First variable (paired t-test, correlations)
+#   var2:          Second variable (paired t-test, correlations)
+#   groups:        List of 2 group values for binary grouping methods
+#   params:        Dict of extra parameters (equal_var, posthoc, etc.)
+#   expected_spss_syntax_hint: Brief hint of expected SPSS command keyword
+#   notes:         Special considerations, boundary conditions, data notes
+
+# ============================================================================
+
+test_cases:
+
+  # ==========================================================================
+  # 1. INDEPENDENT SAMPLES T-TEST  (method: independent_t_test)
+  # ==========================================================================
+
+  - id: "ttest_independent_001"
+    method: "independent_t_test"
+    description: "Compare male vs female on test scores (equal variance)"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params: {}
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      Baseline independent t-test. test_data.sav has balanced gender
+      (15 Male=1, 15 Female=2). Scores drawn from ~N(78,8) for Male,
+      ~N(84,7) for Female — expect small but detectable difference.
+
+  - id: "ttest_independent_002"
+    method: "independent_t_test"
+    description: "Compare male vs female on test scores (Welch / unequal variance)"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params:
+      equal_var: false
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      Welch t-test not assuming equal variances. SPSS reports both
+      equal/unequal variance rows — Python uses pingouin with
+      correction='auto'. Verify p-value and df differ vs case 001.
+
+  - id: "ttest_independent_003"
+    method: "independent_t_test"
+    description: "Compare male vs female on age"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "age"
+    groups: [1, 2]
+    params: {}
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      Different DV (age instead of score). Age is integer 18-25,
+      uniform-ish distribution. Tests template flexibility.
+
+  - id: "ttest_independent_004"
+    method: "independent_t_test"
+    description: "Control vs Treatment group on anxiety (extended dataset)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "group"
+    test_var: "anxiety"
+    groups: [1, 2]
+    params: {}
+    expected_spss_syntax_hint: "T-TEST GROUPS=group(1 2)"
+    notes: >
+      Uses test_data_v2.sav variables. Group has 15 Control=1,
+      15 Treatment=2. Anxiety ranges ~20-80, negatively correlated
+      with score by construction.
+
+  # ==========================================================================
+  # 2. PAIRED T-TEST  (method: paired_t_test)
+  # ==========================================================================
+
+  - id: "paired_ttest_001"
+    method: "paired_t_test"
+    description: "Pre-test (exam1) vs Post-test (exam2) comparison"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "exam1"
+    var2: "exam2"
+    params: {}
+    expected_spss_syntax_hint: "T-TEST PAIRS=exam1 WITH exam2 (PAIRED)"
+    notes: >
+      Paired comparison of exam1 and exam2. exam2 constructed as
+      exam1 + N(3,5) — expect small positive mean difference.
+      N=30, same subjects, repeated measures design.
+
+  - id: "paired_ttest_002"
+    method: "paired_t_test"
+    description: "Anxiety vs Score paired (unusual but tests different vars)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "anxiety"
+    var2: "exam1"
+    params: {}
+    expected_spss_syntax_hint: "T-TEST PAIRS=anxiety WITH exam1 (PAIRED)"
+    notes: >
+      Tests paired t-test with non-obvious variable pair. Anxiety
+      is negatively correlated with exam scores by construction.
+      Not clinically meaningful but exercises the code path.
+
+  # ==========================================================================
+  # 3. ONE-WAY ANOVA  (method: oneway_anova)
+  # ==========================================================================
+
+  - id: "anova_oneway_001"
+    method: "oneway_anova"
+    description: "ANOVA — class (string) vs score (no post-hoc)"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "class"
+    test_var: "score"
+    params:
+      posthoc: false
+    expected_spss_syntax_hint: "ONEWAY score BY class"
+    notes: >
+      ANOVA with string grouping variable (class: A/B/C). Tests
+      string variable handling in both backends. No post-hoc
+      comparisons requested.
+
+  - id: "anova_oneway_002"
+    method: "oneway_anova"
+    description: "ANOVA — class_id (numeric label) vs score (with post-hoc)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "class_id"
+    test_var: "score"
+    params:
+      posthoc: true
+    expected_spss_syntax_hint: "ONEWAY score BY class_id"
+    notes: >
+      ANOVA using numeric class_id (1=Class A, 2=Class B, 3=Class C).
+      Post-hoc (Tukey) requested. Tests numeric categorical grouping.
+
+  - id: "anova_oneway_003"
+    method: "oneway_anova"
+    description: "ANOVA — education (4 levels) vs income"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "education"
+    test_var: "income"
+    params:
+      posthoc: true
+    expected_spss_syntax_hint: "ONEWAY income BY education"
+    notes: >
+      ANOVA with 4-group factor (1=HS/2=BA/3=MA/4=PhD). Income is
+      correlated with education by construction (r ≈ 0.5-0.7).
+      Post-hoc requested. Larger group count stresses K-W as well.
+
+  - id: "anova_oneway_004"
+    method: "oneway_anova"
+    description: "ANOVA — class_id vs anxiety (different DV)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "class_id"
+    test_var: "anxiety"
+    params: {}
+    expected_spss_syntax_hint: "ONEWAY anxiety BY class_id"
+    notes: >
+      Tests ANOVA with anxiety as DV across 3 class groups.
+      Anxiety is constructed to be negatively correlated with score
+      but not with class — expect non-significant result.
+
+  # ==========================================================================
+  # 4. SIMPLE LINEAR REGRESSION  (method: simple_regression)
+  # ==========================================================================
+
+  - id: "regression_simple_001"
+    method: "simple_regression"
+    description: "Regress score on age (single predictor)"
+    data_file: "data/fixtures/test_data.sav"
+    dep_var: "score"
+    indep_var: "age"
+    params: {}
+    expected_spss_syntax_hint: "REGRESSION /DEPENDENT score /METHOD=ENTER age"
+    notes: >
+      Simple linear regression: score as DV, age as single predictor.
+      Age is 18-25 integer range. Expect weak-to-no relationship
+      since data was generated independently per gender, not by age.
+
+  - id: "regression_simple_002"
+    method: "simple_regression"
+    description: "Regress income on education level"
+    data_file: "data/fixtures/test_data_v2.sav"
+    dep_var: "income"
+    indep_var: "education"
+    params: {}
+    expected_spss_syntax_hint: "REGRESSION /DEPENDENT income /METHOD=ENTER education"
+    notes: >
+      Predict income from education (4-level ordinal treated as
+      continuous). Income constructed as ~3000 + edu*2000 + age*200
+      + noise — expect significant positive coefficient.
+
+  - id: "regression_simple_003"
+    method: "simple_regression"
+    description: "Regress anxiety on score (negative relationship)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    dep_var: "anxiety"
+    indep_var: "score"
+    params: {}
+    expected_spss_syntax_hint: "REGRESSION /DEPENDENT anxiety /METHOD=ENTER score"
+    notes: >
+      Anxiety constructed as 50 - (score-70)*0.3 + noise —
+      expect significant negative coefficient. Tests non-zero
+      slope detection.
+
+  # ==========================================================================
+  # 5. PEARSON CORRELATION  (method: pearson_correlation)
+  # ==========================================================================
+
+  - id: "correlation_pearson_001"
+    method: "pearson_correlation"
+    description: "Pearson r: score × age"
+    data_file: "data/fixtures/test_data.sav"
+    var1: "score"
+    var2: "age"
+    params: {}
+    expected_spss_syntax_hint: "CORRELATIONS /VARIABLES=score age"
+    notes: >
+      Bivariate Pearson correlation. Age and score are not strongly
+      correlated by construction — expect weak r near 0.
+
+  - id: "correlation_pearson_002"
+    method: "pearson_correlation"
+    description: "Pearson r: income × education (positive)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "income"
+    var2: "education"
+    params: {}
+    expected_spss_syntax_hint: "CORRELATIONS /VARIABLES=income education"
+    notes: >
+      Income and education are correlated by construction
+      (r ≈ 0.5-0.7). Tests detection of moderate positive
+      relationship.
+
+  - id: "correlation_pearson_003"
+    method: "pearson_correlation"
+    description: "Pearson r: anxiety × score (negative)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "anxiety"
+    var2: "score"
+    params: {}
+    expected_spss_syntax_hint: "CORRELATIONS /VARIABLES=anxiety score"
+    notes: >
+      Anxiety is constructed as negatively correlated with score
+      (r ≈ -0.4 to -0.6). Tests detection of negative relationship.
+
+  # ==========================================================================
+  # 6. SPEARMAN CORRELATION  (method: spearman_correlation)
+  # ==========================================================================
+
+  - id: "correlation_spearman_001"
+    method: "spearman_correlation"
+    description: "Spearman ρ: score × age"
+    data_file: "data/fixtures/test_data.sav"
+    var1: "score"
+    var2: "age"
+    params: {}
+    expected_spss_syntax_hint: "NONPAR CORR /VARIABLES=score age"
+    notes: >
+      Non-parametric rank correlation. Should produce similar
+      result to Pearson case 001 but with rank-based p-value.
+
+  - id: "correlation_spearman_002"
+    method: "spearman_correlation"
+    description: "Spearman ρ: income × age (non-normal income distribution)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "income"
+    var2: "age"
+    params: {}
+    expected_spss_syntax_hint: "NONPAR CORR /VARIABLES=income age"
+    notes: >
+      Income is right-skewed by construction (lower bound 2000,
+      upper tail from age*200 term). Spearman is more robust to
+      non-normality than Pearson.
+
+  - id: "correlation_spearman_003"
+    method: "spearman_correlation"
+    description: "Spearman ρ: anxiety × income (both skewed)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "anxiety"
+    var2: "income"
+    params: {}
+    expected_spss_syntax_hint: "NONPAR CORR /VARIABLES=anxiety income"
+    notes: >
+      Both variables have non-normal distributions (income right-skewed,
+      anxiety constructed with negative score correlation). Rank-based
+      test handles violations of normality.
+
+  # ==========================================================================
+  # 7. CORRELATIONS (generic alias — routes to Pearson)
+  # ==========================================================================
+
+  - id: "correlations_generic_001"
+    method: "correlations"
+    description: "Correlations (generic): score × income"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "score"
+    var2: "income"
+    params: {}
+    expected_spss_syntax_hint: "CORRELATIONS /VARIABLES=score income"
+    notes: >
+      Generic 'correlations' method — both SPSS template and Python
+      executor route to the same Pearson handler. Tests that the
+      generic alias produces identical output to explicit
+      pearson_correlation.
+
+  # ==========================================================================
+  # 8. CHI-SQUARE / CROSSTABS  (method: chi_square)
+  # ==========================================================================
+
+  - id: "chisquare_2x3_001"
+    method: "chi_square"
+    description: "Chi-square 2×3: gender vs class"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "class"
+    params: {}
+    expected_spss_syntax_hint: "CROSSTABS /TABLES=gender BY class"
+    notes: >
+      2 (gender: Male/Female) × 3 (class: A/B/C) contingency table.
+      Tests categorical×categorical independence. Class is String
+      type, gender is Numeric with value labels.
+
+  - id: "chisquare_2x2_002"
+    method: "chi_square"
+    description: "Chi-square 2×2: gender vs treatment group"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "gender"
+    test_var: "group"
+    params: {}
+    expected_spss_syntax_hint: "CROSSTABS /TABLES=gender BY group"
+    notes: >
+      2×2 contingency table (both binary). Gender (Male/Female)
+      vs Group (Control/Treatment). Tests minimal cross-tab
+      dimensions.
+
+  - id: "chisquare_3x4_003"
+    method: "chi_square"
+    description: "Chi-square 3×4: class_id vs education"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "class_id"
+    test_var: "education"
+    params: {}
+    expected_spss_syntax_hint: "CROSSTABS /TABLES=class_id BY education"
+    notes: >
+      3 (class_id: A/B/C) × 4 (education: HS/BA/MA/PhD) contingency.
+      Larger table with expected cell counts <5 in some cells —
+      tests Fisher's exact or sparse-table handling.
+
+  # ==========================================================================
+  # 9. FREQUENCIES  (method: frequencies)
+  # ==========================================================================
+
+  - id: "frequencies_categorical_001"
+    method: "frequencies"
+    description: "Frequencies — gender (categorical with labels)"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "gender"
+    params: {}
+    expected_spss_syntax_hint: "FREQUENCIES VARIABLES=gender"
+    notes: >
+      Frequency table for binary categorical variable with
+      value labels (1=Male, 2=Female). Expect balanced N=15 each.
+
+  - id: "frequencies_string_002"
+    method: "frequencies"
+    description: "Frequencies — class (string variable)"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "class"
+    params: {}
+    expected_spss_syntax_hint: "FREQUENCIES VARIABLES=class"
+    notes: >
+      Frequency table for String type variable (class: A/B/C).
+      Tests string variable handling in frequency computations.
+
+  - id: "frequencies_continuous_003"
+    method: "frequencies"
+    description: "Frequencies — score (continuous, binned by SPSS)"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "score"
+    params: {}
+    expected_spss_syntax_hint: "FREQUENCIES VARIABLES=score"
+    notes: >
+      Frequency table for continuous numeric variable (score
+      range 60-100). SPSS and Python backends handle continuous
+      frequencies differently — comparison notes valuable.
+
+  - id: "frequencies_education_004"
+    method: "frequencies"
+    description: "Frequencies — education (ordinal, 4 levels)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    test_var: "education"
+    params: {}
+    expected_spss_syntax_hint: "FREQUENCIES VARIABLES=education"
+    notes: >
+      Frequency table for ordinal variable with value labels
+      (1=HS/2=BA/3=MA/4=PhD). Tests multi-category distribution.
+
+  # ==========================================================================
+  # 10. DESCRIPTIVES  (method: descriptives)
+  # ==========================================================================
+
+  - id: "descriptives_score_001"
+    method: "descriptives"
+    description: "Descriptives — score (continuous)"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "score"
+    params: {}
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=score"
+    notes: >
+      Summary statistics for score: N=30, mean ≈ 81, range 60-100.
+      Baseline for comparison of mean, stddev, min, max, skewness,
+      kurtosis between SPSS and Python backends.
+
+  - id: "descriptives_age_002"
+    method: "descriptives"
+    description: "Descriptives — age (integer, uniform-ish)"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "age"
+    params: {}
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=age"
+    notes: >
+      Summary for age (18-25 integer). Tests integer variable
+      descriptives.
+
+  - id: "descriptives_income_003"
+    method: "descriptives"
+    description: "Descriptives — income (skewed continuous)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    test_var: "income"
+    params: {}
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=income"
+    notes: >
+      Summary for income — right-skewed distribution by construction
+      (range 2000-20000). Tests descriptive stats for non-normal data.
+
+  # ==========================================================================
+  # 11. MANN-WHITNEY U  (method: mann_whitney_u)
+  # ==========================================================================
+
+  - id: "mannwhitney_gender_score_001"
+    method: "mann_whitney_u"
+    description: "Mann-Whitney U: male vs female on score"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params: {}
+    expected_spss_syntax_hint: "NPAR TESTS /M-W= score BY gender(1 2)"
+    notes: >
+      Non-parametric alternative to independent t-test. Tests rank-based
+      comparison between genders. Should show similar significance to
+      parametric t-test but with potentially different p-value.
+
+  - id: "mannwhitney_group_anxiety_002"
+    method: "mann_whitney_u"
+    description: "Mann-Whitney U: control vs treatment on anxiety"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "group"
+    test_var: "anxiety"
+    groups: [1, 2]
+    params: {}
+    expected_spss_syntax_hint: "NPAR TESTS /M-W= anxiety BY group(1 2)"
+    notes: >
+      Mann-Whitney for treatment effect on anxiety scores. Groups
+      are Control (1) and Treatment (2). Anxiety distribution is
+      non-normal by construction.
+
+  # ==========================================================================
+  # 12. KRUSKAL-WALLIS  (method: kruskal_wallis)
+  # ==========================================================================
+
+  - id: "kruskal_class_score_001"
+    method: "kruskal_wallis"
+    description: "Kruskal-Wallis: class (string) vs score"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "class"
+    test_var: "score"
+    params: {}
+    expected_spss_syntax_hint: "NPAR TESTS /K-W= score BY class"
+    notes: >
+      Non-parametric one-way ANOVA. Tests score differences across
+      3 classes (string type). Kruskal-Wallis is more robust to
+      unequal variances.
+
+  - id: "kruskal_education_income_002"
+    method: "kruskal_wallis"
+    description: "Kruskal-Wallis: education (4 levels) vs income"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "education"
+    test_var: "income"
+    params: {}
+    expected_spss_syntax_hint: "NPAR TESTS /K-W= income BY education"
+    notes: >
+      Kruskal-Wallis for income across 4 education levels. Income
+      is non-normal (right-skewed), making this the appropriate
+      non-parametric test.
+
+  - id: "kruskal_classid_anxiety_003"
+    method: "kruskal_wallis"
+    description: "Kruskal-Wallis: class_id vs anxiety (3 groups)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "class_id"
+    test_var: "anxiety"
+    params: {}
+    expected_spss_syntax_hint: "NPAR TESTS /K-W= anxiety BY class_id"
+    notes: >
+      Kruskal-Wallis for anxiety across 3 class groups. Numeric
+      grouping with value labels (1=Class A, 2=Class B, 3=Class C).
+
+  # ==========================================================================
+  # BOUNDARY — Small Sample Size  (N < 10)
+  # ==========================================================================
+
+  - id: "boundary_small_n_ttest_001"
+    method: "independent_t_test"
+    description: "BOUNDARY: Small N — gender × score (first 8 cases)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params:
+      subset_size: 8
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      BOUNDARY TEST. Subset to first 8 cases to test statistical
+      stability at very low N. One or both groups may end up with
+      <3 cases. Tests error handling and p-value reliability in
+      both backends.
+
+  - id: "boundary_small_n_anova_002"
+    method: "oneway_anova"
+    description: "BOUNDARY: Small N — class_id × score (first 6 cases)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "class_id"
+    test_var: "score"
+    params:
+      subset_size: 6
+    expected_spss_syntax_hint: "ONEWAY score BY class_id"
+    notes: >
+      BOUNDARY TEST. Only 6 cases across 3 groups — some groups
+      may have 1-2 observations. Tests degenerate-case handling.
+
+  - id: "boundary_small_n_freq_003"
+    method: "frequencies"
+    description: "BOUNDARY: Small N — gender frequencies (first 5 cases)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    test_var: "gender"
+    params:
+      subset_size: 5
+    expected_spss_syntax_hint: "FREQUENCIES VARIABLES=gender"
+    notes: >
+      BOUNDARY TEST. Frequency table with only 5 cases. Tests
+      correct percentage calculations and missing-category handling.
+
+  # ==========================================================================
+  # BOUNDARY — Missing Values (NaN handling)
+  # ==========================================================================
+
+  - id: "boundary_missing_descriptives_001"
+    method: "descriptives"
+    description: "BOUNDARY: Missing values — score (~10% NaN)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    test_var: "score"
+    params:
+      introduce_missing: true
+      missing_fraction: 0.1
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=score"
+    notes: >
+      BOUNDARY TEST. Script should introduce ~10% missing values
+      (3 of 30 cases) in score column before executing. Verify
+      N=27 and statistics match between backends.
+
+  - id: "boundary_missing_corr_002"
+    method: "pearson_correlation"
+    description: "BOUNDARY: Missing values — score × age (pairwise NaN)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "score"
+    var2: "age"
+    params:
+      introduce_missing: true
+      missing_fraction: 0.15
+    expected_spss_syntax_hint: "CORRELATIONS /VARIABLES=score age"
+    notes: >
+      BOUNDARY TEST. Script introduces missing values in both
+      variables independently (~15% each). Tests pairwise deletion
+      consistency between SPSS and Python backends.
+
+  - id: "boundary_missing_ttest_003"
+    method: "independent_t_test"
+    description: "BOUNDARY: Missing values — gender × score (~20% NaN)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params:
+      introduce_missing: true
+      missing_fraction: 0.2
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      BOUNDARY TEST. 20% missing values in score variable. Tests
+      casewise deletion consistency. N_valid should match between
+      SPSS and Python.
+
+  # ==========================================================================
+  # BOUNDARY — Non-Normal Data
+  # ==========================================================================
+
+  - id: "boundary_nonnorm_income_001"
+    method: "descriptives"
+    description: "BOUNDARY: Non-normal — income descriptives (right-skewed)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    test_var: "income"
+    params: {}
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=income"
+    notes: >
+      BOUNDARY TEST. Income is right-skewed by construction
+      (asymmetric distribution with upper tail). Verify skewness
+      and kurtosis values match between backends.
+
+  - id: "boundary_nonnorm_spearman_002"
+    method: "spearman_correlation"
+    description: "BOUNDARY: Non-normal — income × anxiety (both skewed)"
+    data_file: "data/fixtures/test_data_v2.sav"
+    var1: "income"
+    var2: "anxiety"
+    params: {}
+    expected_spss_syntax_hint: "NONPAR CORR /VARIABLES=income anxiety"
+    notes: >
+      BOUNDARY TEST. Both income (right-skewed) and anxiety
+      (constructed from score, left-ish skewed) are non-normal.
+      Spearman rank-based correlation should be robust here.
+      Compare with Pearson on same variables if desired.
+
+  # ==========================================================================
+  # ORIGINAL test_data.sav BACKWARD COMPATIBILITY  (P0 dataset)
+  # ==========================================================================
+
+  - id: "compat_ttest_001"
+    method: "independent_t_test"
+    description: "COMPAT: Original data — gender × score"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params: {}
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      COMPATIBILITY TEST. Runs on original test_data.sav (P0
+      dataset) to ensure no regressions after P5 backend changes.
+
+  - id: "compat_anova_002"
+    method: "oneway_anova"
+    description: "COMPAT: Original data — class (string) vs score"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "class"
+    test_var: "score"
+    params: {}
+    expected_spss_syntax_hint: "ONEWAY score BY class"
+    notes: >
+      COMPATIBILITY TEST. One-way ANOVA with string grouping var
+      on original dataset. Class A/B/C as string values.
+
+  - id: "compat_freq_003"
+    method: "frequencies"
+    description: "COMPAT: Original data — gender frequencies"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "gender"
+    params: {}
+    expected_spss_syntax_hint: "FREQUENCIES VARIABLES=gender"
+    notes: >
+      COMPATIBILITY TEST. Basic frequency on original dataset.
+      Ensures P5 changes didn't break P0 functionality.
+
+  - id: "compat_descriptives_004"
+    method: "descriptives"
+    description: "COMPAT: Original data — score descriptives"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "score"
+    params: {}
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=score"
+    notes: >
+      COMPATIBILITY TEST. Descriptives on original dataset.
+      Baseline comparison for mean/median/stddev match.
+
+  - id: "compat_corr_005"
+    method: "pearson_correlation"
+    description: "COMPAT: Original data — score × age"
+    data_file: "data/fixtures/test_data.sav"
+    var1: "score"
+    var2: "age"
+    params: {}
+    expected_spss_syntax_hint: "CORRELATIONS /VARIABLES=score age"
+    notes: >
+      COMPATIBILITY TEST. Pearson correlation on original dataset.
+      Score and age have weak/no relationship by construction.
+
+  - id: "compat_chisq_006"
+    method: "chi_square"
+    description: "COMPAT: Original data — gender × class"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "class"
+    params: {}
+    expected_spss_syntax_hint: "CROSSTABS /TABLES=gender BY class"
+    notes: >
+      COMPATIBILITY TEST. Chi-square on original dataset.
+      2 (gender) × 3 (class string) contingency table.
+
+  # ==========================================================================
+  # LEGACY SPSS MODE  (batch mode fallback)
+  # ==========================================================================
+
+  - id: "mode_batch_ttest_001"
+    method: "independent_t_test"
+    description: "MODE: Batch execution — gender × score"
+    data_file: "data/fixtures/test_data.sav"
+    grouping_var: "gender"
+    test_var: "score"
+    groups: [1, 2]
+    params:
+      exec_mode: "batch"
+    expected_spss_syntax_hint: "T-TEST GROUPS=gender(1 2)"
+    notes: >
+      EXECUTION MODE TEST. Forces batch subprocess mode
+      (stats.exe -production silent) instead of Python-mode
+      (spss.Submit). Validates results parity between modes.
+
+  - id: "mode_batch_descriptives_002"
+    method: "descriptives"
+    description: "MODE: Batch execution — age descriptives"
+    data_file: "data/fixtures/test_data.sav"
+    test_var: "age"
+    params:
+      exec_mode: "batch"
+    expected_spss_syntax_hint: "DESCRIPTIVES VARIABLES=age"
+    notes: >
+      EXECUTION MODE TEST. Batch mode for simple descriptives.
+      Quick smoke test for batch/subprocess result consistency.
+
+# ============================================================================
+# QUICK REFERENCE — Method to Field Mapping
+# ============================================================================
+#
+# method                 | Fields used by executor execute()
+# -----------------------+-----------------------------------------------
+# independent_t_test     | grouping_var, test_var, groups
+# paired_t_test          | var1, var2
+# oneway_anova           | grouping_var, test_var
+# simple_regression      | dep_var, indep_var
+# pearson_correlation    | var1, var2
+# spearman_correlation   | var1, var2
+# correlations (generic) | var1, var2
+# chi_square             | grouping_var, test_var
+# crosstabs              | grouping_var, test_var
+# frequencies            | test_var (or grouping_var)
+# descriptives           | test_var (or grouping_var)
+# mann_whitney_u         | grouping_var, test_var, groups
+# kruskal_wallis         | grouping_var, test_var
+#
+# TEMPLATE kwarg equivalents:
+#   grouping_var → group_var    (ttest_independent, anova_oneway, m-w, k-w)
+#   test_var     → test_var     (ttest_independent, anova_oneway, m-w, k-w)
+#   test_var     → var          (frequencies, descriptives)
+#   dep_var      → dep_var      (regression_simple)
+#   indep_var    → indep_var    (regression_simple)
+#   var1         → var1         (paired_ttest, correlations, spearman)
+#   var2         → var2         (paired_ttest, correlations, spearman)
+#   groups       → groups       (ttest_independent, mann_whitney)
+#   grouping_var → row_var      (crosstabs for chi_square)
+#   test_var     → col_var      (crosstabs for chi_square)
