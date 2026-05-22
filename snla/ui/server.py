@@ -27,6 +27,7 @@ from snla.trust import is_method_trusted, get_trusted_methods, trust_loaded_from
 from snla.session import SessionState
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
+from snla.orchestrator import planner, GreylistPending, NoPendingError
 
 app = Flask(__name__, static_folder=None)
 
@@ -37,7 +38,6 @@ UI_DIR = Path(__file__).resolve().parent
 # ── Concurrency & state guards ───────────────────────────────────────
 _executing: bool = False                   # True while /api/analyze is running
 _active_executor: "SPSSExecutor | None" = None  # for cancellation
-_pending_greylist: dict | None = None      # {syntax, warnings, method, intent} awaiting confirm
 _was_cancelled: bool = False               # True when user requested cancellation
 
 # ── P5-4: SPSS availability & method trust helpers ──────────────────
@@ -130,7 +130,7 @@ def cancel():
     subprocess (if any).  Returns ``{ok: True}`` even if nothing was
     running — the frontend can safely call this at any time.
     """
-    global _executing, _active_executor, _pending_greylist, _was_cancelled
+    global _executing, _active_executor, _was_cancelled
     session.cancellation_token = True
     _was_cancelled = True
     if _active_executor is not None:
@@ -139,14 +139,14 @@ def cancel():
         except Exception:
             pass
     _executing = False
-    _pending_greylist = None
+    planner.cancel_pending("default")
     session.reset_cancellation()
     return jsonify({"ok": True})
 
 # ── Analyze ───────────────────────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
-    global _executing, _active_executor, _pending_greylist, _was_cancelled
+    global _executing, _active_executor, _was_cancelled
 
     if _executing:
         return jsonify({"error": "An analysis is already running"}), 409
@@ -170,7 +170,16 @@ def analyze():
 
     try:
         # ── Phase 1: Analysis Planning (intent + method + vars, 1 LLM call) ──
-        method, plan_explanation, gvar, tvar = _phase1_plan(user_input)
+        plan_result = planner.plan(
+            "default", user_input,
+            variables=session.variables,
+            dataset_meta=session.dataset_meta,
+            last_analysis=session.last_analysis,
+        )
+        method = plan_result.method
+        plan_explanation = plan_result.plan_explanation
+        gvar = plan_result.grouping_variable
+        tvar = plan_result.test_variable
 
         # ── Python backend fast path ───────────────────────────────
         if STATS_BACKEND == "python":
@@ -264,12 +273,12 @@ def analyze():
 
         # ── Greylist gate: require explicit confirmation ───────────
         if greylist_warnings and not confirm_greylist:
-            _pending_greylist = {
-                "syntax": syntax,
-                "warnings": greylist_warnings,
-                "method": method,
-                "user_input": user_input,
-            }
+            planner.stage_greylist("default", GreylistPending(
+                syntax=syntax,
+                warnings=greylist_warnings,
+                method=method,
+                user_input=user_input,
+            ))
             _executing = False
             _active_executor = None
             return jsonify({
@@ -362,17 +371,19 @@ def confirm_greylist():
 
     The frontend calls this after the user clicks "Yes, execute" on the
     greylist confirmation dialog.  The pending greylist details are
-    retrieved from ``_pending_greylist`` (set by `/api/analyze`).
+    retrieved from ``Planner`` (set by `/api/analyze`).
 
     Execution happens on a **temporary copy** of the data file so the
     original is never modified.
     """
-    global _executing, _active_executor, _pending_greylist, _was_cancelled
+    global _executing, _active_executor, _was_cancelled
 
     if _executing:
         return jsonify({"error": "An analysis is already running"}), 409
 
-    if not _pending_greylist:
+    try:
+        pg = planner.pop_pending("default")
+    except NoPendingError:
         return jsonify({"error": "No pending greylist operation"}), 400
 
     _executing = True
@@ -382,14 +393,9 @@ def confirm_greylist():
     _active_executor = executor
 
     try:
-        pg = _pending_greylist
-        if not pg:  # Double-check — cancel() may have cleared it
-            _executing = False
-            _active_executor = None
-            return jsonify({"error": "No pending greylist operation"}), 400
-        syntax = pg["syntax"]
-        method = pg["method"]
-        user_input = pg["user_input"]
+        syntax = pg.syntax
+        method = pg.method
+        user_input = pg.user_input
 
         # Execute on temp copy
         data_path = session.dataset_meta.get("file_path", "")
@@ -405,7 +411,6 @@ def confirm_greylist():
         if _was_cancelled or session.cancellation_token:
             _executing = False
             _active_executor = None
-            _pending_greylist = None
             _was_cancelled = False
             session.reset_cancellation()
             return jsonify({"ok": False, "cancelled": True}), 200
@@ -430,7 +435,7 @@ def confirm_greylist():
             "ok": True,
             "method": method,
             "syntax": syntax,
-            "greylist_warnings": pg["warnings"],
+            "greylist_warnings": pg.warnings,
             "result": parsed,
             "explanation": explanation,
             "temp_copy_note": (
@@ -445,11 +450,10 @@ def confirm_greylist():
     finally:
         _executing = False
         _active_executor = None
-        _pending_greylist = None
         session.reset_cancellation()
 @app.route("/api/variables")
 def variables():
-    cloud_vars = _cloud_vars() if session.variables else []
+    cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", []) if session.variables else []
     return jsonify({
         "variables": cloud_vars,
         "row_count": session.dataset_meta.get("row_count", 0),
@@ -661,106 +665,6 @@ def export():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ── Pipeline helpers ──────────────────────────────────────────────────
-
-def _cloud_vars() -> list[dict]:
-    """Return cloud-safe variable metadata for LLM prompts."""
-    return filter_for_cloud({"variables": session.variables}).get("variables", [])
-
-# ── Phase 1: Analysis Planning ────────────────────────────────────────
-def _phase1_plan(user_input: str) -> tuple[str, str, str | None, str | None]:
-    """Determine statistical method, plan explanation, and variable mapping.
-
-    Returns:
-        (method, plan_explanation, grouping_variable, test_variable)
-    """
-    if LLM_MOCK or not _has_llm():
-        method = _mock_intent(user_input)
-        if method not in ("independent_t_test", "paired_t_test", "oneway_anova",
-                          "simple_regression", "pearson_correlation",
-                          "spearman_correlation", "chi_square", "crosstabs",
-                          "frequencies", "descriptives", "mann_whitney_u",
-                          "kruskal_wallis"):
-            method = "descriptives"
-        # MOCK: auto-detect variables (best-effort, no semantic matching)
-        cat, num = _auto_detect_vars()
-        return method, f"（MOCK 模式）{method}", cat, num
-
-    from snla.llm.client import LLMClient
-    cloud_vars = _cloud_vars()
-    # Build variable catalog with both name and label for semantic matching
-    var_lines = []
-    for v in cloud_vars[:30]:
-        lbl = v.get("label", "")
-        vl = v.get("value_labels", {})
-        vl_str = f" [{' '.join(f'{k}={v}' for k,v in list(vl.items())[:5])}]" if vl else ""
-        var_lines.append(
-            f"  - {v['name']} ({v.get('type','?')})"
-            f"{': ' + lbl if lbl else ''}{vl_str}"
-        )
-    var_catalog = "\n".join(var_lines)
-
-    ds = session.dataset_meta or {}
-    row_count = ds.get("row_count", 0)
-
-    prompt = [
-        {"role": "system", "content": (
-            "你是 SPSS 统计分析专家。根据用户的自然语言问题，选择最合适的"
-            "统计方法，并确定对应的变量。\n\n"
-            "可用方法: independent_t_test, paired_t_test, oneway_anova, "
-            "mann_whitney_u, kruskal_wallis, pearson_correlation, "
-            "spearman_correlation, simple_regression, chi_square, "
-            "frequencies, descriptives\n\n"
-            "规则:\n"
-            "- 分组变量(grouping_variable): 必须是分类变量（有值标签的Numeric或String）\n"
-            "- 检验变量(test_variable): 必须是连续变量（无值标签的Numeric）\n"
-            "- 2组→t检验, 3组+→ANOVA\n"
-            "- 非参数检验用于数据不满足正态假设\n"
-            "- 仔细匹配变量名和标签的语义含义\n\n"
-            "返回 JSON: {\"method\":\"...\", \"plan_explanation\":\"...\", "
-            "\"grouping_variable\":\"变量名或null\", \"test_variable\":\"变量名或null\"}"
-        )},
-        {"role": "user", "content": (
-            f"数据集: {row_count} 条记录, {len(cloud_vars)} 个变量\n"
-            f"{var_catalog}\n\n"
-            f"用户问题: {user_input}\n\n"
-            f"请分析用户问题中的关键词，匹配到正确的变量，返回 JSON。"
-        )},
-    ]
-
-    client = LLMClient()
-    try:
-        result = client.chat(prompt)
-        parsed = json.loads(result.get("content", "{}"))
-        method = parsed.get("method", "descriptives")
-        plan = parsed.get("plan_explanation", "")
-        gvar = parsed.get("grouping_variable")
-        tvar = parsed.get("test_variable")
-        valid = {"independent_t_test", "paired_t_test", "oneway_anova",
-                 "mann_whitney_u", "kruskal_wallis", "pearson_correlation",
-                 "spearman_correlation", "simple_regression", "chi_square",
-                 "frequencies", "descriptives", "crosstabs"}
-        if method not in valid:
-            method = "descriptives"
-        return method, plan, gvar, tvar
-    except Exception:
-        return "descriptives", "", None, None
-
-
-def _auto_detect_vars() -> tuple[str | None, str | None]:
-    """Auto-detect categorical and numeric variables from metadata.
-    Returns (cat_var, num_var) — picks first categorical and first numeric."""
-    cat_var = num_var = None
-    for v in session.variables:
-        if v.get("value_labels") and not cat_var:
-            cat_var = v["name"]
-        elif v.get("type") == "Numeric" and not num_var:
-            num_var = v["name"]
-        if cat_var and num_var:
-            break
-    return cat_var, num_var
-
-
 # ── Phase 2: Report Interpretation ─────────────────────────────────────
 def _phase2_explain(parsed, method: str, user_input: str) -> str:
     """Explain SPSS results using LLM polish when available.
@@ -912,7 +816,7 @@ def _llm_fix_syntax(failed_syntax: str, error_text: str) -> str | None:
         return None
     try:
         from snla.llm.client import LLMClient
-        cloud_vars = _cloud_vars()
+        cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
         # Build a simple fix prompt inline (no dedicated function needed)
         var_list = "\n".join(
             f"  - {v['name']} ({v.get('type', '?')})"
@@ -962,137 +866,6 @@ def _load_dataframe():
             return pd.read_csv(file_path)
     except Exception:
         return None
-
-# ── MOCK fallbacks ────────────────────────────────────────────────────
-
-def _mock_intent(user_input: str) -> str:
-    """Keyword-based intent classification (no LLM required).
-
-    Priority order (first match wins) — mirrors the LLM intent categories:
-    describe, compare_groups, relationship, visualize, follow_up.
-    Also detects sub-types via *suggested_method* for more accurate routing.
-    """
-    text = user_input.lower()
-
-    # ── 0. Follow-up ──────────────────────────────────────
-    follow_up_words = ("换成", "再看看", "那", "如果不是", "改成", "换一个",
-                         "改为", "不是这个", "不对", "重新")
-    if session.last_analysis and any(w in text for w in follow_up_words):
-        return "follow_up"
-
-    # ── 1. Visualize ──────────────────────────────────────
-    if any(w in text for w in ("画", "图", "plot", "chart", "graph", "箱线", "直方", "散点",
-                                "条形", "饼图", "可视化", "折线", "绘制", "作图")):
-        return "visualize"
-
-    # ── 2. Crosstabs / Chi-square (categorical × categorical) ─
-    crosstab_words = ("卡方", "交叉表", "列联表", "独立性检验", "是否有关", "是否有关系",
-                       "是否相关", "是否独立", "比例", "构成比", "百分比分布")
-    if any(w in text for w in crosstab_words):
-        return "crosstabs"
-
-    # ── 3. Frequency / count ──────────────────────────────
-    freq_words = ("多少人", "几个人", "多少个", "计数", "人数", "频数", "个案数",
-                   "几个", "统计一下", "有多少", "占比", "分别有多少")
-    if any(w in text for w in freq_words):
-        return "frequencies"
-
-    # ── 4. Paired comparison ──────────────────────────────
-    paired_words = ("前后", "配对", "培训前", "培训后", "干预前", "干预后",
-                     "治疗前", "治疗后", "之前之后", "before", "after",
-                     "变化", "改变", "前后测", "有变化吗", "有提升吗", "有改善吗",
-                     "第一次", "第二次", "自身对照", "成对")
-    if any(w in text for w in paired_words):
-        return "paired_t_test"
-
-    # ── 5. Non-parametric — Mann-Whitney ──────────────────
-    mw_words = ("非参数.*两组", "mann.*whitney", "曼惠特尼", "秩和.*两组",
-                 "不服从正态.*比较", "非正态.*比较", "偏态.*比较",
-                 "不符合正态.*差异", "方差不齐.*比较", "等级数据.*比较")
-    if any(w in text for w in mw_words):
-        return "mann_whitney_u"
-
-    # ── 6. Non-parametric — Kruskal-Wallis ────────────────
-    kw_words = ("非参数.*多组", "kruskal.*wallis", "克鲁斯卡尔", "秩和.*多组",
-                 "不服从正态.*多组", "非正态.*多组",
-                 "不符合正态.*不同", "偏态.*多组", "不满足.*anova", "不满足.*方差")
-    if any(w in text for w in kw_words):
-        return "kruskal_wallis"
-
-    # ── 7. Group comparison (t-test / ANOVA) ──────────────
-    compare_words = ("比较", "差异", "差别", "显著", "compare", "diff",
-                      "男生", "女生", "男女", "不同", "区别", "之间",
-                      "是否显著", "有无差异", "有没有差别", "有无差别",
-                      "是不是不一样", "有没有不同", "哪个更高", "哪个更好",
-                      "谁比谁", "t检验", "t测试", "实验组", "对照组",
-                      "A组", "B组", "处理组", "两组")
-    if any(w in text for w in compare_words):
-        # Multi-group detection → ANOVA
-        multi_hints = ("各", "不同班", "多个", "三种", "三级", "四组",
-                        "几组", "各组", "几个班", "几个组", "不同组",
-                        "年级", "班级", "专业", "部门", "地区",
-                        "学历", "不同级别", "不同类型", "各类", "各种",
-                        "方差分析", "ANOVA", "F检验", "多组比较")
-        if any(w in text for w in multi_hints):
-            return "oneway_anova"
-        return "independent_t_test"
-
-    # ── 8. Relationship (correlation / regression) ────────
-    relation_words = ("关系", "相关", "影响", "因素", "预测", "correlation",
-                       "regression", "自变量", "因变量", "能否预测",
-                       "是否影响", "会不会影响", "决定因素", "解释",
-                       "关联", "联系", "正相关", "负相关", "成正比",
-                       "随着", "越来越")
-    if any(w in text for w in relation_words):
-        # Regression hints
-        reg_hints = ("预测", "regression", "回归", "影响.*因素", "自变量",
-                      "因变量", "能否预测", "解释.*变异", "决定因素",
-                      "哪个影响大", "解释力", "R平方", "多元", "多个.*影响")
-        if any(w in text for w in reg_hints):
-            return "simple_regression"
-        # Spearman hints
-        spearman_hints = ("spearman", "斯皮尔曼", "等级相关", "秩相关",
-                           "不服从正态.*相关", "非参数.*相关", "等级", "排名",
-                           "次序", "Likert", "满意度.*级")
-        if any(w in text for w in spearman_hints):
-            return "spearman_correlation"
-        return "pearson_correlation"
-
-    # ── 9. Descriptive (catch-all) ────────────────────────
-    describe_words = ("描述", "统计", "平均", "均值", "标准差", "中位数",
-                       "describe", "mean", "frequenc", "分布", "概要",
-                       "基本情况", "基本特征", "总体情况", "最大值", "最小值",
-                       "缺失值", "极差", "汇总", "偏度", "峰度")
-    if any(w in text for w in describe_words):
-        return "descriptives"
-
-    return "descriptives"  # safe default
-
-def _mock_method(intent: str) -> str:
-    """Map intent keyword to recommended statistical method.
-
-    Handles both abstract intent categories (compare_groups, relationship)
-    and specific method names returned by the enhanced MOCK classifier.
-    """
-    # If already a specific method name, use directly
-    direct_methods = {
-        "independent_t_test", "paired_t_test", "oneway_anova",
-        "simple_regression", "chi_square", "frequencies", "descriptives",
-        "correlations", "pearson_correlation", "spearman_correlation",
-        "mann_whitney_u", "kruskal_wallis", "crosstabs",
-    }
-    if intent in direct_methods:
-        return intent
-
-    # Abstract intent → specific method
-    method_map = {
-        "compare_groups": "independent_t_test",
-        "relationship": "pearson_correlation",
-        "describe": "descriptives",
-        "visualize": "frequencies",
-        "follow_up": "independent_t_test",
-    }
-    return method_map.get(intent, "descriptives")
 
 # ── Main ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
