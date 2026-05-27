@@ -848,27 +848,38 @@ def _parse_output(exec_result: dict, method: str):
         )
 
 
-def _llm_fix_syntax(failed_syntax: str, error_text: str) -> str | None:
+def _llm_fix_syntax(failed_syntax: str, error_text: str, method: str | None = None) -> str | None:
     if LLM_MOCK or not _has_llm():
         return None
     try:
         from snla.llm.client import LLMClient
 
         cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
-        # Build a simple fix prompt inline (no dedicated function needed)
         var_list = "\n".join(f"  - {v['name']} ({v.get('type', '?')})" for v in cloud_vars[:30])
+
+        # Try RAG context retrieval for official SPSS syntax reference
+        rag_context = ""
+        if method:
+            try:
+                from snla.rag.integration import get_syntax_context
+
+                rag_context = get_syntax_context(method, n_chunks=2, max_chars=2000)
+            except Exception:
+                pass  # RAG is optional — silently skip on any error
+
+        user_content = (
+            f"以下 SPSS 语法执行失败。\n\n"
+            f"可用变量:\n{var_list}\n\n"
+            f"错误语法:\n{failed_syntax}\n\n"
+            f"错误信息:\n{error_text}\n\n"
+            f'请返回修正后的语法，JSON 格式: {{"syntax": "..."}}'
+        )
+        if rag_context:
+            user_content = f"SPSS 官方语法参考:\n{rag_context}\n\n{user_content}"
+
         messages = [
-            {"role": "system", "content": "你是 SPSS 语法专家。修正下面的语法错误。"},
-            {
-                "role": "user",
-                "content": (
-                    f"以下 SPSS 语法执行失败。\n\n"
-                    f"可用变量:\n{var_list}\n\n"
-                    f"错误语法:\n{failed_syntax}\n\n"
-                    f"错误信息:\n{error_text}\n\n"
-                    f'请返回修正后的语法，JSON 格式: {{"syntax": "..."}}'
-                ),
-            },
+            {"role": "system", "content": "你是 SPSS 语法专家。修正下面的语法错误。如有官方参考文档，严格按文档规范修正。"},
+            {"role": "user", "content": user_content},
         ]
         client = LLMClient()
         result = client.chat(messages)
@@ -1034,7 +1045,7 @@ def _prepare_syntax(
     validation = validate(syntax, [v["name"] for v in session.variables])
     if not validation["valid"]:
         # Try LLM fix once
-        fixed = _llm_fix_syntax(syntax, "; ".join(validation["errors"]))
+        fixed = _llm_fix_syntax(syntax, "; ".join(validation["errors"]), method)
         if fixed:
             syntax = fixed
             validation = validate(syntax, [v["name"] for v in session.variables])
