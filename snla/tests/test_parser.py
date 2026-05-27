@@ -10,8 +10,8 @@ import tempfile
 
 import pytest
 
-from snla.parser.output import parse, parse_oms_xml, parse_raw_lst
-from snla.parser.schema import AnalysisResult, TableResult
+from snla.parser.output import HAS_LXML, parse, parse_oms_xml, parse_raw_lst, _safe_float
+from snla.parser.schema import AnalysisResult, TableResult, analysis_result_to_dict, dict_to_analysis_result
 
 
 # =========================================================================
@@ -564,3 +564,164 @@ class TestCrosstabsOmsXml:
 
         finally:
             os.unlink(tmp.name)
+
+
+# =========================================================================
+# Test 11: OMS XML — valid T-TEST (temp_xml_file fixture)
+# =========================================================================
+
+
+def test_parse_oms_xml_valid_ttest(temp_xml_file):
+    """Parse valid T-TEST XML using the temp_xml_file fixture.
+
+    Uses the conftest fixture which provides a T-TEST OMS XML file with
+    'Group Statistics' and 'Independent Samples Test' pivot tables.
+    Verifies analysis type inference, table discovery, and parser metadata.
+    """
+    pytest.importorskip("lxml")
+    result = parse_oms_xml(temp_xml_file)
+
+    assert result.analysis_type == "T-TEST"
+    assert result.parser_used == "oms_xml"
+
+    table_titles = [t.title for t in result.tables]
+    assert "Group Statistics" in table_titles
+    assert "Independent Samples Test" in table_titles
+
+    assert isinstance(result.statistics, dict)
+
+
+# =========================================================================
+# Test 12: OMS XML — file not found
+# =========================================================================
+
+
+def test_parse_oms_xml_file_not_found():
+    """Pass a non-existent XML path, assert FileNotFoundError."""
+    pytest.importorskip("lxml")
+    with pytest.raises(FileNotFoundError):
+        parse_oms_xml("/nonexistent/path/to/surely/missing/file.xml")
+
+
+# =========================================================================
+# Test 13: OMS XML — empty file
+# =========================================================================
+
+
+def test_parse_oms_xml_empty_file(tmp_path):
+    """Create an empty XML file, assert ValueError (empty XML detection)."""
+    pytest.importorskip("lxml")
+    empty = tmp_path / "empty.xml"
+    empty.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError):
+        parse_oms_xml(str(empty))
+
+
+# =========================================================================
+# Test 14: LST regex — valid T-TEST
+# =========================================================================
+
+
+LST_TTEST_VALID = """\
+T-TEST GROUPS=gender(1 2) /VARIABLES=score.
+
+Group Statistics
+            N     Mean    Std. Deviation    Std. Error Mean
+男          10    79.50   8.20              2.59
+女          10    84.20   7.10              2.25
+
+Independent Samples Test
+                            F      Sig.    t       df    Sig. (2-tailed)    Mean Difference
+Equal variances assumed  0.28   0.605  2.34    18    0.021              4.70
+"""
+
+
+def test_parse_raw_lst_valid_ttest():
+    """Parse valid T-TEST LST text, verify AnalysisResult and parser_used."""
+    result = parse_raw_lst(LST_TTEST_VALID, "T-TEST")
+
+    assert isinstance(result, AnalysisResult)
+    assert result.parser_used == "regex_lst"
+    assert len(result.tables) >= 1
+
+    # Key statistics should be extracted from the regex path
+    assert "t_value" in result.statistics
+    assert "p_value" in result.statistics
+
+
+# =========================================================================
+# Test 15: LST regex — invalid analysis type
+# =========================================================================
+
+
+def test_parse_raw_lst_invalid_type():
+    """Pass an unrecognised analysis_type, assert ValueError."""
+    with pytest.raises(ValueError, match="Unknown analysis_type"):
+        parse_raw_lst("irrelevant text", "BOGUS_TYPE")
+
+
+# =========================================================================
+# Test 16: _safe_float variants
+# =========================================================================
+
+
+def test_safe_float_variants():
+    """Test _safe_float with valid numbers, None, and unparseable strings."""
+    # Valid numeric strings
+    assert _safe_float("123.45") == 123.45
+    assert _safe_float("0.021") == 0.021
+    assert _safe_float("0") == 0.0
+    assert _safe_float("1,234.56") == 1234.56  # US thousands separator
+
+    # None and missing-value markers
+    assert _safe_float(None) is None
+    assert _safe_float("N/A") is None
+    assert _safe_float("") is None
+    assert _safe_float(".") is None
+    assert _safe_float("—") is None  # em dash (SPSS missing value)
+    assert _safe_float("a") is None  # SPSS missing-value flag
+
+
+# =========================================================================
+# Test 17: AnalysisResult serialisation roundtrip
+# =========================================================================
+
+
+def test_analysis_result_roundtrip(analysis_result_ttest):
+    """analysis_result_to_dict then dict_to_analysis_result preserves data."""
+    data = analysis_result_to_dict(analysis_result_ttest)
+    restored = dict_to_analysis_result(data)
+
+    assert restored.analysis_type == analysis_result_ttest.analysis_type
+    assert restored.parser_used == analysis_result_ttest.parser_used
+    assert restored.statistics == analysis_result_ttest.statistics
+    assert restored.n_valid == analysis_result_ttest.n_valid
+    assert restored.n_missing == analysis_result_ttest.n_missing
+    assert restored.notes == analysis_result_ttest.notes
+    assert restored.raw_output_path == analysis_result_ttest.raw_output_path
+
+    # Tables are reconstructed correctly
+    assert len(restored.tables) == len(analysis_result_ttest.tables)
+    for rt, ot in zip(restored.tables, analysis_result_ttest.tables):
+        assert rt.title == ot.title
+        assert rt.rows == ot.rows
+        assert rt.notes == ot.notes
+        assert rt.source_format == ot.source_format
+
+
+# =========================================================================
+# Test 18: Unified parse — OMS XML priority
+# =========================================================================
+
+
+def test_unified_parse_oms_priority(temp_xml_file):
+    """parse() with only oms_xml_path prefers the OMS XML parser."""
+    pytest.importorskip("lxml")
+    result = parse(oms_xml_path=temp_xml_file)
+
+    assert isinstance(result, AnalysisResult)
+    assert result.parser_used == "oms_xml"
+
+    # Verify tables were extracted despite missing subType attributes
+    table_titles = [t.title for t in result.tables]
+    assert "Group Statistics" in table_titles or len(table_titles) >= 1
