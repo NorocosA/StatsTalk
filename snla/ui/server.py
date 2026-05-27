@@ -10,10 +10,9 @@ Run via launcher: launcher.py spawns this in a thread.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
-import tempfile
-import traceback
 from pathlib import Path
 
 # Ensure project root on sys.path
@@ -29,7 +28,22 @@ from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
 from snla.orchestrator import planner, GreylistPending, NoPendingError
 
+logger = logging.getLogger(__name__)
+
+# Ensure root logger has a basic config when running standalone
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+    )
+
 app = Flask(__name__, static_folder=None)
+
+# ── Upload limits ────────────────────────────────────────────────────
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024   # 500 MB
+ALLOWED_EXTENSIONS = {".sav", ".csv"}
+ALLOWED_MIME_TYPES = {"application/octet-stream", "text/csv"}
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 # In-memory session (one user, one session)
 session = SessionState()
@@ -92,9 +106,22 @@ def status():
 def upload():
     f = request.files.get("file")
     if not f:
-        return jsonify({"error": "No file uploaded"}), 400
+        return jsonify({"error": "未选择文件"}), 400
 
+    # Content-length check (redundant with Flask MAX_CONTENT_LENGTH but explicit)
+    if f.content_length is not None and f.content_length > MAX_UPLOAD_SIZE:
+        return jsonify({"error": "文件大小超过限制（最大500MB）"}), 413
+
+    # Extension validation
     suffix = Path(f.filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        return jsonify({"error": "不支持的文件类型，仅支持 .sav 和 .csv"}), 400
+
+    # MIME validation (allow octet-stream since .sav has no standard MIME)
+    mime = f.content_type or ""
+    if mime not in ALLOWED_MIME_TYPES and mime != "":
+        return jsonify({"error": "文件类型无效"}), 400
+
     # Save to persistent location so SPSS can access it later
     from snla.config import P0_OUTPUT_DIR
     os.makedirs(P0_OUTPUT_DIR, exist_ok=True)
@@ -119,6 +146,7 @@ def upload():
             "row_count": meta.get("row_count", 0),
         })
     except Exception as e:
+        logger.exception("Upload failed")
         return jsonify({"error": str(e)}), 500
 
 # ── Cancel ────────────────────────────────────────────────────────────
@@ -137,7 +165,7 @@ def cancel():
         try:
             _active_executor.terminate()
         except Exception:
-            pass
+            logger.exception("Failed to terminate executor")
     _executing = False
     planner.cancel_pending("default")
     session.reset_cancellation()
@@ -182,115 +210,32 @@ def analyze():
         tvar = plan_result.test_variable
 
         # ── Python backend fast path ───────────────────────────────
-        if STATS_BACKEND == "python":
-            df = _load_dataframe()
-            if df is None:
-                _executing = False; _active_executor = None
-                return jsonify({"error": "Failed to load dataset for Python backend"}), 500
-            from snla.executor.python import PythonStatsExecutor
-            py_exec = PythonStatsExecutor()
-            result = py_exec.execute(method, df, grouping_var=gvar, test_var=tvar,
-                                     dep_var=gvar, indep_var=tvar)
+        py_response = _run_python_backend(plan_result, user_input)
+        if py_response is not None:
+            return jsonify(py_response)
 
-            # P5-4: Strategy C — no-SPSS + untrusted method → raw numbers only
-            if not _can_full_interpret(method):
-                session.history.append({"role": "user", "content": user_input})
-                session.history.append({"role": "assistant", "content": None,
-                                         "method": method, "result": result})
-                session.last_analysis = {"method": method}
-                _executing = False; _active_executor = None
-                return jsonify({
-                    "ok": True, "method": method, "backend": "python",
-                    "plan_explanation": plan_explanation,
-                    "result": {
-                        "analysis_type": result.analysis_type,
-                        "tables": [{"title": t.title, "rows": t.rows} for t in result.tables],
-                        "statistics": result.statistics,
-                        "n_valid": result.n_valid,
-                        "parser_used": result.parser_used,
-                    },
-                    "explanation": None,  # 无白话解读 — 方法未经验证
-                    "warning": (
-                        f"Python 引擎下「{method}」方法的可靠性尚未经 SPSS 交叉验证。"
-                        f"以下为原始统计数字，非统计专业人士请谨慎解读。"
-                        f"建议安装 SPSS 以获得完整解读。"
-                    ),
-                    "limited_mode": True,
-                    "last_analysis": session.last_analysis,
-                })
-
-            # Trusted method or SPSS available → full explanation
-            explanation = _phase2_explain(result, method, user_input)
-            session.history.append({"role": "user", "content": user_input})
-            session.history.append({"role": "assistant", "content": explanation,
-                                     "method": method, "result": result})
-            session.last_analysis = {"method": method}
-            _executing = False; _active_executor = None
+        # ── Syntax generation + validation + greylist gate ────────
+        prep = _prepare_syntax(method, gvar, tvar, confirm_greylist, user_input)
+        if prep.get("error"):
             return jsonify({
-                "ok": True, "method": method, "backend": "python",
-                "plan_explanation": plan_explanation,
-                "result": {
-                    "analysis_type": result.analysis_type,
-                    "tables": [{"title": t.title, "rows": t.rows} for t in result.tables],
-                    "statistics": result.statistics,
-                    "n_valid": result.n_valid,
-                    "parser_used": result.parser_used,
-                },
-                "explanation": explanation,
-                "last_analysis": session.last_analysis,
-            })
-
-        # ── Execution: Syntax from template (deterministic, fast) ──
-        syntax = _syntax_template(method, grouping_var=gvar, test_var=tvar)
-        used_template = True  # Always template-based now (fast, reliable)
-
-        # 4. Validate
-        from snla.syntax.validator import validate
-        validation = validate(syntax, [v["name"] for v in session.variables])
-        if not validation["valid"]:
-            # Try LLM fix once
-            fixed = _llm_fix_syntax(syntax, "; ".join(validation["errors"]))
-            if fixed:
-                syntax = fixed
-                validation = validate(syntax, [v["name"] for v in session.variables])
-            else:
-                # Use pre-built template directly
-                syntax = _syntax_template(method)
-                validation = validate(syntax, [v["name"] for v in session.variables])
-                used_template = True
-
-        if not validation["valid"]:
-            _executing = False
-            _active_executor = None
-            return jsonify({
-                "error": "Syntax validation failed",
-                "syntax": syntax,
-                "validation_errors": validation["errors"],
+                "error": prep["error"],
+                "syntax": prep["syntax"],
+                "validation_errors": prep["validation_errors"],
             }), 422
-
-        greylist_warnings = [w for w in validation.get("warnings", [])
-                             if "greylist" in w.lower() or "confirm" in w.lower()]
-
-        # ── Greylist gate: require explicit confirmation ───────────
-        if greylist_warnings and not confirm_greylist:
-            planner.stage_greylist("default", GreylistPending(
-                syntax=syntax,
-                warnings=greylist_warnings,
-                method=method,
-                user_input=user_input,
-            ))
-            _executing = False
-            _active_executor = None
+        if prep.get("_greylist"):
             return jsonify({
                 "ok": False,
                 "requires_confirmation": True,
-                "greylist_warnings": greylist_warnings,
+                "greylist_warnings": prep["greylist_warnings"],
                 "message": (
                     "此操作将修改数据（如 COMPUTE / RECODE / SELECT IF），"
                     "需要在临时副本上执行。请确认是否继续。"
                 ),
-                "syntax": syntax,
+                "syntax": prep["syntax"],
             })
+        syntax = prep["syntax"]
+        greylist_warnings = prep["greylist_warnings"]
+        used_template = prep["used_template"]
 
         # ── Build degradation info if template was used ────────────
         if used_template:
@@ -302,28 +247,20 @@ def analyze():
                 ),
             }
 
-        # 5. Execute
-        exec_result = _execute_syntax(syntax, executor,
-                                      cancellation_token=session.cancellation_token)
-
-        if _was_cancelled or session.cancellation_token:
-            _executing = False
-            _active_executor = None
+        # 5+6. Execute + cancel check + parse
+        result = _execute_and_parse(syntax, executor, method)
+        if result is None:
             _was_cancelled = False
             session.reset_cancellation()
             return jsonify({"ok": False, "cancelled": True}), 200
+        exec_result, parsed = result
 
         if not exec_result.get("success"):
-            _executing = False
-            _active_executor = None
             return jsonify({
                 "error": exec_result.get("error", "SPSS execution failed"),
                 "syntax": syntax,
                 "degradation": _degradation,
             }), 500
-
-        # 6. Parse
-        parsed = _parse_output(exec_result, method)
 
         # ── Phase 2: Report Interpretation (LLM explains SPSS output) ──
         explanation = _phase2_explain(parsed, method, user_input)
@@ -357,7 +294,7 @@ def analyze():
         })
 
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("Analysis failed")
         return jsonify({"error": str(e)}), 500
     finally:
         _executing = False
@@ -397,31 +334,34 @@ def confirm_greylist():
         method = pg.method
         user_input = pg.user_input
 
-        # Execute on temp copy
+        # Execute on temp copy (normalize ExecutionResult → dict for _execute_and_parse)
         data_path = session.dataset_meta.get("file_path", "")
         if data_path:
-            exec_result = executor.execute_on_temp_copy(
+            raw = executor.execute_on_temp_copy(
                 syntax=syntax, data_path=data_path,
                 cancellation_token=session.cancellation_token,
             )
+            exec_result_dict = {
+                "success": raw.success,
+                "exit_code": raw.exit_code,
+                "xml_path": raw.xml_path,
+                "lst_text": "",
+                "error": raw.error_message or None,
+            }
         else:
-            exec_result = _execute_syntax(syntax, executor,
-                                          cancellation_token=session.cancellation_token)
+            exec_result_dict = None
 
-        if _was_cancelled or session.cancellation_token:
-            _executing = False
-            _active_executor = None
+        result = _execute_and_parse(syntax, executor, method, exec_result=exec_result_dict)
+        if result is None:
             _was_cancelled = False
-            session.reset_cancellation()
             return jsonify({"ok": False, "cancelled": True}), 200
+        exec_result, parsed = result
 
         if not exec_result.get("success"):
             return jsonify({
                 "error": exec_result.get("error", "SPSS execution failed"),
                 "syntax": syntax,
             }), 500
-
-        parsed = _parse_output(exec_result, method)
         explanation = _phase2_explain(parsed, method, user_input)
 
         session.history.append({"role": "user", "content": user_input})
@@ -445,7 +385,7 @@ def confirm_greylist():
         })
 
     except Exception as e:
-        traceback.print_exc()
+        logger.exception("Greylist confirmation failed")
         return jsonify({"error": str(e)}), 500
     finally:
         _executing = False
@@ -590,6 +530,7 @@ def list_models():
             "detail": err_body or None,
         }), 502
     except Exception as e:
+        logger.exception("Failed to list models")
         return jsonify({
             "error": f"无法连接到 API 端点。请检查端点和网络。({e})",
         }), 502
@@ -840,6 +781,7 @@ def _llm_fix_syntax(failed_syntax: str, error_text: str) -> str | None:
         except (json.JSONDecodeError, AttributeError):
             return None
     except Exception:
+        logger.exception("LLM fix syntax failed")
         return None
 
 def _has_llm() -> bool:
@@ -865,7 +807,180 @@ def _load_dataframe():
             import pandas as pd
             return pd.read_csv(file_path)
     except Exception:
+        logger.exception("Failed to load dataframe")
         return None
+def _run_python_backend(plan_result, user_input: str) -> dict | None:
+    """Try Python backend. Returns response dict on success, None to fall through to SPSS.
+
+    On success (method trusted or untrusted), returns a dict suitable for :func:`jsonify`.
+    On failure or when ``STATS_BACKEND != "python"``, returns None so the caller
+    proceeds with the SPSS path.
+    """
+    if STATS_BACKEND != "python":
+        return None
+
+    try:
+        df = _load_dataframe()
+        if df is None:
+            logger.warning("Python backend: failed to load dataframe")
+            return None
+
+        from snla.executor.python import PythonStatsExecutor
+
+        py_exec = PythonStatsExecutor()
+        method = plan_result.method
+        plan_explanation = plan_result.plan_explanation
+        gvar = plan_result.grouping_variable
+        tvar = plan_result.test_variable
+
+        result = py_exec.execute(method, df, grouping_var=gvar, test_var=tvar,
+                                 dep_var=gvar, indep_var=tvar)
+
+        # P5-4: Strategy C — no-SPSS + untrusted method → raw numbers only
+        if not _can_full_interpret(method):
+            session.history.append({"role": "user", "content": user_input})
+            session.history.append({"role": "assistant", "content": None,
+                                     "method": method, "result": result})
+            session.last_analysis = {"method": method}
+            return {
+                "ok": True, "method": method, "backend": "python",
+                "plan_explanation": plan_explanation,
+                "result": {
+                    "analysis_type": result.analysis_type,
+                    "tables": [{"title": t.title, "rows": t.rows} for t in result.tables],
+                    "statistics": result.statistics,
+                    "n_valid": result.n_valid,
+                    "parser_used": result.parser_used,
+                },
+                "explanation": None,
+                "warning": (
+                    f"Python 引擎下「{method}」方法的可靠性尚未经 SPSS 交叉验证。"
+                    f"以下为原始统计数字，非统计专业人士请谨慎解读。"
+                    f"建议安装 SPSS 以获得完整解读。"
+                ),
+                "limited_mode": True,
+                "last_analysis": session.last_analysis,
+            }
+
+        # Trusted method or SPSS available → full explanation
+        explanation = _phase2_explain(result, method, user_input)
+        session.history.append({"role": "user", "content": user_input})
+        session.history.append({"role": "assistant", "content": explanation,
+                                 "method": method, "result": result})
+        session.last_analysis = {"method": method}
+        return {
+            "ok": True, "method": method, "backend": "python",
+            "plan_explanation": plan_explanation,
+            "result": {
+                "analysis_type": result.analysis_type,
+                "tables": [{"title": t.title, "rows": t.rows} for t in result.tables],
+                "statistics": result.statistics,
+                "n_valid": result.n_valid,
+                "parser_used": result.parser_used,
+            },
+            "explanation": explanation,
+            "last_analysis": session.last_analysis,
+        }
+    except Exception:
+        logger.exception("Python backend failed, falling through to SPSS")
+        return None
+
+
+def _prepare_syntax(method: str, grouping_variable: str | None,
+                    test_variable: str | None, confirm_greylist: bool = False,
+                    user_input: str = ""):
+    """Generate, validate, and gate SPSS syntax.
+
+    Returns a dict with the following possible keys:
+
+    - ``{"syntax": str, "greylist_warnings": list, "used_template": bool}``
+      when syntax is ready to execute.
+    - ``{"error": str, "syntax": str, "validation_errors": list}``
+      when validation fails after LLM fix + template fallback.
+    - ``{"_greylist": True, "syntax": str, "greylist_warnings": list}``
+      when the syntax requires user confirmation (already staged in
+      ``planner``).  The caller should return the confirmation response
+      immediately.
+
+    The caller dispatches based on the dict key presence:
+
+        prep = _prepare_syntax(...)
+        if prep.get("error"):
+            return jsonify(prep), 422
+        if prep.get("_greylist"):
+            return jsonify(confirmation_response(prep))
+        syntax, warnings, used_template = prep["syntax"], prep["greylist_warnings"], prep["used_template"]
+    """
+    syntax = _syntax_template(method, grouping_var=grouping_variable,
+                              test_var=test_variable)
+    used_template = True  # Always template-based now (fast, reliable)
+
+    from snla.syntax.validator import validate
+    validation = validate(syntax, [v["name"] for v in session.variables])
+    if not validation["valid"]:
+        # Try LLM fix once
+        fixed = _llm_fix_syntax(syntax, "; ".join(validation["errors"]))
+        if fixed:
+            syntax = fixed
+            validation = validate(syntax, [v["name"] for v in session.variables])
+        else:
+            # Use pre-built template directly
+            syntax = _syntax_template(method)
+            validation = validate(syntax, [v["name"] for v in session.variables])
+            used_template = True
+
+    if not validation["valid"]:
+        return {
+            "error": "Syntax validation failed",
+            "syntax": syntax,
+            "validation_errors": validation["errors"],
+        }
+
+    greylist_warnings = [w for w in validation.get("warnings", [])
+                         if "greylist" in w.lower() or "confirm" in w.lower()]
+
+    # ── Greylist gate: require explicit confirmation ───────────────
+    if greylist_warnings and not confirm_greylist:
+        planner.stage_greylist("default", GreylistPending(
+            syntax=syntax,
+            warnings=greylist_warnings,
+            method=method,
+            user_input=user_input,
+        ))
+        return {
+            "_greylist": True,
+            "syntax": syntax,
+            "greylist_warnings": greylist_warnings,
+        }
+
+    return {
+        "syntax": syntax,
+        "greylist_warnings": greylist_warnings,
+        "used_template": used_template,
+    }
+
+
+def _execute_and_parse(syntax: str, executor, method: str, exec_result: dict | None = None):
+    """Execute SPSS syntax and parse the output.
+
+    When *exec_result* is provided (e.g. from a temp-copy execution),
+    execution is skipped and the pre-built result is parsed directly.
+
+    Returns:
+        ``(exec_result_dict, AnalysisResult)`` on success.
+        ``None`` if execution was cancelled by the user
+        (caller should return a ``{"cancelled": True}`` response).
+    """
+    if exec_result is None:
+        exec_result = _execute_syntax(syntax, executor,
+                                      cancellation_token=session.cancellation_token)
+
+    if _was_cancelled or session.cancellation_token:
+        return None
+
+    parsed = _parse_output(exec_result, method)
+    return (exec_result, parsed)
+
 
 # ── Main ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
