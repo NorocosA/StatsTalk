@@ -143,10 +143,24 @@ docs/                # user_guide.md
 | P5-4 | P5 | Make SPSS optional (no-SPSS mode, strategy C) | ✅ Done |
 | P6-1 | P6 | MCP Server wrapper (`snla/mcp_server.py`) | ✅ Done |
 | P6-2 | P6 | OpenClaw Skill (`SKILL.md`) | ✅ Done |
-| P6-3 | P6 | Multi-channel E2E (WhatsApp/Telegram/WeChat) | ⬜ Next |
-| P7-1 | P7 | Flask API tests (`test_server.py`) | ⬜ |
-| P7-2 | P7 | Split `server.py` → `orchestrator/` module | ⬜ |
-| P7-3 | P7 | Black + Ruff code formatting | ⬜ |
-| P7-4 | P7 | Project rename evaluation | ⬜ |
+| P6-3 | P6 | MCP integration test (`scripts/mcp_integration_test.py`) | ✅ Done |
+| P7-1 | P7 | Flask API tests (`test_server.py` — 23 tests) | ✅ Done |
+| P7-2 | P7 | Split `server.py` → `orchestrator/` module | ✅ Done |
+| P7-3 | P7 | Ruff format + lint (`pyproject.toml`, 47 files) | ✅ Done |
+| P7-4 | P7 | Project rename evaluation (`docs/rename-evaluation.md`) | ✅ Done |
+| — | Quality | P0/P1 grill fixes (8 items, see below) | ✅ Done |
 
-> Full plan: `.sisyphus/improvement-plan.md` | Strategy: `.sisyphus/strategy.md`
+### P0/P1 Quality Fixes (completed 2026-05-28)
+
+| # | Fix | File(s) |
+|---|-----|---------|
+| P0-1 | Parser tests (8 OMS XML + LST + error path tests) | `test_parser.py` |
+| P0-2 | Dependency version pinning (all `~=` compatible pins) | `requirements.txt` |
+| P0-3 | Upload security (500MB limit, `.sav/.csv` whitelist, MIME check) | `server.py` |
+| P1-4 | Privacy: `value_labels` stripped from cloud-safe fields | `sanitizer.py` |
+| P1-5 | LLM resilience: exponential backoff retry (1s/2s/4s, skip 4xx) | `client.py` |
+| P1-6 | Dead code cleanup (remove `SPSS_MAX_RETRIES`, `rag/` restored) | `config.py`, `spss.py` |
+| P1-7 | `analyze()` refactor: 3 extractions (`_run_python_backend`, `_prepare_syntax`, `_execute_and_parse`), `/api/confirm` DRY | `server.py` |
+| P1-8 | Logging unification: `print()` → `logging`, bare `except` → `logger.exception()` | `spss.py`, `server.py` |
+
+> Test count: **86** (previously 56). Full plan: `.sisyphus/improvement-plan.md` | Strategy: `.sisyphus/strategy.md`
