@@ -1,38 +1,43 @@
 ﻿# SNLA Core Dependencies
 # SPSS Natural Language Assistant — PyWebView Desktop Edition
+# Pinned versions (2026-05-28) — for reproducible builds
 
 # Data I/O
-pyreadstat>=1.2          # .sav file reading
-pandas>=2.0              # .csv reading and data manipulation
-numpy>=1.24              # numerical operations
+pyreadstat~=1.3.0          # .sav file reading
+pandas~=3.0.0              # .csv reading and data manipulation
+numpy~=2.4.0               # numerical operations
 
 # LLM API
-requests>=2.31           # HTTP client for LLM endpoints
+requests~=2.34.0           # HTTP client for LLM endpoints
 
 # Frontend — Desktop
-flask>=3.0               # Embedded HTTP API server
-pywebview>=5.0           # Native WebView window (Windows: requires Edge WebView2 runtime)
-pythonnet>=3.1           # .NET CLR bridge for pywebview on Windows
-clr-loader>=0.2          # CLR host for pythonnet
+flask~=3.1.0               # Embedded HTTP API server
+python-multipart~=0.0.28   # Flask file upload support
+pywebview~=6.2.0           # Native WebView window (Windows: requires Edge WebView2 runtime)
+pythonnet>=3.1.0rc0        # .NET CLR bridge for pywebview on Windows (rc acceptable)
+clr-loader~=0.2.0          # CLR host for pythonnet
 
 # Configuration
-python-dotenv>=1.0       # .env file loading
+python-dotenv~=1.2.0       # .env file loading
 
 # SPSS Output Parsing
-lxml>=5.0                # OMS XML parsing
+lxml~=6.1.0                # OMS XML parsing
 
 # Report Export
-python-docx>=1.0         # Word document generation
+python-docx~=1.2.0         # Word document generation
 
 # Statistical Engine (Python backend)
-pingouin>=0.6.1           # Inferential statistics (t-test, ANOVA, regression, etc.)
+pingouin~=0.6.1            # Inferential statistics (t-test, ANOVA, regression, etc.)
 
 # MCP Server (multi-channel frontend)
-mcp>=1.24                 # Model Context Protocol Python SDK
+mcp~=1.27.0                # Model Context Protocol Python SDK
+
+# Code Quality
+ruff~=0.15.0               # Fast linter + formatter (replaces Black + isort + flake8)
 
 # Testing
-pytest>=8.0              # Unit/integration testing
+pytest~=9.0.0              # Unit/integration testing
 
-# RAG (optional)
-# chromadb>=0.4          # Vector database for knowledge base
-# sentence-transformers>=2.2  # Embedding model
+# RAG (optional — currently not integrated)
+# chromadb~=1.5            # Vector database for knowledge base
+# sentence-transformers~=5.5  # Embedding model
