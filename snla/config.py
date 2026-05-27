@@ -43,7 +43,6 @@ LLM_MAX_HISTORY_ROUNDS = int(os.getenv("LLM_MAX_HISTORY_ROUNDS", "3"))
 
 # ========== 执行器配置 ==========
 SPSS_EXECUTION_TIMEOUT = int(os.getenv("SPSS_EXECUTION_TIMEOUT", "120"))  # 秒
-SPSS_MAX_RETRIES = int(os.getenv("SPSS_MAX_RETRIES", "2"))
 P0_OUTPUT_DIR = os.getenv("P0_OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "p0_output"))
 
 # ========== 统计后端选择 ==========

@@ -199,13 +199,15 @@ def test_cloud_safe_fields_definition():
     assert "variable_names" in CLOUD_SAFE_FIELDS
     assert "variable_types" in CLOUD_SAFE_FIELDS
     assert "variable_labels" in CLOUD_SAFE_FIELDS
-    assert "value_labels" in CLOUD_SAFE_FIELDS
+    # value_labels intentionally excluded — contains actual value mappings
+    # like {1:"Male"} that could leak private information to cloud LLM
+    assert "value_labels" not in CLOUD_SAFE_FIELDS
     assert "aggregate_stats" in CLOUD_SAFE_FIELDS
     assert "row_count" in CLOUD_SAFE_FIELDS
     assert "variables" in CLOUD_SAFE_FIELDS
 
     # These must NEVER be in the safe set
-    dangerous = {"raw_data", "identifiers", "free_text_responses"}
+    dangerous = {"raw_data", "identifiers", "free_text_responses", "value_labels"}
     for key in dangerous:
         assert key not in CLOUD_SAFE_FIELDS, (
             f"DANGER: '{key}' must NOT be in CLOUD_SAFE_FIELDS"

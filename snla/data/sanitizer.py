@@ -16,7 +16,8 @@ CLOUD_SAFE_FIELDS: set[str] = {
     "variable_names",
     "variable_types",
     "variable_labels",
-    "value_labels",
+    # NOTE: value_labels intentionally excluded — contains actual value mappings
+    # (e.g., {1:"Male"}) that could leak sensitive information to cloud LLM.
     "aggregate_stats",
 }
 
@@ -40,8 +41,27 @@ def filter_for_cloud(metadata: dict) -> dict:
 
     Any keys in *metadata* that are not in CLOUD_SAFE_FIELDS (such as raw data,
     identifiers, etc.) are silently dropped.
+
+    Additionally strips ``value_labels`` from each variable dict to prevent
+    privacy leaks from actual value mappings (e.g., {1:"Male"}) being sent to cloud LLM.
     """
-    return {k: v for k, v in metadata.items() if k in CLOUD_SAFE_FIELDS}
+    import copy
+    result: dict = {}
+    for k, v in metadata.items():
+        if k in CLOUD_SAFE_FIELDS:
+            if k == "variables" and isinstance(v, list):
+                # Strip value_labels from each variable dict
+                cleaned_vars = []
+                for var in v:
+                    if isinstance(var, dict):
+                        cleaned = {fk: fv for fk, fv in var.items() if fk in CLOUD_SAFE_FIELDS}
+                        cleaned_vars.append(cleaned)
+                    else:
+                        cleaned_vars.append(var)
+                result[k] = cleaned_vars
+            else:
+                result[k] = v
+    return result
 
 
 def sanitize_variables(variables: list[dict]) -> tuple[list[dict], int]:

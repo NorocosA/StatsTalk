@@ -10,6 +10,7 @@ original data file.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -19,14 +20,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from snla.config import (
-    DEBUG,
     P0_OUTPUT_DIR,
     SPSS_EXECUTABLE,
     SPSS_PYTHON_PATH,
     SPSS_EXEC_MODE,
     SPSS_EXECUTION_TIMEOUT,
-    SPSS_MAX_RETRIES,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # OMS XML wrapper
@@ -251,8 +252,7 @@ class SPSSExecutor:
                     proc.terminate()
                     exit_code = -1
                     stdout, stderr = proc.communicate(timeout=5)
-                    if DEBUG:
-                        print(f"[SPSSExecutor] Timeout ({SPSS_EXECUTION_TIMEOUT}s) — terminating")
+                    logger.warning("[SPSSExecutor] Timeout (%ss) — terminating", SPSS_EXECUTION_TIMEOUT)
                     break
 
                 time.sleep(0.3)
@@ -333,10 +333,9 @@ class SPSSExecutor:
         """Execute SPSS syntax via stats.exe batch mode (legacy)."""
         sps_path: str = self._write_syntax_file(wrapped_syntax, output_name, run_dir)
 
-        if DEBUG:
-            print(f"[SPSSExecutor] Running: {self.spss_path} {sps_path}")
-            print(f"[SPSSExecutor] CWD:       {run_dir}")
-            print(f"[SPSSExecutor] XML out:   {xml_path}")
+        logger.info("[SPSSExecutor] Running: %s %s", self.spss_path, sps_path)
+        logger.info("[SPSSExecutor] CWD:       %s", run_dir)
+        logger.info("[SPSSExecutor] XML out:   %s", xml_path)
 
         stdout = ""
         stderr = ""
@@ -404,8 +403,7 @@ class SPSSExecutor:
             if stderr.strip():
                 error_message += f" — stderr: {stderr.strip()[:500]}"
 
-        if DEBUG:
-            print(f"[SPSSExecutor] Done in {duration:.2f}s — success={success}")
+        logger.info("[SPSSExecutor] Done in %.2fs — success=%s", duration, success)
 
         return ExecutionResult(
             exit_code=exit_code,
@@ -454,8 +452,7 @@ class SPSSExecutor:
         shutil.copy2(data_path, temp_sav)
         self._temp_files.append(temp_sav)
 
-        if DEBUG:
-            print(f"[SPSSExecutor] Temp copy created: {temp_sav}")
+        logger.info("[SPSSExecutor] Temp copy created: %s", temp_sav)
 
         return self.run(
             syntax=syntax,
@@ -498,8 +495,7 @@ class SPSSExecutor:
             try:
                 if os.path.isfile(path):
                     os.remove(path)
-                    if DEBUG:
-                        print(f"[SPSSExecutor] Cleaned up: {path}")
+                    logger.info("[SPSSExecutor] Cleaned up: %s", path)
             except OSError:
                 pass  # best-effort cleanup
         self._temp_files.clear()
@@ -530,8 +526,7 @@ class SPSSExecutor:
             # -- cancellation requested? --
             if cancellation_token:
                 proc.terminate()
-                if DEBUG:
-                    print("[SPSSExecutor] Cancellation requested — terminating")
+                logger.info("[SPSSExecutor] Cancellation requested — terminating")
                 return -1
 
             # -- check completion --
@@ -542,8 +537,7 @@ class SPSSExecutor:
             # -- timeout? --
             if time.perf_counter() >= deadline:
                 proc.terminate()
-                if DEBUG:
-                    print(f"[SPSSExecutor] Timeout ({timeout}s) — terminating")
+                logger.warning("[SPSSExecutor] Timeout (%ss) — terminating", timeout)
                 # Give it a moment to flush output, then escalate
                 try:
                     proc.wait(timeout=2)
