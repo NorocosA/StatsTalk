@@ -6,6 +6,7 @@ SNLA 集中配置中心
 """
 
 import os
+
 from dotenv import load_dotenv
 
 # 自动加载项目根目录下的 .env 文件
@@ -13,26 +14,19 @@ load_dotenv()
 
 
 # ========== SPSS 配置 ==========
-SPSS_EXECUTABLE = os.getenv(
-    "SPSS_PATH",
-    r"C:\Program Files\IBM\SPSS\Statistics\29\stats.exe"
-)
+SPSS_EXECUTABLE = os.getenv("SPSS_PATH", r"C:\Program Files\IBM\SPSS\Statistics\29\stats.exe")
 
 # SPSS 自带的 Python 3 解释器（用于 spss.Submit() 语法执行）
 # SPSS 26+: Python3/python.exe 在安装目录下
 SPSS_PYTHON_PATH = os.getenv(
-    "SPSS_PYTHON_PATH",
-    r"C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe"
+    "SPSS_PYTHON_PATH", r"C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe"
 )
 
 # SPSS 语法执行模式: "python" (推荐, 通过 spss.Submit) | "batch" (stats.exe 批处理)
 SPSS_EXEC_MODE = os.getenv("SPSS_EXEC_MODE", "python")
 
 # ========== LLM 配置 ==========
-LLM_ENDPOINT = os.getenv(
-    "LLM_ENDPOINT",
-    "https://opencode.ai/zen/go/v1/chat/completions"
-)
+LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "https://opencode.ai/zen/go/v1/chat/completions")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 
@@ -43,7 +37,10 @@ LLM_MAX_HISTORY_ROUNDS = int(os.getenv("LLM_MAX_HISTORY_ROUNDS", "3"))
 
 # ========== 执行器配置 ==========
 SPSS_EXECUTION_TIMEOUT = int(os.getenv("SPSS_EXECUTION_TIMEOUT", "120"))  # 秒
-P0_OUTPUT_DIR = os.getenv("P0_OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "p0_output"))
+P0_OUTPUT_DIR = os.getenv(
+    "P0_OUTPUT_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "p0_output"),
+)
 
 # ========== 统计后端选择 ==========
 STATS_BACKEND = os.getenv("STATS_BACKEND", "spss")  # "spss" | "python"
@@ -57,11 +54,18 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 # 当 p0_output/method_trust.json 不存在时使用（如全新安装、PyInstaller 打包后）
 # 基于 2026-05-20 P5-3 验证结果：11/12 方法可信
 _FALLBACK_TRUSTED_METHODS: set[str] = {
-    "independent_t_test", "paired_t_test", "oneway_anova",
-    "pearson_correlation", "spearman_correlation", "correlations",
-    "chi_square", "crosstabs",
-    "frequencies", "descriptives",
-    "mann_whitney_u", "kruskal_wallis",
+    "independent_t_test",
+    "paired_t_test",
+    "oneway_anova",
+    "pearson_correlation",
+    "spearman_correlation",
+    "correlations",
+    "chi_square",
+    "crosstabs",
+    "frequencies",
+    "descriptives",
+    "mann_whitney_u",
+    "kruskal_wallis",
     # simple_regression 排除 — SPSS 解析器限制，无法测试
 }
 

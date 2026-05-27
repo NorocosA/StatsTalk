@@ -11,6 +11,7 @@ Options:
     --execute   Also run SPSS execution (requires SPSS installed)
     --spss      Same as --execute
 """
+
 import csv
 import json
 import os
@@ -29,7 +30,12 @@ if "--mock" in sys.argv:
 from snla.data.reader import read_and_extract
 from snla.syntax.validator import validate
 from snla.ui.server import (
-    session, _phase1_plan, _syntax_template, _make_executor, _execute_syntax, _parse_output
+    session,
+    _phase1_plan,
+    _syntax_template,
+    _make_executor,
+    _execute_syntax,
+    _parse_output,
 )
 
 
@@ -48,8 +54,8 @@ session.variables = meta.get("variables", [])
 print(f"Data loaded: {meta['row_count']} rows, {meta['column_count']} vars")
 for v in session.variables:
     vl = v.get("value_labels", {})
-    vl_str = f" [{', '.join(f'{k}={v}' for k,v in vl.items())}]" if vl else ""
-    print(f"  {v['name']:12s} {v.get('type','?'):8s} {v.get('label','')}{vl_str}")
+    vl_str = f" [{', '.join(f'{k}={v}' for k, v in vl.items())}]" if vl else ""
+    print(f"  {v['name']:12s} {v.get('type', '?'):8s} {v.get('label', '')}{vl_str}")
 print()
 
 # ── Read checklist ─────────────────────────────────────────────────────────
@@ -65,9 +71,9 @@ skipped = 0
 exec_pass = 0
 exec_fail = 0
 
-print(f"{'='*80}")
+print(f"{'=' * 80}")
 print(f"SNLA 50-Case Verification — {'SPSS EXECUTION' if SPSS_MODE else 'SYNTAX ONLY'}")
-print(f"{'='*80}\n")
+print(f"{'=' * 80}\n")
 
 for case in cases:
     cid = case["编号"]
@@ -165,11 +171,11 @@ with open(REPORT_PATH, "w", encoding="utf-8-sig", newline="") as f:
     writer.writerows(results)
 
 # ── Summary ────────────────────────────────────────────────────────────────
-print(f"\n{'='*80}")
+print(f"\n{'=' * 80}")
 print(f"SUMMARY")
-print(f"{'='*80}")
+print(f"{'=' * 80}")
 print(f"  Syntax: {passed} passed / {failed} failed / {skipped} partial (method mismatch)")
 if SPSS_MODE:
     print(f"  SPSS:   {exec_pass} ok / {exec_fail} failed")
 print(f"  Report: {REPORT_PATH}")
-print(f"{'='*80}")
+print(f"{'=' * 80}")

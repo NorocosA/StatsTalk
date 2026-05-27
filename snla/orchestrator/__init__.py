@@ -10,20 +10,22 @@ Design principle: Planner has zero dependency on Flask or MCP.  It is purely
 functional given input variables, dataset metadata, and session context.  Both
 server.py and mcp_server.py instantiate or reuse the singleton.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # ── Data classes ─────────────────────────────────────────────────────────
+
 
 @dataclass
 class PlanResult:
     """Output of the analysis planning step (Phase 1)."""
-    method: str                        # e.g. "independent_t_test"
-    plan_explanation: str              # human-readable plan summary
-    grouping_variable: str | None      # categorical / grouping variable name
-    test_variable: str | None          # numeric / outcome variable name
+
+    method: str  # e.g. "independent_t_test"
+    plan_explanation: str  # human-readable plan summary
+    grouping_variable: str | None  # categorical / grouping variable name
+    test_variable: str | None  # numeric / outcome variable name
 
 
 @dataclass
@@ -34,19 +36,22 @@ class GreylistPending:
     execution (always on a temporary data copy).  This dataclass captures
     everything needed to re-execute once the user confirms.
     """
-    syntax: str                        # validated SPSS syntax string
-    warnings: list[str]                # greylist warning messages
-    method: str                        # analysis method e.g. "chi_square"
-    user_input: str                    # original natural-language query
+
+    syntax: str  # validated SPSS syntax string
+    warnings: list[str]  # greylist warning messages
+    method: str  # analysis method e.g. "chi_square"
+    user_input: str  # original natural-language query
 
 
 # ── Exceptions ───────────────────────────────────────────────────────────
+
 
 class NoPendingError(Exception):
     """Raised when confirm() is called but no greylist is pending."""
 
 
 # ── Planner skeleton (implementation in planner.py) ─────────────────────
+
 
 class Planner:
     """Analysis planner shared between Flask and MCP servers.
@@ -108,6 +113,7 @@ class Planner:
             PlanResult with method, plan_explanation, grouping_variable, test_variable.
         """
         from .planner import _plan
+
         return _plan(
             planner=self,
             session_id=session_id,

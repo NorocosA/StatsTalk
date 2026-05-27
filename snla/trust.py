@@ -7,7 +7,6 @@ Priority: JSON file (runtime) > embedded constant (fallback)
 """
 
 import json
-import os
 from pathlib import Path
 
 # --- 从 P5-3 输出加载或使用嵌入式回退 ---
@@ -21,7 +20,7 @@ def _load_trust_json():
     """加载 method_trust.json，返回受信任的方法名集合。"""
     if _TRUST_JSON_PATH.exists():
         try:
-            with open(_TRUST_JSON_PATH, "r", encoding="utf-8") as f:
+            with open(_TRUST_JSON_PATH, encoding="utf-8") as f:
                 data = json.load(f)
             trusted = set()
             for method, info in data.get("methods", {}).items():
@@ -32,6 +31,7 @@ def _load_trust_json():
             pass
     # 回退到嵌入式常量
     from snla.config import _FALLBACK_TRUSTED_METHODS
+
     return _FALLBACK_TRUSTED_METHODS, "embedded"
 
 

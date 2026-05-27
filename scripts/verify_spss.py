@@ -17,26 +17,11 @@ from datetime import datetime
 
 # ========== 测试用 SPSS 语法 ==========
 TEST_SYNTAX = [
-    {
-        "name": "FREQUENCIES",
-        "syntax": "FREQUENCIES VARIABLES=gender.\n"
-    },
-    {
-        "name": "DESCRIPTIVES",
-        "syntax": "DESCRIPTIVES VARIABLES=score.\n"
-    },
-    {
-        "name": "T-TEST",
-        "syntax": "T-TEST GROUPS=gender(1 2) /VARIABLES=score.\n"
-    },
-    {
-        "name": "CROSSTABS",
-        "syntax": "CROSSTABS TABLES=gender BY class.\n"
-    },
-    {
-        "name": "REGRESSION",
-        "syntax": "REGRESSION /DEPENDENT=score /METHOD=ENTER age.\n"
-    },
+    {"name": "FREQUENCIES", "syntax": "FREQUENCIES VARIABLES=gender.\n"},
+    {"name": "DESCRIPTIVES", "syntax": "DESCRIPTIVES VARIABLES=score.\n"},
+    {"name": "T-TEST", "syntax": "T-TEST GROUPS=gender(1 2) /VARIABLES=score.\n"},
+    {"name": "CROSSTABS", "syntax": "CROSSTABS TABLES=gender BY class.\n"},
+    {"name": "REGRESSION", "syntax": "REGRESSION /DEPENDENT=score /METHOD=ENTER age.\n"},
 ]
 
 # 每个语法前自动加载数据集
@@ -56,7 +41,7 @@ def write_syntax_file(syntax: str, output_dir: str, name: str, data_path: str = 
 
 def run_syntax(spss_path: str, sps_path: str, output_dir: str, name: str) -> dict:
     """调用 spss.exe 执行语法，返回结果字典
-    
+
     SPSS 26 batch mode flags:
     - production silent: suppress all dialogs/prompts
     - background: no splash screen
@@ -107,7 +92,9 @@ def run_syntax(spss_path: str, sps_path: str, output_dir: str, name: str) -> dic
 def main():
     parser = argparse.ArgumentParser(description="SPSS batch connectivity test")
     parser.add_argument("--spss-path", required=True, help="Path to spss.exe / stats.exe")
-    parser.add_argument("--output-dir", default="./p0_output", help="Output directory for logs and XML")
+    parser.add_argument(
+        "--output-dir", default="./p0_output", help="Output directory for logs and XML"
+    )
     parser.add_argument("--data-file", required=True, help="Path to .sav test dataset")
     args = parser.parse_args()
 

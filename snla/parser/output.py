@@ -403,7 +403,13 @@ def _determine_analysis_type(text: str) -> str:
     lower = text.lower()
     if "t-test" in lower or "t test" in lower or "独立样本" in lower:
         return "T-TEST"
-    if "anova" in lower or "unianova" in lower or "oneway" in lower or "主体间" in lower or "univariate" in lower:
+    if (
+        "anova" in lower
+        or "unianova" in lower
+        or "oneway" in lower
+        or "主体间" in lower
+        or "univariate" in lower
+    ):
         return "ANOVA"
     if "regression" in lower or "回归" in lower:
         return "REGRESSION"
@@ -457,7 +463,7 @@ def _extract_statistics(tables: list[TableResult]) -> dict[str, Any]:
                         stats.setdefault("p_value", numeric)
                     continue
 
-                if "p" == key_lower and numeric <= 1.0:
+                if key_lower == "p" and numeric <= 1.0:
                     stats.setdefault("p_value", numeric)
                     continue
 
@@ -477,8 +483,12 @@ def _extract_statistics(tables: list[TableResult]) -> dict[str, Any]:
                     continue
 
                 # --- mean ---
-                if ("mean" in key_lower and "square" not in key_lower and "difference" not in key_lower
-                        and "error" not in key_lower) or "均值" in key_lower:
+                if (
+                    "mean" in key_lower
+                    and "square" not in key_lower
+                    and "difference" not in key_lower
+                    and "error" not in key_lower
+                ) or "均值" in key_lower:
                     stats.setdefault("mean", numeric)
                     continue
 
@@ -1006,8 +1016,7 @@ def parse_oms_xml(xml_path: str) -> AnalysisResult:
     """
     if not HAS_LXML:
         raise RuntimeError(
-            "lxml is required for OMS XML parsing. "
-            "Install it with: pip install lxml"
+            "lxml is required for OMS XML parsing. Install it with: pip install lxml"
         )
     if not os.path.exists(xml_path):
         raise FileNotFoundError(f"OMS XML file not found: {xml_path}")
@@ -1044,9 +1053,7 @@ def parse_oms_xml(xml_path: str) -> AnalysisResult:
             logger.warning(msg)
 
     if not tables:
-        raise ValueError(
-            f"No parseable pivot tables found in {xml_path}"
-        )
+        raise ValueError(f"No parseable pivot tables found in {xml_path}")
 
     # --- Extract key statistics (dedicated extractor preferred) ---
     extractor = _DEDICATED_EXTRACTORS.get(analysis_type)
@@ -1055,12 +1062,12 @@ def parse_oms_xml(xml_path: str) -> AnalysisResult:
             statistics = extractor(xml_path)
             # Fallback: if dedicated extractor produced empty stats, use generic
             if not statistics:
-                logger.debug("Dedicated extractor for %s returned empty, using generic", analysis_type)
+                logger.debug(
+                    "Dedicated extractor for %s returned empty, using generic", analysis_type
+                )
                 statistics = _extract_statistics(tables)
         except Exception as exc:
-            notes.append(
-                f"Dedicated extractor for {analysis_type} failed: {exc}"
-            )
+            notes.append(f"Dedicated extractor for {analysis_type} failed: {exc}")
             statistics = _extract_statistics(tables)
     else:
         statistics = _extract_statistics(tables)
@@ -1134,9 +1141,7 @@ def _extract_ttest_group_stats(text: str) -> list[dict[str, Any]]:
     Returns a list of rows, each with keys:
     ``Group``, ``N``, ``Mean``, ``Std. Deviation``, ``Std. Error Mean``.
     """
-    title_pattern = re.compile(
-        r"(?i)(Group Statistics|组统计)", re.UNICODE
-    )
+    title_pattern = re.compile(r"(?i)(Group Statistics|组统计)", re.UNICODE)
 
     block = _extract_table_block(text, title_pattern)
     if not block:
@@ -1190,9 +1195,7 @@ def _extract_ttest_independent(text: str) -> list[dict[str, Any]]:
     - *Equal variances assumed* row (has Levene's F and Sig columns).
     - *Equal variances not assumed* row (only t-test columns).
     """
-    title_pattern = re.compile(
-        r"(?i)(Independent Samples Test|独立样本检验)", re.UNICODE
-    )
+    title_pattern = re.compile(r"(?i)(Independent Samples Test|独立样本检验)", re.UNICODE)
 
     # Row for "Equal variances assumed" (includes Levene's columns).
     # NOTE: (?<!不) negative lookbehind prevents matching the substring
@@ -1202,9 +1205,9 @@ def _extract_ttest_independent(text: str) -> list[dict[str, Any]]:
         r"(Equal variances assumed|(?<!不)假设方差相等)"
         r"\s{2,}([\d.,\-]+)\s{2,}([\d.,\-]+)"  # F, Sig. (Levene)
         r"\s{2,}([\d.,\-]+)\s{2,}([\d.,\-]+)"  # t, df
-        r"\s{2,}([\d.eE\-]+)"                    # Sig. (2-tailed)
-        r"(?:\s{2,}([\d.,\-]+))?"                 # Mean Difference (optional)
-        r"(?:\s{2,}([\d.,\-]+))?",                # Std. Error Difference (optional)
+        r"\s{2,}([\d.eE\-]+)"  # Sig. (2-tailed)
+        r"(?:\s{2,}([\d.,\-]+))?"  # Mean Difference (optional)
+        r"(?:\s{2,}([\d.,\-]+))?",  # Std. Error Difference (optional)
         re.UNICODE,
     )
 
@@ -1213,11 +1216,11 @@ def _extract_ttest_independent(text: str) -> list[dict[str, Any]]:
     unequal_var_pattern = re.compile(
         r"(?i)"
         r"(Equal variances not assumed|不假设方差相等)"
-        r"\s{2,}([\d.,\-]+)"                     # t
-        r"\s{2,}([\d.,\-]+)"                     # df
-        r"\s{2,}([\d.eE\-]+)"                    # Sig. (2-tailed)
-        r"(?:\s{2,}([\d.,\-]+))?"                # Mean Difference (optional)
-        r"(?:\s{2,}([\d.,\-]+))?",               # Std. Error Difference (optional)
+        r"\s{2,}([\d.,\-]+)"  # t
+        r"\s{2,}([\d.,\-]+)"  # df
+        r"\s{2,}([\d.eE\-]+)"  # Sig. (2-tailed)
+        r"(?:\s{2,}([\d.,\-]+))?"  # Mean Difference (optional)
+        r"(?:\s{2,}([\d.,\-]+))?",  # Std. Error Difference (optional)
         re.UNICODE,
     )
 
@@ -1267,9 +1270,7 @@ def _extract_anova_lst(text: str) -> list[dict[str, Any]]:
 
     Supports both English and Chinese (Simplified) SPSS output.
     """
-    title_pattern = re.compile(
-        r"(?i)(ANOVA|主体间效应检验)", re.UNICODE
-    )
+    title_pattern = re.compile(r"(?i)(ANOVA|主体间效应检验)", re.UNICODE)
     block = _extract_table_block(text, title_pattern)
     if not block:
         return []
@@ -1285,18 +1286,18 @@ def _extract_anova_lst(text: str) -> list[dict[str, Any]]:
         # ANOVA rows have 6 columns: Source, SS, df, MS, F, Sig
         # A data row must have at least 5 numeric-looking tokens
         if len(parts) >= 4:
-            numeric_count = sum(
-                1 for p in parts[1:] if re.match(r"^[\d.,\-eE]+$", p.strip())
-            )
+            numeric_count = sum(1 for p in parts[1:] if re.match(r"^[\d.,\-eE]+$", p.strip()))
             if numeric_count >= 3:
-                rows.append({
-                    "Source": parts[0].strip(),
-                    "Sum of Squares": parts[1].strip() if len(parts) > 1 else "",
-                    "df": parts[2].strip() if len(parts) > 2 else "",
-                    "Mean Square": parts[3].strip() if len(parts) > 3 else "",
-                    "F": parts[4].strip() if len(parts) > 4 else "",
-                    "Sig.": parts[5].strip() if len(parts) > 5 else "",
-                })
+                rows.append(
+                    {
+                        "Source": parts[0].strip(),
+                        "Sum of Squares": parts[1].strip() if len(parts) > 1 else "",
+                        "df": parts[2].strip() if len(parts) > 2 else "",
+                        "Mean Square": parts[3].strip() if len(parts) > 3 else "",
+                        "F": parts[4].strip() if len(parts) > 4 else "",
+                        "Sig.": parts[5].strip() if len(parts) > 5 else "",
+                    }
+                )
 
     return rows
 
@@ -1568,9 +1569,7 @@ def parse(
             )
 
     if last_error is not None:
-        raise ValueError(
-            "All parsing strategies failed. See log for details."
-        ) from last_error
+        raise ValueError("All parsing strategies failed. See log for details.") from last_error
 
     raise ValueError(
         "No parsable SPSS output available. Provide either "

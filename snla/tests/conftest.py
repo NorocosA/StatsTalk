@@ -86,7 +86,7 @@ def mock_spss_output_ttest():
     - Group Statistics (gender-stratified N, Mean, Std. Deviation)
     - Independent Samples Test (t, df, p-value)
     """
-    return '''<oms>
+    return """<oms>
   <command text="T-TEST">
     <pivotTable text="Group Statistics">
       <dimension axis="variable"><category text="gender"/></dimension>
@@ -104,7 +104,7 @@ def mock_spss_output_ttest():
       </dimension>
     </pivotTable>
   </command>
-</oms>'''
+</oms>"""
 
 
 # ── Mock LLM response factory ────────────────────────────────────────────────
@@ -124,13 +124,16 @@ def mock_llm_response():
             resp = mock_llm_response('{"intent": "describe"}')
             assert resp["content"] == '{"intent": "describe"}'
     """
-    def _make_response(content: str = '{"intent": "describe", "confidence": 0.9}',
-                       model: str = "mock"):
+
+    def _make_response(
+        content: str = '{"intent": "describe", "confidence": 0.9}', model: str = "mock"
+    ):
         return {
             "content": content,
             "model": model,
             "usage": {"prompt_tokens": 100, "completion_tokens": 50},
         }
+
     return _make_response
 
 
@@ -248,7 +251,7 @@ def analysis_result_edge_sig():
     "trending toward significance", used to exercise boundary-condition
     handling in the explainer.
     """
-    from snla.parser.schema import AnalysisResult, TableResult
+    from snla.parser.schema import AnalysisResult
 
     return AnalysisResult(
         analysis_type="T-TEST",

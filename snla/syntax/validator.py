@@ -24,13 +24,12 @@ Usage:
 """
 
 import re
-from typing import Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-FORBIDDEN_KEYWORDS: List[str] = [
+FORBIDDEN_KEYWORDS: list[str] = [
     "SAVE",
     "XSAVE",
     "SAVE TRANSLATE",
@@ -48,7 +47,7 @@ FORBIDDEN_KEYWORDS: List[str] = [
     "MATCH FILES",
 ]
 
-GREYLIST_KEYWORDS: List[str] = [
+GREYLIST_KEYWORDS: list[str] = [
     "COMPUTE",
     "RECODE",
     "SELECT IF",
@@ -61,22 +60,35 @@ GREYLIST_KEYWORDS: List[str] = [
 # Multi-word commands (both forbidden and greylisted) sorted by length
 # descending so that the longest prefix is checked first, ensuring
 # "BEGIN PROGRAM PYTHON" is matched before "BEGIN PROGRAM".
-_MULTI_WORD_CMDS: List[str] = sorted(
+_MULTI_WORD_CMDS: list[str] = sorted(
     [kw for kw in FORBIDDEN_KEYWORDS + GREYLIST_KEYWORDS if " " in kw],
     key=len,
     reverse=True,
 )
 
 # SPSS keywords that are not variable names (used during variable extraction).
-_SPSS_NON_VAR_KEYWORDS: frozenset = frozenset({
-    "BY", "TO", "AND", "OR", "WITH", "ALL",
-    "EQ", "NE", "LT", "GT", "LE", "GE",
-})
+_SPSS_NON_VAR_KEYWORDS: frozenset = frozenset(
+    {
+        "BY",
+        "TO",
+        "AND",
+        "OR",
+        "WITH",
+        "ALL",
+        "EQ",
+        "NE",
+        "LT",
+        "GT",
+        "LE",
+        "GE",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _protect_strings(text: str, replacement: str = " ") -> str:
     """Replace single-quoted and double-quoted string literals with a placeholder.
@@ -100,7 +112,8 @@ def _protect_strings(text: str, replacement: str = " ") -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def extract_commands(syntax: str) -> List[str]:
+
+def extract_commands(syntax: str) -> list[str]:
     """Parse SPSS syntax and extract command keywords.
 
     SPSS commands are terminated by a period (``.``) and the command keyword
@@ -131,7 +144,7 @@ def extract_commands(syntax: str) -> List[str]:
     # Protect quoted strings so periods inside them don't cause false splits
     protected = _protect_strings(syntax)
 
-    commands: List[str] = []
+    commands: list[str] = []
     statements = protected.split(".")
 
     for stmt in statements:
@@ -146,9 +159,7 @@ def extract_commands(syntax: str) -> List[str]:
         for mw in _MULTI_WORD_CMDS:
             # Ensure the match is at a word boundary (the keyword is followed
             # by a space, delimiter, or end-of-statement).
-            if upper.startswith(mw) and (
-                len(upper) == len(mw) or not upper[len(mw)].isalnum()
-            ):
+            if upper.startswith(mw) and (len(upper) == len(mw) or not upper[len(mw)].isalnum()):
                 commands.append(mw)
                 matched = True
                 break
@@ -165,7 +176,7 @@ def extract_commands(syntax: str) -> List[str]:
     return commands
 
 
-def check_blacklist(commands: List[str]) -> List[str]:
+def check_blacklist(commands: list[str]) -> list[str]:
     """Return a list of blacklisted commands found in *commands*.
 
     Blacklisted commands are those that can modify files on disk, delete data,
@@ -179,14 +190,14 @@ def check_blacklist(commands: List[str]) -> List[str]:
         A sorted list of unique blacklisted keywords that were matched
         (empty list if none).
     """
-    blacklisted: List[str] = []
+    blacklisted: list[str] = []
     for cmd in commands:
         if cmd in FORBIDDEN_KEYWORDS:
             blacklisted.append(cmd)
     return sorted(set(blacklisted))
 
 
-def check_greylist(commands: List[str]) -> List[str]:
+def check_greylist(commands: list[str]) -> list[str]:
     """Return a list of greylisted commands found in *commands*.
 
     Greylisted commands modify in-memory data (create new variables, recode,
@@ -201,14 +212,14 @@ def check_greylist(commands: List[str]) -> List[str]:
         A sorted list of unique greylisted keywords that were matched
         (empty list if none).
     """
-    greylisted: List[str] = []
+    greylisted: list[str] = []
     for cmd in commands:
         if cmd in GREYLIST_KEYWORDS:
             greylisted.append(cmd)
     return sorted(set(greylisted))
 
 
-def validate_variables(syntax: str, var_list: List[str]) -> List[str]:
+def validate_variables(syntax: str, var_list: list[str]) -> list[str]:
     """Find variable references in *syntax* and validate them against *var_list*.
 
     Variable references are detected via SPSS subcommand patterns:
@@ -237,7 +248,7 @@ def validate_variables(syntax: str, var_list: List[str]) -> List[str]:
     processed = re.sub(r"\s+", " ", processed).strip()
 
     # Normalise variable list for case-insensitive comparison
-    var_lower: Dict[str, str] = {v.lower(): v for v in var_list}
+    var_lower: dict[str, str] = {v.lower(): v for v in var_list}
 
     referenced: set[str] = set()
 
@@ -280,7 +291,7 @@ def validate_variables(syntax: str, var_list: List[str]) -> List[str]:
             pass
 
     # ---- Comparison ------------------------------------------------------
-    missing: List[str] = []
+    missing: list[str] = []
     for var in referenced:
         if var.lower() not in var_lower:
             missing.append(var)
@@ -313,7 +324,7 @@ def _extract_tokens(values: str, accumulator: set[str]) -> None:
         accumulator.add(token)
 
 
-def check_brackets(syntax: str) -> List[str]:
+def check_brackets(syntax: str) -> list[str]:
     """Check parentheses ``()`` and single-quote ``'...'`` pairing in *syntax*.
 
     Performs a character-by-character scan that correctly handles:
@@ -337,8 +348,8 @@ def check_brackets(syntax: str) -> List[str]:
         >>> check_brackets("SAVE OUTFILE='data.sav'.")
         []
     """
-    errors: List[str] = []
-    paren_stack: List[int] = []  # stores character positions of '('
+    errors: list[str] = []
+    paren_stack: list[int] = []  # stores character positions of '('
     in_squote = False
     i = 0
 
@@ -363,9 +374,7 @@ def check_brackets(syntax: str) -> List[str]:
                 if paren_stack:
                     paren_stack.pop()
                 else:
-                    errors.append(
-                        f"Unmatched closing parenthesis ')' at position {i}"
-                    )
+                    errors.append(f"Unmatched closing parenthesis ')' at position {i}")
 
         i += 1
 
@@ -382,8 +391,8 @@ def check_brackets(syntax: str) -> List[str]:
 
 def validate(
     syntax: str,
-    var_list: Optional[List[str]] = None,
-) -> Dict[str, object]:
+    var_list: list[str] | None = None,
+) -> dict[str, object]:
     """Run all security checks on *syntax* and return a unified result dict.
 
     This is the main public API. It executes every validation in order:
@@ -409,8 +418,8 @@ def validate(
         - ``"warnings"``: list of human-readable warning messages (non-blocking
           but SHOULD be presented to the user).
     """
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     commands = extract_commands(syntax)
 
@@ -422,9 +431,7 @@ def validate(
     # 2) Greylist check ----------------------------------------------------
     greylisted = check_greylist(commands)
     for cmd in greylisted:
-        warnings.append(
-            f"Greylisted command '{cmd}' requires user confirmation"
-        )
+        warnings.append(f"Greylisted command '{cmd}' requires user confirmation")
 
     # 3) Variable validation -----------------------------------------------
     if var_list is not None:

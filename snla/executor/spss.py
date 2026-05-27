@@ -21,10 +21,10 @@ from datetime import datetime, timezone
 
 from snla.config import (
     P0_OUTPUT_DIR,
-    SPSS_EXECUTABLE,
-    SPSS_PYTHON_PATH,
     SPSS_EXEC_MODE,
+    SPSS_EXECUTABLE,
     SPSS_EXECUTION_TIMEOUT,
+    SPSS_PYTHON_PATH,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,11 +175,11 @@ class SPSSExecutor:
         wrapped: str = self._wrap_and_preamble(syntax, data_path, xml_path)
 
         if self.exec_mode == "python":
-            return self._run_via_python(wrapped, xml_path, run_dir, start_time,
-                                        cancellation_token)
+            return self._run_via_python(wrapped, xml_path, run_dir, start_time, cancellation_token)
         else:
-            return self._run_via_batch(wrapped, xml_path, output_name, run_dir,
-                                       start_time, cancellation_token)
+            return self._run_via_batch(
+                wrapped, xml_path, output_name, run_dir, start_time, cancellation_token
+            )
 
     # ------------------------------------------------------------------
     # Python-mode execution (spss.Submit via SPSS Python 3.4)
@@ -252,7 +252,9 @@ class SPSSExecutor:
                     proc.terminate()
                     exit_code = -1
                     stdout, stderr = proc.communicate(timeout=5)
-                    logger.warning("[SPSSExecutor] Timeout (%ss) — terminating", SPSS_EXECUTION_TIMEOUT)
+                    logger.warning(
+                        "[SPSSExecutor] Timeout (%ss) — terminating", SPSS_EXECUTION_TIMEOUT
+                    )
                     break
 
                 time.sleep(0.3)
@@ -294,17 +296,19 @@ class SPSSExecutor:
         if not success:
             reasons = []
             if exit_code != 0:
-                reasons.append("exit code {}".format(exit_code))
+                reasons.append(f"exit code {exit_code}")
             if not xml_exists:
                 reasons.append("XML output missing")
             if xml_empty:
-                reasons.append("OMS XML output is empty — check that all "
-                               "variables are of the correct type for this "
-                               "analysis (e.g. ONEWAY requires numeric "
-                               "grouping variable)")
+                reasons.append(
+                    "OMS XML output is empty — check that all "
+                    "variables are of the correct type for this "
+                    "analysis (e.g. ONEWAY requires numeric "
+                    "grouping variable)"
+                )
             error_message = "SPSS execution failed ({})".format("; ".join(reasons))
             if stderr.strip():
-                error_message += " — stderr: {}".format(stderr.strip()[:500])
+                error_message += f" — stderr: {stderr.strip()[:500]}"
 
         return ExecutionResult(
             exit_code=exit_code,
@@ -445,9 +449,7 @@ class SPSSExecutor:
         data_dir: str = os.path.dirname(os.path.abspath(data_path))
         base_name: str = os.path.splitext(os.path.basename(data_path))[0]
         timestamp: str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
-        temp_sav: str = os.path.join(
-            data_dir, f"{base_name}_temp_{timestamp}.sav"
-        )
+        temp_sav: str = os.path.join(data_dir, f"{base_name}_temp_{timestamp}.sav")
 
         shutil.copy2(data_path, temp_sav)
         self._temp_files.append(temp_sav)

@@ -14,7 +14,6 @@ from snla.explainer.naturalize import (
     explain_template,
 )
 
-
 # =========================================================================
 # Test 1: Template explanation — SIGNIFICANT result (p=0.021)
 # =========================================================================
@@ -28,15 +27,11 @@ def test_template_significant_result(analysis_result_ttest):
     assert "存在统计学上的显著差异" in result, (
         f"Significant result must state '存在显著差异', got: {result[:100]}"
     )
-    assert "t=2.340" in result or "t=2.34" in result, (
-        f"Should include t-value, got: {result[:100]}"
-    )
+    assert "t=2.340" in result or "t=2.34" in result, f"Should include t-value, got: {result[:100]}"
     assert "p=0.021" in result, "Should include p-value"
 
     # Must NOT contain non-significant language
-    assert "未发现" not in result, (
-        f"Significant result must not say '未发现', got: {result[:100]}"
-    )
+    assert "未发现" not in result, f"Significant result must not say '未发现', got: {result[:100]}"
 
 
 # =========================================================================
@@ -52,9 +47,7 @@ def test_template_not_significant_result(analysis_result_not_sig):
     assert "未达统计学显著水平" in result, (
         f"Non-sig result must say '未达显著水平', got: {result[:100]}"
     )
-    assert "边缘显著" in result, (
-        f"p=0.051 should be edge significant, got: {result[:100]}"
-    )
+    assert "边缘显著" in result, f"p=0.051 should be edge significant, got: {result[:100]}"
     assert "建议增加样本量" in result, (
         f"Edge significant should suggest larger sample, got: {result[:100]}"
     )
@@ -76,17 +69,13 @@ def test_template_edge_significant_result(analysis_result_edge_sig):
     constraints = apply_constraints(analysis_result_edge_sig)
     result = explain_template(constraints, analysis_result_edge_sig)
 
-    assert "边缘显著" in result, (
-        f"Edge significant must mention '边缘显著', got: {result[:100]}"
-    )
-    assert "建议增加样本量" in result, (
-        f"Must suggest increasing sample size, got: {result[:100]}"
-    )
+    assert "边缘显著" in result, f"Edge significant must mention '边缘显著', got: {result[:100]}"
+    assert "建议增加样本量" in result, f"Must suggest increasing sample size, got: {result[:100]}"
     assert "p=0.090" in result, "Should include p-value"
 
     # Must NOT claim significance
     assert "存在统计学上的显著差异" not in result, (
-        f"Edge significant must not claim definite significance"
+        "Edge significant must not claim definite significance"
     )
 
 
@@ -100,9 +89,7 @@ def test_build_polish_prompt_structure(analysis_result_ttest):
     constraints = apply_constraints(analysis_result_ttest)
     messages = build_polish_prompt(constraints, analysis_result_ttest)
 
-    assert len(messages) == 2, (
-        f"Expected 2 messages (system + user), got {len(messages)}"
-    )
+    assert len(messages) == 2, f"Expected 2 messages (system + user), got {len(messages)}"
     assert messages[0]["role"] == "system"
     assert "社科本科生" in messages[0]["content"], (
         "System prompt should target social science undergraduates"
@@ -161,8 +148,8 @@ def test_llm_polish_preserves_constraint(analysis_result_not_sig):
     polish adds readability.  If the LLM ever changes the statistical
     conclusion, the polish layer must be disabled.
     """
-    from snla.llm.client import LLMClient
     from snla.config import LLM_MOCK
+    from snla.llm.client import LLMClient
 
     if LLM_MOCK:
         pytest.skip("LLM_MOCK=true — real LLM polish test skipped")
@@ -187,8 +174,17 @@ def test_llm_polish_preserves_constraint(analysis_result_not_sig):
 
     # Should convey non-significance or marginality (fuzzy check)
     # The LLM can reword freely — as long as it doesn't claim significance
-    non_sig_words = ("没达到", "未达到", "未达", "不显著", "没有达到", "没达标",
-                     "没有显著", "没发现显著", "边缘")
+    non_sig_words = (
+        "没达到",
+        "未达到",
+        "未达",
+        "不显著",
+        "没有达到",
+        "没达标",
+        "没有显著",
+        "没发现显著",
+        "边缘",
+    )
     has_non_sig_hint = any(w in result for w in non_sig_words)
     if not has_non_sig_hint:
         # Not a hard failure, but worth noting

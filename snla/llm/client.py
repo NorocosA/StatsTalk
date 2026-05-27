@@ -26,7 +26,7 @@ LLM_MAX_RETRIES = 3
 # ---------------------------------------------------------------------------
 
 
-def _build_tls_adapter() -> "requests.adapters.HTTPAdapter":
+def _build_tls_adapter() -> requests.adapters.HTTPAdapter:
     """Build a requests HTTPAdapter with a permissive TLS context.
 
     Some LLM API endpoints use TLS configurations that trigger
@@ -166,7 +166,8 @@ class LLMClient:
 
     @staticmethod
     def _append_output_instruction(
-        messages: list[dict[str, str]], instruction: str,
+        messages: list[dict[str, str]],
+        instruction: str,
     ) -> None:
         """Append *instruction* to the content of the last user message.
 
@@ -301,13 +302,20 @@ class LLMClient:
                 break  # success
             except requests.RequestException as exc:
                 # Don't retry 4xx client errors
-                if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code < 500:
+                if (
+                    isinstance(exc, requests.HTTPError)
+                    and exc.response is not None
+                    and exc.response.status_code < 500
+                ):
                     raise
                 if attempt < max_retries:
-                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    wait = 2**attempt  # 1s, 2s, 4s
                     logger.warning(
                         "LLM request failed (attempt %d/%d): %s. Retrying in %ds...",
-                        attempt + 1, max_retries + 1, exc, wait,
+                        attempt + 1,
+                        max_retries + 1,
+                        exc,
+                        wait,
                     )
                     time.sleep(wait)
                 else:
@@ -385,13 +393,20 @@ class LLMClient:
                 break  # success
             except requests.RequestException as exc:
                 # Don't retry 4xx client errors
-                if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code < 500:
+                if (
+                    isinstance(exc, requests.HTTPError)
+                    and exc.response is not None
+                    and exc.response.status_code < 500
+                ):
                     raise
                 if attempt < max_retries:
-                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    wait = 2**attempt  # 1s, 2s, 4s
                     logger.warning(
                         "LLM request failed (attempt %d/%d): %s. Retrying in %ds...",
-                        attempt + 1, max_retries + 1, exc, wait,
+                        attempt + 1,
+                        max_retries + 1,
+                        exc,
+                        wait,
                     )
                     time.sleep(wait)
                 else:
@@ -418,10 +433,7 @@ class LLMClient:
         """Return a static mock response for testing without API keys."""
         logger.info("LLM mock mode — returning canned response")
         return {
-            "content": (
-                '{"intent": "describe", "confidence": 0.9, '
-                '"rationale": "MOCK MODE"}'
-            ),
+            "content": ('{"intent": "describe", "confidence": 0.9, "rationale": "MOCK MODE"}'),
             "model": "mock",
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }

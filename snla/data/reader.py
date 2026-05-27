@@ -43,9 +43,7 @@ def read_sav(file_path: str) -> tuple["pd.DataFrame", dict]:
         ValueError: If file is not a valid .sav file
     """
     if pyreadstat is None:
-        raise ImportError(
-            "pyreadstat is not installed. Install it with: pip install pyreadstat"
-        )
+        raise ImportError("pyreadstat is not installed. Install it with: pip install pyreadstat")
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -105,9 +103,7 @@ def read_csv(file_path: str, encoding: str = "utf-8") -> tuple["pd.DataFrame", d
         try:
             df = pd.read_csv(file_path, encoding="gbk")
         except UnicodeDecodeError as exc:
-            raise ValueError(
-                f"Failed to read CSV with utf-8 or gbk encoding: {file_path}"
-            ) from exc
+            raise ValueError(f"Failed to read CSV with utf-8 or gbk encoding: {file_path}") from exc
 
     metadata = {
         "filename": os.path.basename(file_path),
@@ -197,12 +193,14 @@ def extract_metadata(df: "pd.DataFrame", meta: dict) -> dict:
         if value_labels is not None:
             value_labels = {str(k): v for k, v in value_labels.items()}
 
-        variables.append({
-            "name": col_name,
-            "type": var_type,
-            "label": label,
-            "value_labels": value_labels,
-        })
+        variables.append(
+            {
+                "name": col_name,
+                "type": var_type,
+                "label": label,
+                "value_labels": value_labels,
+            }
+        )
 
     result = dict(meta)
     # Drop internal keys before returning

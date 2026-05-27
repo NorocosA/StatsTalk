@@ -28,9 +28,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from snla.parser.schema import AnalysisResult
 from snla.llm.client import LLMClient
-
+from snla.parser.schema import AnalysisResult
 
 # ===========================================================================
 # Public API
@@ -276,8 +275,7 @@ def build_polish_prompt(
     facts_lines.append(f"- 不允许使用的措辞: {forbidden_str}")
     facts_lines.append("- 允许使用的措辞: 仅上述强制表述 + 数值的通俗化表达")
     facts_lines.append(
-        "\n请用面向社科本科生的通俗语言复述以上结论，可添加数值解释，"
-        "但统计结论必须与上述完全一致。"
+        "\n请用面向社科本科生的通俗语言复述以上结论，可添加数值解释，但统计结论必须与上述完全一致。"
     )
 
     user_content = "\n".join(facts_lines)
@@ -351,7 +349,7 @@ def _build_descriptive_phrase(stats: dict[str, Any]) -> str:
         parts.append(f"样本量为{int(n)}")
 
     if parts:
-        return "，" .join(parts)
+        return "，".join(parts)
     return "已完成描述性统计"
 
 
@@ -385,8 +383,7 @@ def _interpret_p_value(p_value: float | None) -> tuple[str, str]:
     if p_value < 0.10:
         return (
             "EDGE_SIGNIFICANT",
-            f"未达统计学显著水平，但接近边缘显著（p={p_value:.3f}），"
-            "建议增加样本量后再次检验",
+            f"未达统计学显著水平，但接近边缘显著（p={p_value:.3f}），建议增加样本量后再次检验",
         )
     return ("NOT_SIG", "未发现统计学上的显著差异/关系")
 
@@ -440,15 +437,17 @@ def _build_forbidden_phrases(
     forbidden: list[str] = []
 
     if significance in ("NOT_SIG", "EDGE_SIGNIFICANT"):
-        forbidden.extend([
-            "存在显著差异",
-            "存在显著相关",
-            "具有统计学意义",
-            "两者之间存在关系",
-            "相关",
-            "有影响",
-            "有意义",
-        ])
+        forbidden.extend(
+            [
+                "存在显著差异",
+                "存在显著相关",
+                "具有统计学意义",
+                "两者之间存在关系",
+                "相关",
+                "有影响",
+                "有意义",
+            ]
+        )
 
     # "接近显著" —— only allowed when the result is truly borderline
     if significance != "EDGE_SIGNIFICANT":
@@ -474,7 +473,7 @@ def _build_details(stats: dict[str, Any]) -> dict[str, Any]:
         "chi2_value": "chi2_value",
         "r_squared": "r_squared",
         "r2": "r_squared",
-        "r": "r",                # CORRELATIONS dedicated extractor
+        "r": "r",  # CORRELATIONS dedicated extractor
         "n_valid": "n_valid",
         "n_missing": "n_missing",
         "mean_diff": "mean_diff",
@@ -504,16 +503,8 @@ def _build_details(stats: dict[str, Any]) -> dict[str, Any]:
         details["mean_b"] = mean_b
 
     # Group labels
-    label_a = (
-        stats.get("label_a")
-        or stats.get("label_group1")
-        or stats.get("group1_label")
-    )
-    label_b = (
-        stats.get("label_b")
-        or stats.get("label_group2")
-        or stats.get("group2_label")
-    )
+    label_a = stats.get("label_a") or stats.get("label_group1") or stats.get("group1_label")
+    label_b = stats.get("label_b") or stats.get("label_group2") or stats.get("group2_label")
     if label_a is not None:
         details["label_a"] = label_a
     if label_b is not None:

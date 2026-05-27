@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _format_variable_entry(var: dict[str, Any]) -> str:
     """Format a single variable dict into a human-readable prompt line.
@@ -106,7 +106,7 @@ def _build_few_shot_examples() -> str:
             "variables": "class (String, 班级名), chinese_score (Numeric)",
             "output": (
                 '{"syntax": "ONEWAY chinese_score BY class\\n'
-                '  /STATISTICS DESCRIPTIVES HOMOGENEITY\\n'
+                "  /STATISTICS DESCRIPTIVES HOMOGENEITY\\n"
                 '  /POSTHOC=LSD ALPHA(0.05).", '
                 '"required_variables": ["class", "chinese_score"], '
                 '"notes": "单因素方差分析，含方差齐性检验和LSD事后比较"}'
@@ -118,8 +118,8 @@ def _build_few_shot_examples() -> str:
             "variables": "age (Numeric), income (Numeric)",
             "output": (
                 '{"syntax": "REGRESSION\\n'
-                '  /DEPENDENT income\\n'
-                '  /METHOD=ENTER age\\n'
+                "  /DEPENDENT income\\n"
+                "  /METHOD=ENTER age\\n"
                 '  /STATISTICS COEFF R ANOVA.", '
                 '"required_variables": ["age", "income"], '
                 '"notes": "简单线性回归，年龄预测收入"}'
@@ -128,13 +128,10 @@ def _build_few_shot_examples() -> str:
         {
             "method": "chi_square",
             "question": "性别与是否通过考试的关系",
-            "variables": (
-                "gender (Numeric, 1=男 2=女), "
-                "pass_exam (Numeric, 0=未通过 1=通过)"
-            ),
+            "variables": ("gender (Numeric, 1=男 2=女), pass_exam (Numeric, 0=未通过 1=通过)"),
             "output": (
                 '{"syntax": "CROSSTABS\\n'
-                '  /TABLES=gender BY pass_exam\\n'
+                "  /TABLES=gender BY pass_exam\\n"
                 '  /STATISTICS=CHISQ PHI.", '
                 '"required_variables": ["gender", "pass_exam"], '
                 '"notes": "卡方检验，含Phi系数"}'
@@ -146,7 +143,7 @@ def _build_few_shot_examples() -> str:
             "variables": "class (String)",
             "output": (
                 '{"syntax": "FREQUENCIES VARIABLES=class\\n'
-                '  /BARCHART\\n'
+                "  /BARCHART\\n"
                 '  /ORDER=ANALYSIS.", '
                 '"required_variables": ["class"], '
                 '"notes": "频数分析，含条形图"}'
@@ -169,7 +166,7 @@ def _build_few_shot_examples() -> str:
             "variables": "age (Numeric), income (Numeric)",
             "output": (
                 '{"syntax": "CORRELATIONS\\n'
-                '  /VARIABLES=age income\\n'
+                "  /VARIABLES=age income\\n"
                 '  /STATISTICS DESCRIPTIVES.", '
                 '"required_variables": ["age", "income"], '
                 '"notes": "Pearson相关分析"}'
@@ -203,9 +200,11 @@ def _build_system_prompt(output_language: str) -> str:
     lang_hint = "中文" if output_language == "zh" else "English"
 
     output_format = (
-        '{' + '"syntax": "<SPSS语法命令>", '
+        "{"
+        + '"syntax": "<SPSS语法命令>", '
         + '"required_variables": ["<变量名1>", "<变量名2>"], '
-        + '"notes": "<解释说明>"' + '}'
+        + '"notes": "<解释说明>"'
+        + "}"
     )
 
     parts: list[str] = [
@@ -233,6 +232,7 @@ def _build_system_prompt(output_language: str) -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def build_syntax_prompt(
     method: str,

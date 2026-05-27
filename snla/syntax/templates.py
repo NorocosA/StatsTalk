@@ -38,7 +38,8 @@ Usage:
         print("Suggested:", result["corrected_method"])
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 # ============================================================================
 # PART 1 — Syntax Templates
@@ -66,10 +67,7 @@ def ttest_independent(group_var: str, test_var: str, groups: tuple) -> str:
         >>> ttest_independent("gender", "score", (1, 2))
         'T-TEST GROUPS=gender(1 2)\\n  /VARIABLES=score.'
     """
-    return (
-        f"T-TEST GROUPS={group_var}({groups[0]} {groups[1]})\n"
-        f"  /VARIABLES={test_var}."
-    )
+    return f"T-TEST GROUPS={group_var}({groups[0]} {groups[1]})\n  /VARIABLES={test_var}."
 
 
 def anova_oneway(group_var: str, test_var: str) -> str:
@@ -93,10 +91,7 @@ def anova_oneway(group_var: str, test_var: str) -> str:
         SPSS ``ONEWAY`` uses the order ``dependent BY factor``, which is the
         **opposite** of the ``T-TEST`` convention.
     """
-    return (
-        f"ONEWAY {test_var} BY {group_var}\n"
-        f"  /STATISTICS DESCRIPTIVES HOMOGENEITY."
-    )
+    return f"ONEWAY {test_var} BY {group_var}\n  /STATISTICS DESCRIPTIVES HOMOGENEITY."
 
 
 def regression_simple(dep_var: str, indep_var: str) -> str:
@@ -151,11 +146,7 @@ def crosstabs(row_var: str, col_var: str) -> str:
         >>> crosstabs("gender", "education")
         'CROSSTABS\\n  /TABLES=gender BY education\\n  /STATISTICS=CHISQ PHI.'
     """
-    return (
-        f"CROSSTABS\n"
-        f"  /TABLES={row_var} BY {col_var}\n"
-        f"  /STATISTICS=CHISQ PHI."
-    )
+    return f"CROSSTABS\n  /TABLES={row_var} BY {col_var}\n  /STATISTICS=CHISQ PHI."
 
 
 def frequencies(var: str) -> str:
@@ -178,11 +169,7 @@ def frequencies(var: str) -> str:
         >>> frequencies("gender")
         'FREQUENCIES VARIABLES=gender\\n  /BARCHART\\n  /ORDER=ANALYSIS.'
     """
-    return (
-        f"FREQUENCIES VARIABLES={var}\n"
-        f"  /BARCHART\n"
-        f"  /ORDER=ANALYSIS."
-    )
+    return f"FREQUENCIES VARIABLES={var}\n  /BARCHART\n  /ORDER=ANALYSIS."
 
 
 def descriptives(var: str) -> str:
@@ -204,10 +191,7 @@ def descriptives(var: str) -> str:
         >>> descriptives("score")
         'DESCRIPTIVES VARIABLES=score\\n  /STATISTICS=MEAN STDDEV MIN MAX.'
     """
-    return (
-        f"DESCRIPTIVES VARIABLES={var}\n"
-        f"  /STATISTICS=MEAN STDDEV MIN MAX."
-    )
+    return f"DESCRIPTIVES VARIABLES={var}\n  /STATISTICS=MEAN STDDEV MIN MAX."
 
 
 def correlations(var1: str, var2: str) -> str:
@@ -257,11 +241,7 @@ def kruskal_wallis(group_var: str, test_var: str) -> str:
 
     Uses ``NPAR TESTS /K-W`` for k independent samples.
     """
-    return (
-        f"NPAR TESTS\n"
-        f"  /K-W= {test_var} BY {group_var}(1 99)\n"
-        f"  /STATISTICS DESCRIPTIVES."
-    )
+    return f"NPAR TESTS\n  /K-W= {test_var} BY {group_var}(1 99)\n  /STATISTICS DESCRIPTIVES."
 
 
 def spearman_correlation(var1: str, var2: str) -> str:
@@ -269,27 +249,19 @@ def spearman_correlation(var1: str, var2: str) -> str:
 
     Uses ``NONPAR CORR`` with SPEARMAN keyword.
     """
-    return (
-        f"NONPAR CORR\n"
-        f"  /VARIABLES={var1} {var2}\n"
-        f"  /PRINT=SPEARMAN TWOTAIL NOSIG."
-    )
+    return f"NONPAR CORR\n  /VARIABLES={var1} {var2}\n  /PRINT=SPEARMAN TWOTAIL NOSIG."
 
 
 def paired_ttest(var1: str, var2: str) -> str:
     """Build a paired-samples t-test."""
-    return (
-        f"T-TEST PAIRS={var1} WITH {var2} (PAIRED)\n"
-        f"  /CRITERIA=CI(0.95)\n"
-        f"  /MISSING=ANALYSIS."
-    )
+    return f"T-TEST PAIRS={var1} WITH {var2} (PAIRED)\n  /CRITERIA=CI(0.95)\n  /MISSING=ANALYSIS."
 
 
 # ---------------------------------------------------------------------------
 # Template Registry
 # ---------------------------------------------------------------------------
 
-TEMPLATE_MAP: Dict[str, Callable[..., str]] = {
+TEMPLATE_MAP: dict[str, Callable[..., str]] = {
     "independent_t_test": ttest_independent,
     "paired_t_test": paired_ttest,
     "oneway_anova": anova_oneway,
@@ -353,10 +325,7 @@ def get_syntax_by_method(method: str, **kwargs: Any) -> str:
     """
     if method not in TEMPLATE_MAP:
         known = ", ".join(sorted(TEMPLATE_MAP))
-        raise ValueError(
-            f"Unknown method '{method}'. "
-            f"Available methods: {known}"
-        )
+        raise ValueError(f"Unknown method '{method}'. Available methods: {known}")
     return TEMPLATE_MAP[method](**kwargs)
 
 
@@ -365,7 +334,7 @@ def get_syntax_by_method(method: str, **kwargs: Any) -> str:
 # ============================================================================
 
 
-def _find_var(variables: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
+def _find_var(variables: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
     """Find a variable dictionary by name in the variable metadata list.
 
     Args:
@@ -383,7 +352,7 @@ def _find_var(variables: List[Dict[str, Any]], name: str) -> Optional[Dict[str, 
     return None
 
 
-def _is_categorical(var: Dict[str, Any]) -> bool:
+def _is_categorical(var: dict[str, Any]) -> bool:
     """Determine whether a variable is categorical (nominal/ordinal).
 
     A variable is considered categorical if:
@@ -404,7 +373,7 @@ def _is_categorical(var: Dict[str, Any]) -> bool:
     return (var_type == "Numeric" and has_labels) or var_type == "String"
 
 
-def _is_continuous(var: Dict[str, Any]) -> bool:
+def _is_continuous(var: dict[str, Any]) -> bool:
     """Determine whether a variable is continuous (scale).
 
     A variable is considered continuous if its type is ``"Numeric"`` **and**
@@ -423,7 +392,7 @@ def _is_continuous(var: Dict[str, Any]) -> bool:
     return labels is None or (isinstance(labels, dict) and len(labels) == 0)
 
 
-def _count_groups(var: Dict[str, Any]) -> Optional[int]:
+def _count_groups(var: dict[str, Any]) -> int | None:
     """Count the number of groups defined in a variable's value labels.
 
     Args:
@@ -440,12 +409,12 @@ def _count_groups(var: Dict[str, Any]) -> Optional[int]:
 
 
 def validate_method(
-    variables: List[Dict[str, Any]],
+    variables: list[dict[str, Any]],
     recommended_method: str,
-    grouping_var: Optional[str] = None,
-    test_var: Optional[str] = None,
-    row_count: Optional[int] = None,
-) -> Dict[str, Any]:
+    grouping_var: str | None = None,
+    test_var: str | None = None,
+    row_count: int | None = None,
+) -> dict[str, Any]:
     """Validate an LLM-recommended statistical method against variable types.
 
     This function acts as a **rule engine** that double-checks whether a
@@ -529,9 +498,9 @@ def validate_method(
         >>> result["errors"]
         ['检验变量 score 为字符串类型，无法进行数值分析']
     """
-    errors: List[str] = []
-    warnings: List[str] = []
-    corrected_method: Optional[str] = None
+    errors: list[str] = []
+    warnings: list[str] = []
+    corrected_method: str | None = None
 
     # Resolve variable metadata (may be None if variable is not in the list).
     group_info = _find_var(variables, grouping_var) if grouping_var else None
@@ -543,9 +512,7 @@ def validate_method(
     # ------------------------------------------------------------------
     if recommended_method in ("independent_t_test", "oneway_anova") and group_info:
         if not _is_categorical(group_info):
-            errors.append(
-                f"分组变量 {grouping_var} 为连续变量，不适合做分组"
-            )
+            errors.append(f"分组变量 {grouping_var} 为连续变量，不适合做分组")
             # Rule 5 — Collateral correction suggestion
             if test_info and _is_continuous(test_info):
                 corrected_method = "pearson_correlation"
@@ -554,15 +521,17 @@ def validate_method(
     # Rule 2 — Test / dependent variable must be continuous
     # Applies to: independent_t_test, oneway_anova, simple_regression
     # ------------------------------------------------------------------
-    if recommended_method in (
-        "independent_t_test",
-        "oneway_anova",
-        "simple_regression",
-    ) and test_info:
+    if (
+        recommended_method
+        in (
+            "independent_t_test",
+            "oneway_anova",
+            "simple_regression",
+        )
+        and test_info
+    ):
         if test_info.get("type") == "String":
-            errors.append(
-                f"检验变量 {test_var} 为字符串类型，无法进行数值分析"
-            )
+            errors.append(f"检验变量 {test_var} 为字符串类型，无法进行数值分析")
 
     # ------------------------------------------------------------------
     # Rule 3 — Number of groups vs. method
@@ -572,8 +541,7 @@ def validate_method(
         n_groups = _count_groups(group_info)
         if n_groups is not None and n_groups >= 3:
             warnings.append(
-                f"分组变量 {grouping_var} 有 {n_groups} 个类别，"
-                f"建议使用单因素方差分析(ANOVA)"
+                f"分组变量 {grouping_var} 有 {n_groups} 个类别，建议使用单因素方差分析(ANOVA)"
             )
             if corrected_method is None:
                 corrected_method = "oneway_anova"
@@ -582,9 +550,7 @@ def validate_method(
     # Rule 4 — Sample size check
     # ------------------------------------------------------------------
     if row_count is not None and row_count < 3:
-        warnings.append(
-            "样本量较小（n<3），统计检验结果可能不可靠"
-        )
+        warnings.append("样本量较小（n<3），统计检验结果可能不可靠")
 
     return {
         "valid": len(errors) == 0,

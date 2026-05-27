@@ -3,7 +3,6 @@ variable validation, bracket checking, and clean syntax pass-through."""
 
 from snla.syntax.validator import validate
 
-
 # ── Blacklist tests (valid=False, errors contain command name) ──────────────
 
 
@@ -114,10 +113,7 @@ def test_bracket_mismatch():
         keyword in e.lower()
         for e in result["errors"]
         for keyword in ("bracket", "parenthesis", "parentheses", "mismatch", "unmatched")
-    ), (
-        f"Expected error mentioning bracket/parenthesis mismatch, "
-        f"got errors={result['errors']}"
-    )
+    ), f"Expected error mentioning bracket/parenthesis mismatch, got errors={result['errors']}"
 
 
 # ── Clean syntax pass-through test ─────────────────────────────────────────
@@ -129,9 +125,7 @@ def test_clean_syntax_passes():
         "FREQUENCIES VARIABLES=gender.",
         var_list=["gender", "score"],
     )
-    assert result["valid"] is True, (
-        f"Clean syntax should pass, got errors={result['errors']}"
-    )
+    assert result["valid"] is True, f"Clean syntax should pass, got errors={result['errors']}"
     assert len(result["errors"]) == 0, (
         f"Clean syntax should produce no errors, got {result['errors']}"
     )

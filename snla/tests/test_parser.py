@@ -10,9 +10,12 @@ import tempfile
 
 import pytest
 
-from snla.parser.output import HAS_LXML, parse, parse_oms_xml, parse_raw_lst, _safe_float
-from snla.parser.schema import AnalysisResult, TableResult, analysis_result_to_dict, dict_to_analysis_result
-
+from snla.parser.output import _safe_float, parse, parse_oms_xml, parse_raw_lst
+from snla.parser.schema import (
+    AnalysisResult,
+    analysis_result_to_dict,
+    dict_to_analysis_result,
+)
 
 # =========================================================================
 # Test 1: OMS XML — T-TEST
@@ -144,8 +147,7 @@ class TestOmsFrequenciesXml:
 
             # At least one table should have frequency-type title
             freq_tables = [
-                t for t in result.tables
-                if "Frequency" in t.title or "Statistics" in t.title
+                t for t in result.tables if "Frequency" in t.title or "Statistics" in t.title
             ]
             assert len(freq_tables) >= 1
 
@@ -248,9 +250,7 @@ score 男      10      79.500    8.200
         assert len(all_rows) > 0
 
         # At least one row should contain a numeric group count
-        has_numeric = any(
-            row.get("N", "").replace(".", "").isdigit() for row in all_rows
-        )
+        has_numeric = any(row.get("N", "").replace(".", "").isdigit() for row in all_rows)
         assert has_numeric, "Expected at least one row with a numeric N value"
 
 
@@ -304,14 +304,10 @@ class TestMultiDimensionAnova:
             # Even with overlapping dimension axes the parser should
             # gracefully handle them and yield tables
             assert isinstance(result.tables, list)
-            assert len(result.tables) > 0, (
-                "Expected at least one table from multi-dimension XML"
-            )
+            assert len(result.tables) > 0, "Expected at least one table from multi-dimension XML"
 
             # Rows should be present
-            assert len(result.tables[0].rows) > 0, (
-                "Expected rows from multi-dimension parsing"
-            )
+            assert len(result.tables[0].rows) > 0, "Expected rows from multi-dimension parsing"
 
         finally:
             os.unlink(tmp.name)

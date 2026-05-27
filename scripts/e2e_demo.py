@@ -94,6 +94,7 @@ def _safe_json_parse(text: str) -> dict:
 # Step 1: Data Loading & Metadata Extraction
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def load_data(data_path: str) -> dict:
     """Load dataset and extract variable metadata."""
     from snla.data.reader import read_and_extract
@@ -106,7 +107,9 @@ def load_data(data_path: str) -> dict:
     print(f"      样本量: {metadata['row_count']}, 变量数: {metadata['column_count']}")
     for v in metadata["variables"]:
         labels = v.get("value_labels") or {}
-        label_str = f" [{', '.join(f'{k}={v}' for k, v in list(labels.items())[:4])}]" if labels else ""
+        label_str = (
+            f" [{', '.join(f'{k}={v}' for k, v in list(labels.items())[:4])}]" if labels else ""
+        )
         print(f"      • {v['name']:12s} {v['type']:8s} {v.get('label', '')}{label_str}")
     print(f"      ⏱ {elapsed:.2f}s\n")
     return metadata
@@ -115,6 +118,7 @@ def load_data(data_path: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 2: Privacy Sanitization
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def sanitize(metadata: dict) -> tuple[list[dict], dict[str, str]]:
     """Sanitize variable names for cloud LLM safety."""
@@ -141,15 +145,17 @@ def sanitize(metadata: dict) -> tuple[list[dict], dict[str, str]]:
 # Step 3: Intent Recognition
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def recognize_intent(user_input: str, variables: list[dict]) -> dict:
     """Recognize user's analysis intent."""
-    print(f"[3/8] 意图识别: \"{user_input}\"")
+    print(f'[3/8] 意图识别: "{user_input}"')
 
     if LLM_MOCK:
         result = _mock_intent(user_input)
     else:
         from snla.llm.client import LLMClient
         from snla.llm.prompts.intent import build_intent_prompt
+
         client = LLMClient()
         messages = build_intent_prompt(user_message=user_input, variables=variables)
         result = _safe_json_parse(client.chat(messages)["content"])
@@ -175,48 +181,123 @@ def _mock_intent(user_input: str) -> dict:
     # ── 1. Crosstabs / Chi-square (before generic "关系" to avoid Pearson false-positive) ──
     crosstab_words = ("卡方", "交叉表", "列联表", "独立性检验")
     if any(w in lower for w in crosstab_words):
-        return {"intent": "relationship", "confidence": 0.9, "rationale": "MOCK crosstab keyword",
-                "modified_variable": None, "suggested_method": "chi_square"}
+        return {
+            "intent": "relationship",
+            "confidence": 0.9,
+            "rationale": "MOCK crosstab keyword",
+            "modified_variable": None,
+            "suggested_method": "chi_square",
+        }
 
     # ── 2. Frequency / count queries (before compare, "男女" shouldn't trigger t-test for "多少人") ──
     freq_words = ("多少人", "几个人", "多少个", "计数", "人数", "频数", "个案数")
     if any(w in lower for w in freq_words):
-        return {"intent": "describe", "confidence": 0.9, "rationale": "MOCK frequency keyword",
-                "modified_variable": None, "suggested_method": "frequencies"}
+        return {
+            "intent": "describe",
+            "confidence": 0.9,
+            "rationale": "MOCK frequency keyword",
+            "modified_variable": None,
+            "suggested_method": "frequencies",
+        }
 
     # ── 3. Group comparison (t-test / ANOVA) ──
-    compare_words = ("比较", "差异", "差别", "显著", "差得", "compare", "diff", "男生", "女生", "男女", "不同", "区别")
+    compare_words = (
+        "比较",
+        "差异",
+        "差别",
+        "显著",
+        "差得",
+        "compare",
+        "diff",
+        "男生",
+        "女生",
+        "男女",
+        "不同",
+        "区别",
+    )
     if any(w in lower for w in compare_words):
         # Hint: "不同班级" / "各班级" / "几个班" → multi-group → ANOVA rather than t-test
         # Hint: "不同班级" / "各班级" / "几个班" → multi-group → ANOVA rather than t-test
-        multi_group_hints = ("各", "不同班", "多个", "三种", "三级", "四组", "几组", "各组", "几个班", "几个组",
-                              "不同.*等级", "不同.*类型", "几种", "几类", "各类",
-                              "舱位", "不同舱", "几种舱")
-        method = "oneway_anova" if any(w in lower for w in multi_group_hints) else "independent_t_test"
-        return {"intent": "compare_groups", "confidence": 0.9, "rationale": "MOCK keyword match",
-                "modified_variable": None, "suggested_method": method}
+        multi_group_hints = (
+            "各",
+            "不同班",
+            "多个",
+            "三种",
+            "三级",
+            "四组",
+            "几组",
+            "各组",
+            "几个班",
+            "几个组",
+            "不同.*等级",
+            "不同.*类型",
+            "几种",
+            "几类",
+            "各类",
+            "舱位",
+            "不同舱",
+            "几种舱",
+        )
+        method = (
+            "oneway_anova" if any(w in lower for w in multi_group_hints) else "independent_t_test"
+        )
+        return {
+            "intent": "compare_groups",
+            "confidence": 0.9,
+            "rationale": "MOCK keyword match",
+            "modified_variable": None,
+            "suggested_method": method,
+        }
 
     # ── 4. Relationship (correlation / regression) ──
     relation_words = ("关系", "相关", "影响", "预测", "correlation", "regression")
     if any(w in lower for w in relation_words):
-        return {"intent": "relationship", "confidence": 0.9, "rationale": "MOCK keyword match",
-                "modified_variable": None, "suggested_method": "pearson_correlation"}
+        return {
+            "intent": "relationship",
+            "confidence": 0.9,
+            "rationale": "MOCK keyword match",
+            "modified_variable": None,
+            "suggested_method": "pearson_correlation",
+        }
 
     # ── 5. Descriptive statistics (catch-all) ──
-    describe_words = ("平均", "均值", "标准差", "描述", "统计", "频率", "分布", "mean", "describe", "frequen")
+    describe_words = (
+        "平均",
+        "均值",
+        "标准差",
+        "描述",
+        "统计",
+        "频率",
+        "分布",
+        "mean",
+        "describe",
+        "frequen",
+    )
     if any(w in lower for w in describe_words):
-        return {"intent": "describe", "confidence": 0.9, "rationale": "MOCK keyword match",
-                "modified_variable": None, "suggested_method": "descriptives"}
-    return {"intent": "describe", "confidence": 0.5, "rationale": "MOCK fallback",
-            "modified_variable": None, "suggested_method": "descriptives"}
+        return {
+            "intent": "describe",
+            "confidence": 0.9,
+            "rationale": "MOCK keyword match",
+            "modified_variable": None,
+            "suggested_method": "descriptives",
+        }
+    return {
+        "intent": "describe",
+        "confidence": 0.5,
+        "rationale": "MOCK fallback",
+        "modified_variable": None,
+        "suggested_method": "descriptives",
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 4: Method Recommendation + Validation
 # ═══════════════════════════════════════════════════════════════════════════
 
-def recommend_method(intent_data: dict, variables: list[dict], user_input: str,
-                     row_count: int) -> tuple[str, str | None, str | None]:
+
+def recommend_method(
+    intent_data: dict, variables: list[dict], user_input: str, row_count: int
+) -> tuple[str, str | None, str | None]:
     """Recommend statistical method and validate with rule engine."""
     print("[4/8] 方法推荐...")
 
@@ -230,9 +311,11 @@ def recommend_method(intent_data: dict, variables: list[dict], user_input: str,
     else:
         from snla.llm.client import LLMClient
         from snla.llm.prompts.method import build_method_prompt
+
         client = LLMClient()
-        messages = build_method_prompt(intent=intent, variables=variables,
-                                       conversation_context=user_input)
+        messages = build_method_prompt(
+            intent=intent, variables=variables, conversation_context=user_input
+        )
         try:
             result = _safe_json_parse(client.chat(messages)["content"])
             method = result.get("recommended_method", "descriptives")
@@ -252,6 +335,7 @@ def recommend_method(intent_data: dict, variables: list[dict], user_input: str,
 
     # Rule-engine double-check
     from snla.syntax.templates import validate_method
+
     validation = validate_method(
         variables=variables,
         recommended_method=method,
@@ -297,8 +381,9 @@ def _auto_detect_vars(variables: list[dict], intent: str) -> tuple[str | None, s
     return cat_var, num_var
 
 
-def _mock_method(intent: str, cat_var: str | None, num_var: str | None,
-                 suggested_method: str | None = None) -> str:
+def _mock_method(
+    intent: str, cat_var: str | None, num_var: str | None, suggested_method: str | None = None
+) -> str:
     """Mock method recommendation based on intent. Respects suggested_method from intent."""
     if suggested_method:
         return suggested_method
@@ -315,8 +400,10 @@ def _mock_method(intent: str, cat_var: str | None, num_var: str | None,
 # Step 5: Syntax Generation + RAG Enhancement
 # ═══════════════════════════════════════════════════════════════════════════
 
-def generate_syntax(method: str, variables: list[dict], cat_var: str | None,
-                    num_var: str | None) -> str:
+
+def generate_syntax(
+    method: str, variables: list[dict], cat_var: str | None, num_var: str | None
+) -> str:
     """Generate SPSS syntax, falling back to templates on LLM failure."""
     print("[5/8] 语法生成...")
 
@@ -325,10 +412,12 @@ def generate_syntax(method: str, variables: list[dict], cat_var: str | None,
         try:
             from snla.llm.client import LLMClient
             from snla.llm.prompts.syntax import build_syntax_prompt
+
             client = LLMClient()
             dataset_summary = {"row_count": 30, "variable_count": len(variables)}
-            messages = build_syntax_prompt(method=method, variables=variables,
-                                           dataset_summary=dataset_summary)
+            messages = build_syntax_prompt(
+                method=method, variables=variables, dataset_summary=dataset_summary
+            )
             response = client.chat(messages)
             syntax = json.loads(response["content"]).get("syntax", "")
             if syntax:
@@ -343,11 +432,12 @@ def generate_syntax(method: str, variables: list[dict], cat_var: str | None,
     # RAG enhancement: show relevant documentation reference
     try:
         from snla.rag.integration import get_syntax_context
+
         ctx = get_syntax_context(method, n_chunks=1, max_chars=500)
         if ctx:
             # Extract just the command reference info
-            lines = ctx.split('\n')[:3]
-            ref = ' '.join(l.strip() for l in lines if l.strip())[:120]
+            lines = ctx.split("\n")[:3]
+            ref = " ".join(l.strip() for l in lines if l.strip())[:120]
             print(f"      📚 RAG: {ref}...")
     except Exception:
         pass  # RAG is optional enhancement
@@ -355,8 +445,9 @@ def generate_syntax(method: str, variables: list[dict], cat_var: str | None,
     return syntax
 
 
-def _syntax_from_template(method: str, variables: list[dict],
-                          cat_var: str | None, num_var: str | None) -> str:
+def _syntax_from_template(
+    method: str, variables: list[dict], cat_var: str | None, num_var: str | None
+) -> str:
     """Generate syntax from pre-built templates."""
     from snla.syntax.templates import get_syntax_by_method
 
@@ -365,8 +456,9 @@ def _syntax_from_template(method: str, variables: list[dict],
 
     def _get_correlation_args(vars_list, cat, num):
         """Find two numeric variables for correlation."""
-        num_vars = [v["name"] for v in vars_list
-                    if v.get("type") == "Numeric" and not v.get("value_labels")]
+        num_vars = [
+            v["name"] for v in vars_list if v.get("type") == "Numeric" and not v.get("value_labels")
+        ]
         if len(num_vars) >= 2:
             return {"var1": num_vars[0], "var2": num_vars[1]}
         return {"var1": num, "var2": num}  # fallback
@@ -390,12 +482,13 @@ def _syntax_from_template(method: str, variables: list[dict],
 # Step 6: Syntax Validation (Security Sandbox)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def validate_syntax(syntax: str, var_list: list[str],
-                    name_map: dict[str, str]) -> dict:
+
+def validate_syntax(syntax: str, var_list: list[str], name_map: dict[str, str]) -> dict:
     """Validate syntax against security sandbox."""
     print("[6/8] 安全校验...")
 
     from snla.syntax.validator import validate as basic_validate
+
     result = basic_validate(syntax, var_list)
 
     if result["valid"]:
@@ -413,6 +506,7 @@ def validate_syntax(syntax: str, var_list: list[str],
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 7: SPSS Execution (Python Submit mode)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def execute_spss(syntax: str, data_path: str, output_name: str = "e2e_analysis"):
     """Execute SPSS syntax and return the execution result."""
@@ -439,6 +533,7 @@ def execute_spss(syntax: str, data_path: str, output_name: str = "e2e_analysis")
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 8: Parse & Explain
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def parse_and_explain(exec_result, method: str) -> dict:
     """Parse SPSS output and generate natural language explanation."""
@@ -488,6 +583,7 @@ def parse_and_explain(exec_result, method: str) -> dict:
 
     # Generate explanation
     from snla.explainer.naturalize import explain as explain_result
+
     explanation = explain_result(analysis_result, use_llm_polish=False)
     print(f"\n{'─' * 60}")
     print(f"📊 白话解读:\n{explanation}")
@@ -504,6 +600,7 @@ def parse_and_explain(exec_result, method: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 # Main Pipeline
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def run_pipeline(data_path: str, query: str, output_dir: str = "./p0_output") -> dict:
     """Run the complete SNLA analysis pipeline."""
@@ -572,10 +669,9 @@ def run_pipeline(data_path: str, query: str, output_dir: str = "./p0_output") ->
 # CLI
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="SNLA End-to-End Demo — NL → SPSS → Explanation"
-    )
+    parser = argparse.ArgumentParser(description="SNLA End-to-End Demo — NL → SPSS → Explanation")
     parser.add_argument("--data-file", required=True, help="Path to .sav or .csv data file")
     parser.add_argument("--query", default=None, help="Natural language analysis query")
     parser.add_argument("--interactive", action="store_true", help="Interactive mode")
@@ -607,6 +703,7 @@ def main():
                 print(f"\n❌ Pipeline failed: {e}")
                 if DEBUG:
                     import traceback
+
                     traceback.print_exc()
                 continue
             print("\n")
@@ -639,6 +736,7 @@ def run_interactive(data_path: str, output_dir: str):
             print(f"\n❌ Error: {e}")
             if DEBUG:
                 import traceback
+
                 traceback.print_exc()
 
 

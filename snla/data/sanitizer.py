@@ -23,15 +23,39 @@ CLOUD_SAFE_FIELDS: set[str] = {
 
 SENSITIVE_VAR_PATTERNS: list[str] = [
     # Chinese patterns (clear semantic boundaries — safe for substring match)
-    "姓名", "身份证", "手机", "电话", "地址", "住址", "邮箱", "工号",
-    "学号", "病历号", "病案号", "护照",
+    "姓名",
+    "身份证",
+    "手机",
+    "电话",
+    "地址",
+    "住址",
+    "邮箱",
+    "工号",
+    "学号",
+    "病历号",
+    "病案号",
+    "护照",
     # English patterns — use word-boundary matching to avoid false positives
     # "name" alone is too broad; use compound or specific patterns instead
-    "patient_name", "patient_id", "full_name", "first_name", "last_name", "person_name",
-    "id_card", "id_number", "social_security", "passport_number",
-    "phone", "mobile", "cellphone", "telephone",
-    "email",  "e_mail",
-    "address", "home_address", "mailing_address",
+    "patient_name",
+    "patient_id",
+    "full_name",
+    "first_name",
+    "last_name",
+    "person_name",
+    "id_card",
+    "id_number",
+    "social_security",
+    "passport_number",
+    "phone",
+    "mobile",
+    "cellphone",
+    "telephone",
+    "email",
+    "e_mail",
+    "address",
+    "home_address",
+    "mailing_address",
     "ssn",
 ]
 
@@ -45,7 +69,6 @@ def filter_for_cloud(metadata: dict) -> dict:
     Additionally strips ``value_labels`` from each variable dict to prevent
     privacy leaks from actual value mappings (e.g., {1:"Male"}) being sent to cloud LLM.
     """
-    import copy
     result: dict = {}
     for k, v in metadata.items():
         if k in CLOUD_SAFE_FIELDS:
@@ -88,7 +111,7 @@ def sanitize_variables(variables: list[dict]) -> tuple[list[dict], int]:
     cjk_patterns: list[str] = []
     ascii_patterns: list[str] = []
     for p in SENSITIVE_VAR_PATTERNS:
-        if any('\u4e00' <= c <= '\u9fff' for c in p):
+        if any("\u4e00" <= c <= "\u9fff" for c in p):
             cjk_patterns.append(p.lower())
         else:
             ascii_patterns.append(p.lower())
@@ -109,10 +132,10 @@ def sanitize_variables(variables: list[dict]) -> tuple[list[dict], int]:
         # ASCII: word-boundary match with separator normalization
         # Replace separators (_ . -) with spaces so "patient_id" matches "patient id"
         if not is_sensitive:
-            normalized = re.sub(r'[_.\-]', ' ', combined)
+            normalized = re.sub(r"[_.\-]", " ", combined)
             for pat in ascii_patterns:
-                pat_normalized = re.sub(r'[_.\-]', ' ', pat)
-                if re.search(r'\b' + re.escape(pat_normalized) + r'\b', normalized):
+                pat_normalized = re.sub(r"[_.\-]", " ", pat)
+                if re.search(r"\b" + re.escape(pat_normalized) + r"\b", normalized):
                     is_sensitive = True
                     break
 

@@ -256,7 +256,7 @@ class BackendAdapter:
         lst_text = None
         if exec_result.lst_path and os.path.isfile(exec_result.lst_path):
             try:
-                with open(exec_result.lst_path, "r", encoding="utf-8", errors="replace") as f:
+                with open(exec_result.lst_path, encoding="utf-8", errors="replace") as f:
                     lst_text = f.read()
             except OSError:
                 pass
@@ -503,15 +503,10 @@ def _build_template_kwargs(method: str, kwargs: dict[str, Any]) -> dict[str, Any
     elif method in ("crosstabs", "chi_square"):
         out["row_var"] = kwargs.get("row_var", group_var or "")
         out["col_var"] = kwargs.get("col_var", test_var or "")
-    elif method in ("correlations", "pearson_correlation"):
+    elif method in ("correlations", "pearson_correlation") or method == "spearman_correlation":
         out["var1"] = kwargs.get("var1", group_var or "")
         out["var2"] = kwargs.get("var2", test_var or "")
-    elif method == "spearman_correlation":
-        out["var1"] = kwargs.get("var1", group_var or "")
-        out["var2"] = kwargs.get("var2", test_var or "")
-    elif method == "frequencies":
-        out["var"] = kwargs.get("var", test_var or group_var or "")
-    elif method == "descriptives":
+    elif method == "frequencies" or method == "descriptives":
         out["var"] = kwargs.get("var", test_var or group_var or "")
     elif method == "mann_whitney_u":
         out["group_var"] = group_var or ""
@@ -551,10 +546,7 @@ def _load_data(data_path: str) -> pd.DataFrame:
     if ext == ".csv":
         return pd.read_csv(data_path)
 
-    raise ValueError(
-        f"Unsupported data format: '{ext}'. "
-        f"Expected .sav or .csv."
-    )
+    raise ValueError(f"Unsupported data format: '{ext}'. Expected .sav or .csv.")
 
 
 __all__ = [

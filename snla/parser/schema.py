@@ -9,8 +9,8 @@ Consumed by:
     - explainer/naturalize.py (the result explainer)
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -80,7 +80,7 @@ class AnalysisResult:
     notes: list[str] = field(default_factory=list)
     """Global notes or warnings from the analysis."""
 
-    raw_output_path: Optional[str] = None
+    raw_output_path: str | None = None
     """Path to the original SPSS output file, if available."""
 
     parser_used: str = "oms_xml"

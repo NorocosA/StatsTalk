@@ -13,14 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # ── Intent category definitions (injected into the system prompt) ──────
 _INTENT_DEFINITIONS: dict[str, str] = {
     "describe": "描述统计（求均值、标准差、频数、百分比等）",
     "compare_groups": "组间比较（差异检验、t检验、方差分析等）",
     "relationship": "关系分析（相关分析、回归分析等）",
     "visualize": "图表需求（画图、箱线图、散点图等）",
-    "follow_up": "追问/修改上一轮分析（\"换成XX呢？\"\"再看看YY\"）",
+    "follow_up": '追问/修改上一轮分析（"换成XX呢？""再看看YY"）',
     "unknown": "无法识别意图",
 }
 
@@ -92,10 +91,7 @@ def _build_system_prompt() -> str:
     lines.append("  未知或无法确定时为 null")
     lines += [
         "",
-        (
-            "请严格按照上述 JSON 格式输出，"
-            "不要包含任何额外说明或 markdown 代码块标记。"
-        ),
+        ("请严格按照上述 JSON 格式输出，不要包含任何额外说明或 markdown 代码块标记。"),
     ]
     return "\n".join(lines)
 
@@ -256,9 +252,7 @@ def _format_variables(variables: list[dict[str, Any]]) -> str:
 
         label_str = label
         if value_labels:
-            pairs = " ".join(
-                f"{k}={v}" for k, v in sorted(value_labels.items())
-            )
+            pairs = " ".join(f"{k}={v}" for k, v in sorted(value_labels.items()))
             if label_str:
                 label_str = f"{label_str}, {pairs}"
             else:
@@ -287,11 +281,7 @@ def _format_last_analysis(last: dict[str, Any]) -> str:
     method = last.get("method", "?")
     grouping_var = last.get("grouping_var", "?")
     test_var = last.get("test_var", "?")
-    return (
-        f"方法: {method}\n"
-        f"分组变量: {grouping_var}\n"
-        f"检验变量: {test_var}"
-    )
+    return f"方法: {method}\n分组变量: {grouping_var}\n检验变量: {test_var}"
 
 
 def _get_sample_size(variables: list[dict[str, Any]]) -> int | None:

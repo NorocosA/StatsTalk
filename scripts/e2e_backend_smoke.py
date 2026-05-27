@@ -162,8 +162,12 @@ def compare_results(spss_result: dict, py_result: dict, case_id: str) -> None:
 def main():
     parser = argparse.ArgumentParser(description="P5-3f E2E backend smoke test")
     parser.add_argument("--quick", action="store_true", help="Run only 3 cases")
-    parser.add_argument("--backend", choices=["spss", "python", "both"],
-                        default="both", help="Which backend(s) to test")
+    parser.add_argument(
+        "--backend",
+        choices=["spss", "python", "both"],
+        default="both",
+        help="Which backend(s) to test",
+    )
     args = parser.parse_args()
 
     cases = SMOKE_CASES[:3] if args.quick else SMOKE_CASES
@@ -198,7 +202,7 @@ def main():
         for case in cases:
             cid = case["id"]
             text = case["text"]
-            print(f"\n  --- {cid}: \"{text}\" ---")
+            print(f'\n  --- {cid}: "{text}" ---')
 
             if args.backend in ("spss", "both"):
                 print(f"  [SPSS backend]")
@@ -208,7 +212,9 @@ def main():
                     explanation = spss_result.get("explanation", "")
                     has_explanation = bool(explanation and explanation.strip())
                     print(f"    [OK]   Method: {method}")
-                    print(f"    [OK]   Explanation: {'Yes' if has_explanation else 'No (limited mode)'}")
+                    print(
+                        f"    [OK]   Explanation: {'Yes' if has_explanation else 'No (limited mode)'}"
+                    )
                     passed += 1
                 else:
                     err = spss_result.get("error", "unknown") if spss_result else "no response"

@@ -9,7 +9,6 @@ import pytest
 
 from snla.data.reader import extract_metadata, read_and_extract, read_csv, read_sav
 
-
 # =========================================================================
 # Test 1: read_and_extract — .sav file
 # =========================================================================
@@ -17,17 +16,13 @@ from snla.data.reader import extract_metadata, read_and_extract, read_csv, read_
 
 def test_read_and_extract_sav():
     """Verify read_and_extract works with the project's test_data.sav fixture."""
-    test_file = os.path.join(
-        os.path.dirname(__file__), "fixtures", "test_data.sav"
-    )
+    test_file = os.path.join(os.path.dirname(__file__), "fixtures", "test_data.sav")
     if not os.path.exists(test_file):
         pytest.skip("test_data.sav fixture not found")
 
     result = read_and_extract(test_file)
 
-    assert result["format"] == "sav", (
-        f"Expected format='sav', got {result['format']}"
-    )
+    assert result["format"] == "sav", f"Expected format='sav', got {result['format']}"
     assert result["row_count"] > 0, "Expected non-zero row count"
     assert result["column_count"] > 0, "Expected non-zero column count"
     assert "variables" in result, "Expected 'variables' key in result"
@@ -67,15 +62,9 @@ def test_read_and_extract_csv():
 
         result = read_and_extract(tmp.name)
 
-        assert result["format"] == "csv", (
-            f"Expected format='csv', got {result['format']}"
-        )
-        assert result["row_count"] == 3, (
-            f"Expected 3 rows, got {result['row_count']}"
-        )
-        assert result["column_count"] == 3, (
-            f"Expected 3 columns, got {result['column_count']}"
-        )
+        assert result["format"] == "csv", f"Expected format='csv', got {result['format']}"
+        assert result["row_count"] == 3, f"Expected 3 rows, got {result['row_count']}"
+        assert result["column_count"] == 3, f"Expected 3 columns, got {result['column_count']}"
 
         var_names = [v["name"] for v in result["variables"]]
         assert "name" in var_names
@@ -171,9 +160,7 @@ def test_read_csv_encoding_fallback(monkeypatch):
     monkeypatch.setattr(reader_mod.os.path, "exists", lambda p: True)
 
     df, meta = read_csv(fake_path)
-    assert call_count[0] == 2, (
-        f"Expected 2 calls (utf-8 fail → gbk succeed), got {call_count[0]}"
-    )
+    assert call_count[0] == 2, f"Expected 2 calls (utf-8 fail → gbk succeed), got {call_count[0]}"
     assert isinstance(df, pd.DataFrame)
     assert meta["format"] == "csv"
 
@@ -202,9 +189,12 @@ def test_extract_metadata_nan_label():
     df = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
 
     meta = {
-        "filename": "test.sav", "format": "sav",
-        "row_count": 2, "column_count": 2,
-        "file_path": "/tmp/test.sav", "file_label": None,
+        "filename": "test.sav",
+        "format": "sav",
+        "row_count": 2,
+        "column_count": 2,
+        "file_path": "/tmp/test.sav",
+        "file_label": None,
         "_column_names": ["col1", "col2"],
         "_column_labels": [float("nan"), None],
         "_variable_value_labels": {},

@@ -82,9 +82,14 @@ class PythonStatsExecutor:
                 parser_used="python_pingouin",
             )
         return handler(
-            data=data, grouping_var=grouping_var, test_var=test_var,
-            dep_var=dep_var, indep_var=indep_var,
-            var1=var1, var2=var2, groups=groups,
+            data=data,
+            grouping_var=grouping_var,
+            test_var=test_var,
+            dep_var=dep_var,
+            indep_var=indep_var,
+            var1=var1,
+            var2=var2,
+            groups=groups,
         )
 
     # ==================================================================
@@ -110,36 +115,64 @@ class PythonStatsExecutor:
         if len(g1) < 2 or len(g2) < 2:
             return AnalysisResult(
                 analysis_type="T-TEST",
-                notes=[f"Python backend: insufficient data for t-test "
-                       f"(group sizes: {len(g1)}, {len(g2)}). Need ≥2 per group."],
+                notes=[
+                    f"Python backend: insufficient data for t-test "
+                    f"(group sizes: {len(g1)}, {len(g2)}). Need ≥2 per group."
+                ],
                 parser_used="python_pingouin",
             )
 
         res = pg.ttest(g1, g2, correction="auto")
         t_val = float(res["T"].iloc[0])
         p_val = float(res["p_val"].iloc[0])
-        dof   = float(res["dof"].iloc[0])
-        cd    = float(res.get("cohen_d", pd.Series([0])).iloc[0])
-        ci    = res.get("CI95%", pd.Series([[]])).iloc[0]
+        dof = float(res["dof"].iloc[0])
+        cd = float(res.get("cohen_d", pd.Series([0])).iloc[0])
+        ci = res.get("CI95%", pd.Series([[]])).iloc[0]
 
         return AnalysisResult(
             analysis_type="T-TEST",
             tables=[
-                TableResult(title="Group Statistics", rows=[
-                    {"group": str(groups[0]), "N": len(g1), "Mean": round(g1.mean(), 4),
-                     "StdDev": round(g1.std(ddof=1), 4)},
-                    {"group": str(groups[1]) if len(groups) > 1 else "—",
-                     "N": len(g2), "Mean": round(g2.mean(), 4) if len(g2) else 0,
-                     "StdDev": round(g2.std(ddof=1), 4) if len(g2) else 0},
-                ], source_format="python_pingouin"),
-                TableResult(title="Independent Samples Test", rows=[
-                    {"t": round(t_val, 4), "df": int(dof), "p_value": round(p_val, 4),
-                     "Cohen_d": round(cd, 4),
-                     "CI95": f"[{ci[0]:.4f}, {ci[1]:.4f}]" if isinstance(ci, (list, tuple)) and len(ci) == 2 else str(ci)}
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Group Statistics",
+                    rows=[
+                        {
+                            "group": str(groups[0]),
+                            "N": len(g1),
+                            "Mean": round(g1.mean(), 4),
+                            "StdDev": round(g1.std(ddof=1), 4),
+                        },
+                        {
+                            "group": str(groups[1]) if len(groups) > 1 else "—",
+                            "N": len(g2),
+                            "Mean": round(g2.mean(), 4) if len(g2) else 0,
+                            "StdDev": round(g2.std(ddof=1), 4) if len(g2) else 0,
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
+                TableResult(
+                    title="Independent Samples Test",
+                    rows=[
+                        {
+                            "t": round(t_val, 4),
+                            "df": int(dof),
+                            "p_value": round(p_val, 4),
+                            "Cohen_d": round(cd, 4),
+                            "CI95": f"[{ci[0]:.4f}, {ci[1]:.4f}]"
+                            if isinstance(ci, (list, tuple)) and len(ci) == 2
+                            else str(ci),
+                        }
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
-            statistics={"t_value": t_val, "p_value": p_val, "df": int(dof),
-                        "cohen_d": cd, "n_valid": len(g1) + len(g2)},
+            statistics={
+                "t_value": t_val,
+                "p_value": p_val,
+                "df": int(dof),
+                "cohen_d": cd,
+                "n_valid": len(g1) + len(g2),
+            },
             n_valid=len(g1) + len(g2),
             parser_used="python_pingouin",
         )
@@ -164,7 +197,9 @@ class PythonStatsExecutor:
         if v1 == v2:
             return AnalysisResult(
                 analysis_type="T-TEST",
-                notes=[f"Python backend: paired t-test requires two different variables (got '{v1}' twice)"],
+                notes=[
+                    f"Python backend: paired t-test requires two different variables (got '{v1}' twice)"
+                ],
                 parser_used="python_pingouin",
             )
         d1 = data[v1].dropna()
@@ -176,22 +211,50 @@ class PythonStatsExecutor:
         res = pg.ttest(d1, d2, paired=True)
         t_val = float(res["T"].iloc[0])
         p_val = float(res["p_val"].iloc[0])
-        dof   = float(res["dof"].iloc[0])
-        cd    = float(res.get("cohen_d", pd.Series([0])).iloc[0])
+        dof = float(res["dof"].iloc[0])
+        cd = float(res.get("cohen_d", pd.Series([0])).iloc[0])
 
         return AnalysisResult(
             analysis_type="T-TEST",
             tables=[
-                TableResult(title="Paired Samples Statistics", rows=[
-                    {"variable": v1, "N": n, "Mean": round(d1.mean(), 4), "StdDev": round(d1.std(ddof=1), 4)},
-                    {"variable": v2, "N": n, "Mean": round(d2.mean(), 4), "StdDev": round(d2.std(ddof=1), 4)},
-                ], source_format="python_pingouin"),
-                TableResult(title="Paired Samples Test", rows=[
-                    {"t": round(t_val, 4), "df": int(dof), "p_value": round(p_val, 4),
-                     "Cohen_d": round(cd, 4)},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Paired Samples Statistics",
+                    rows=[
+                        {
+                            "variable": v1,
+                            "N": n,
+                            "Mean": round(d1.mean(), 4),
+                            "StdDev": round(d1.std(ddof=1), 4),
+                        },
+                        {
+                            "variable": v2,
+                            "N": n,
+                            "Mean": round(d2.mean(), 4),
+                            "StdDev": round(d2.std(ddof=1), 4),
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
+                TableResult(
+                    title="Paired Samples Test",
+                    rows=[
+                        {
+                            "t": round(t_val, 4),
+                            "df": int(dof),
+                            "p_value": round(p_val, 4),
+                            "Cohen_d": round(cd, 4),
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
-            statistics={"t_value": t_val, "p_value": p_val, "df": int(dof), "cohen_d": cd, "n_valid": n},
+            statistics={
+                "t_value": t_val,
+                "p_value": p_val,
+                "df": int(dof),
+                "cohen_d": cd,
+                "n_valid": n,
+            },
             n_valid=n,
             parser_used="python_pingouin",
         )
@@ -216,24 +279,32 @@ class PythonStatsExecutor:
         res = pg.anova(data=clean, dv=tv, between=gv, detailed=True)
         f_val = float(res["F"].iloc[0])
         p_val = float(res["p_unc"].iloc[0])
-        np2   = float(res.get("np2", pd.Series([0])).iloc[0])
+        np2 = float(res.get("np2", pd.Series([0])).iloc[0])
 
         # Group descriptives
         desc = clean.groupby(gv)[tv].agg(["count", "mean", "std"]).reset_index()
         desc_rows = []
         for _, row in desc.iterrows():
-            desc_rows.append({
-                "group": str(row[gv]), "N": int(row["count"]),
-                "Mean": round(row["mean"], 4), "StdDev": round(row["std"], 4),
-            })
+            desc_rows.append(
+                {
+                    "group": str(row[gv]),
+                    "N": int(row["count"]),
+                    "Mean": round(row["mean"], 4),
+                    "StdDev": round(row["std"], 4),
+                }
+            )
 
         return AnalysisResult(
             analysis_type="ANOVA",
             tables=[
                 TableResult(title="Descriptives", rows=desc_rows, source_format="python_pingouin"),
-                TableResult(title="ANOVA", rows=[
-                    {"F": round(f_val, 4), "p_value": round(p_val, 4), "eta_sq": round(np2, 4)},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="ANOVA",
+                    rows=[
+                        {"F": round(f_val, 4), "p_value": round(p_val, 4), "eta_sq": round(np2, 4)},
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
             statistics={"f_value": f_val, "p_value": p_val, "eta_sq": np2, "n_valid": len(clean)},
             n_valid=len(clean),
@@ -260,31 +331,43 @@ class PythonStatsExecutor:
         if dep == ind:
             return AnalysisResult(
                 analysis_type="REGRESSION",
-                notes=[f"Python backend: dependent and independent variable "
-                       f"are the same ('{dep}') — need different variables"],
+                notes=[
+                    f"Python backend: dependent and independent variable "
+                    f"are the same ('{dep}') — need different variables"
+                ],
                 parser_used="python_pingouin",
             )
         clean = data[[dep, ind]].dropna()
 
         res = pg.linear_regression(clean[ind], clean[dep])
-        r2    = float(res["r2"].iloc[0])
+        r2 = float(res["r2"].iloc[0])
         adj_r2 = float(res["adj_r2"].iloc[0])
         coef_rows = []
         for _, row in res.iterrows():
-            coef_rows.append({
-                "Predictor": row.get("names", "—"),
-                "B": round(float(row["coef"]), 4),
-                "SE": round(float(row["se"]), 4),
-                "t": round(float(row["T"]), 4),
-                "p": round(float(row["pval"]), 4),
-            })
+            coef_rows.append(
+                {
+                    "Predictor": row.get("names", "—"),
+                    "B": round(float(row["coef"]), 4),
+                    "SE": round(float(row["se"]), 4),
+                    "t": round(float(row["T"]), 4),
+                    "p": round(float(row["pval"]), 4),
+                }
+            )
 
         return AnalysisResult(
             analysis_type="REGRESSION",
             tables=[
-                TableResult(title="Model Summary", rows=[
-                    {"R_squared": round(r2, 4), "Adj_R_squared": round(adj_r2, 4), "N": len(clean)},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Model Summary",
+                    rows=[
+                        {
+                            "R_squared": round(r2, 4),
+                            "Adj_R_squared": round(adj_r2, 4),
+                            "N": len(clean),
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
                 TableResult(title="Coefficients", rows=coef_rows, source_format="python_pingouin"),
             ],
             statistics={"r_squared": r2, "adj_r_squared": adj_r2, "n_valid": len(clean)},
@@ -297,24 +380,29 @@ class PythonStatsExecutor:
     # ==================================================================
 
     def _correlation_pearson(
-        self, data: pd.DataFrame | None = None,
-        var1: str | None = None, var2: str | None = None,
+        self,
+        data: pd.DataFrame | None = None,
+        var1: str | None = None,
+        var2: str | None = None,
         **__: Any,
     ) -> AnalysisResult:
-        return self._correlation(data, method="pearson",
-                                 var1=var1, var2=var2)  # type: ignore[arg-type]
+        return self._correlation(data, method="pearson", var1=var1, var2=var2)  # type: ignore[arg-type]
 
     def _correlation_spearman(
-        self, data: pd.DataFrame | None = None,
-        var1: str | None = None, var2: str | None = None,
+        self,
+        data: pd.DataFrame | None = None,
+        var1: str | None = None,
+        var2: str | None = None,
         **__: Any,
     ) -> AnalysisResult:
-        return self._correlation(data, method="spearman",
-                                 var1=var1, var2=var2)  # type: ignore[arg-type]
+        return self._correlation(data, method="spearman", var1=var1, var2=var2)  # type: ignore[arg-type]
 
     def _correlation(
-        self, data: pd.DataFrame | None = None, method: str = "pearson",
-        var1: str | None = None, var2: str | None = None,
+        self,
+        data: pd.DataFrame | None = None,
+        method: str = "pearson",
+        var1: str | None = None,
+        var2: str | None = None,
     ) -> AnalysisResult:
         if data is None:
             return AnalysisResult(
@@ -325,13 +413,14 @@ class PythonStatsExecutor:
         import pingouin as pg
 
         # Use specified vars when provided and valid, else pick two numeric cols
-        if (var1 and var2 and var1 in data.columns and var2 in data.columns
-                and var1 != var2):
+        if var1 and var2 and var1 in data.columns and var2 in data.columns and var1 != var2:
             v1, v2 = var1, var2
         else:
-            nums = [c for c in data.columns
-                    if pd.api.types.is_numeric_dtype(data[c])
-                    and c.lower() not in ("id",)]
+            nums = [
+                c
+                for c in data.columns
+                if pd.api.types.is_numeric_dtype(data[c]) and c.lower() not in ("id",)
+            ]
             if len(nums) < 2:
                 return AnalysisResult(
                     analysis_type="CORRELATIONS",
@@ -350,10 +439,19 @@ class PythonStatsExecutor:
         return AnalysisResult(
             analysis_type="CORRELATIONS",
             tables=[
-                TableResult(title="Correlations", rows=[
-                    {"variables": f"{v1} × {v2}", "r": round(r_val, 4),
-                     "p_value": round(p_val, 4), "N": n_val, "method": method},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Correlations",
+                    rows=[
+                        {
+                            "variables": f"{v1} × {v2}",
+                            "r": round(r_val, 4),
+                            "p_value": round(p_val, 4),
+                            "N": n_val,
+                            "method": method,
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
             statistics={"r": r_val, "p_value": p_val, "n_valid": n_val, "method": method},
             n_valid=n_val,
@@ -385,7 +483,7 @@ class PythonStatsExecutor:
             pearson = res.iloc[[0]]
         chi2 = float(pearson["chi2"].iloc[0])
         p_val = float(pearson["pval"].iloc[0])
-        dof  = int(pearson["dof"].iloc[0])
+        dof = int(pearson["dof"].iloc[0])
 
         ctab_rows = []
         for idx, row in ctab.iterrows():
@@ -396,10 +494,16 @@ class PythonStatsExecutor:
         return AnalysisResult(
             analysis_type="CROSSTABS",
             tables=[
-                TableResult(title="Crosstabulation", rows=ctab_rows, source_format="python_pingouin"),
-                TableResult(title="Chi-Square Tests", rows=[
-                    {"chi_square": round(chi2, 4), "df": dof, "p_value": round(p_val, 4)},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Crosstabulation", rows=ctab_rows, source_format="python_pingouin"
+                ),
+                TableResult(
+                    title="Chi-Square Tests",
+                    rows=[
+                        {"chi_square": round(chi2, 4), "df": dof, "p_value": round(p_val, 4)},
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
             statistics={"chi_square": chi2, "p_value": p_val, "df": dof, "n_valid": len(clean)},
             n_valid=len(clean),
@@ -427,13 +531,15 @@ class PythonStatsExecutor:
 
         rows = []
         for _, r in counts.iterrows():
-            rows.append({
-                "value": str(r["value"]),
-                "Frequency": int(r["Frequency"]),
-                "Percent": round(float(r["Percent"]), 2),
-                "Valid_Percent": round(float(r["Valid_Percent"]), 2),
-                "Cumulative_Percent": round(float(r["Cumulative_Percent"]), 2),
-            })
+            rows.append(
+                {
+                    "value": str(r["value"]),
+                    "Frequency": int(r["Frequency"]),
+                    "Percent": round(float(r["Percent"]), 2),
+                    "Valid_Percent": round(float(r["Valid_Percent"]), 2),
+                    "Cumulative_Percent": round(float(r["Cumulative_Percent"]), 2),
+                }
+            )
 
         return AnalysisResult(
             analysis_type="FREQUENCIES",
@@ -457,25 +563,34 @@ class PythonStatsExecutor:
     ) -> AnalysisResult:
         tv = test_var or grouping_var or data.columns[0]
         col = data[tv].dropna()
-        rows = [{
-            "variable": tv,
-            "N": len(col),
-            "Mean": round(float(col.mean()), 4),
-            "StdDev": round(float(col.std(ddof=1)), 4),
-            "Min": round(float(col.min()), 4),
-            "Max": round(float(col.max()), 4),
-            "Median": round(float(col.median()), 4),
-            "Skewness": round(float(col.skew()), 4),
-            "Kurtosis": round(float(col.kurtosis()), 4),
-        }]
+        rows = [
+            {
+                "variable": tv,
+                "N": len(col),
+                "Mean": round(float(col.mean()), 4),
+                "StdDev": round(float(col.std(ddof=1)), 4),
+                "Min": round(float(col.min()), 4),
+                "Max": round(float(col.max()), 4),
+                "Median": round(float(col.median()), 4),
+                "Skewness": round(float(col.skew()), 4),
+                "Kurtosis": round(float(col.kurtosis()), 4),
+            }
+        ]
 
         return AnalysisResult(
             analysis_type="DESCRIPTIVES",
-            tables=[TableResult(title="Descriptive Statistics", rows=rows, source_format="python_pingouin")],
+            tables=[
+                TableResult(
+                    title="Descriptive Statistics", rows=rows, source_format="python_pingouin"
+                )
+            ],
             statistics={
-                "n": len(col), "n_valid": len(col),
-                "mean": rows[0]["Mean"], "std_dev": rows[0]["StdDev"],
-                "minimum": rows[0]["Min"], "maximum": rows[0]["Max"],
+                "n": len(col),
+                "n_valid": len(col),
+                "mean": rows[0]["Mean"],
+                "std_dev": rows[0]["StdDev"],
+                "minimum": rows[0]["Min"],
+                "maximum": rows[0]["Max"],
             },
             n_valid=len(col),
             n_missing=int(len(data) - len(col)),
@@ -512,15 +627,23 @@ class PythonStatsExecutor:
         res = pg.mwu(g1, g2)
         u_val = float(res["U_val"].iloc[0])
         p_val = float(res["p_val"].iloc[0])
-        rbc   = float(res.get("RBC", pd.Series([0])).iloc[0])
+        rbc = float(res.get("RBC", pd.Series([0])).iloc[0])
 
         return AnalysisResult(
             analysis_type="MANN_WHITNEY",
             tables=[
-                TableResult(title="Mann-Whitney U Test", rows=[
-                    {"U": round(u_val, 4), "p_value": round(p_val, 4),
-                     "RBC": round(rbc, 4), "N": len(g1) + len(g2)},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Mann-Whitney U Test",
+                    rows=[
+                        {
+                            "U": round(u_val, 4),
+                            "p_value": round(p_val, 4),
+                            "RBC": round(rbc, 4),
+                            "N": len(g1) + len(g2),
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
             statistics={"u": u_val, "p_value": p_val, "rbc": rbc, "n_valid": len(g1) + len(g2)},
             n_valid=len(g1) + len(g2),
@@ -545,17 +668,25 @@ class PythonStatsExecutor:
         clean = data[[gv, tv]].dropna()
 
         res = pg.kruskal(data=clean, dv=tv, between=gv)
-        h_val   = float(res["H"].iloc[0])
-        p_val   = float(res["p_unc"].iloc[0])
-        eta_sq  = float(res.get("np2", pd.Series([0])).iloc[0])
+        h_val = float(res["H"].iloc[0])
+        p_val = float(res["p_unc"].iloc[0])
+        eta_sq = float(res.get("np2", pd.Series([0])).iloc[0])
 
         return AnalysisResult(
             analysis_type="KRUSKAL_WALLIS",
             tables=[
-                TableResult(title="Kruskal-Wallis Test", rows=[
-                    {"H": round(h_val, 4), "p_value": round(p_val, 4),
-                     "eta_sq": round(eta_sq, 4), "N": len(clean)},
-                ], source_format="python_pingouin"),
+                TableResult(
+                    title="Kruskal-Wallis Test",
+                    rows=[
+                        {
+                            "H": round(h_val, 4),
+                            "p_value": round(p_val, 4),
+                            "eta_sq": round(eta_sq, 4),
+                            "N": len(clean),
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
             ],
             statistics={"h": h_val, "p_value": p_val, "eta_sq": eta_sq, "n_valid": len(clean)},
             n_valid=len(clean),

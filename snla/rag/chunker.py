@@ -24,7 +24,6 @@ Output: list[dict] — each dict has keys:
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,11 +34,27 @@ from typing import Any
 
 # Commands essential for SNLA P0 operations
 SNLA_ESSENTIAL_COMMANDS: set[str] = {
-    "FREQUENCIES", "DESCRIPTIVES", "T-TEST", "CROSSTABS",
-    "REGRESSION", "ONEWAY", "OMS", "OMSEND", "OMSLINFO",
-    "AUTORECODE", "RECODE", "COMPUTE", "SELECT IF", "FILTER",
-    "SORT CASES", "WEIGHT", "RENAME VARIABLES",
-    "CORRELATIONS", "NONPAR CORR", "NPAR TESTS", "EXAMINE",
+    "FREQUENCIES",
+    "DESCRIPTIVES",
+    "T-TEST",
+    "CROSSTABS",
+    "REGRESSION",
+    "ONEWAY",
+    "OMS",
+    "OMSEND",
+    "OMSLINFO",
+    "AUTORECODE",
+    "RECODE",
+    "COMPUTE",
+    "SELECT IF",
+    "FILTER",
+    "SORT CASES",
+    "WEIGHT",
+    "RENAME VARIABLES",
+    "CORRELATIONS",
+    "NONPAR CORR",
+    "NPAR TESTS",
+    "EXAMINE",
 }
 
 # Category mapping for common SPSS commands
@@ -76,12 +91,15 @@ COMMAND_CATEGORIES: dict[str, str] = {
 
 # Keywords indicating subcommand sections
 SUBCOMMAND_MARKERS: list[str] = [
-    "Subcommand", "subcommand", "Keyword", "keyword",
+    "Subcommand",
+    "subcommand",
+    "Keyword",
+    "keyword",
 ]
 
 # TOC front matter page range (0-indexed)
-TOC_START_PAGE: int = 2   # Page 3
-TOC_END_PAGE: int = 75    # Page 76 (TOC extends ~65 pages in this version)
+TOC_START_PAGE: int = 2  # Page 3
+TOC_END_PAGE: int = 75  # Page 76 (TOC extends ~65 pages in this version)
 
 # The TOC in this PDF edition was generated from a different printing.
 # All TOC page numbers are systematically 70 pages behind the actual

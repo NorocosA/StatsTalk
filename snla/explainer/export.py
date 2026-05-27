@@ -40,7 +40,7 @@ def export_to_docx(
     """
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches, Pt
+    from docx.shared import Pt
 
     doc = Document()
 
@@ -112,7 +112,9 @@ def export_to_docx(
 
         # Descriptive statistics
         _add_stat_row(table, "均值", stats.get("mean"), fmt=".2f")
-        _add_stat_row(table, "标准差", stats.get("std_dev") or stats.get("std_deviation"), fmt=".2f")
+        _add_stat_row(
+            table, "标准差", stats.get("std_dev") or stats.get("std_deviation"), fmt=".2f"
+        )
         _add_stat_row(table, "最小值", stats.get("minimum"), fmt=".2f")
         _add_stat_row(table, "最大值", stats.get("maximum"), fmt=".2f")
 
@@ -194,10 +196,7 @@ def _build_apa(method: str, method_label: str, stats: dict[str, Any]) -> str:
         p_str = _apa_p(p)
         mean_diff = stats.get("mean_diff")
         if mean_diff is not None:
-            return (
-                f"采用{method_label}，结果{t_str}，{p_str}，"
-                f"均值差 = {mean_diff:.2f}。"
-            )
+            return f"采用{method_label}，结果{t_str}，{p_str}，均值差 = {mean_diff:.2f}。"
         return f"采用{method_label}，结果{t_str}，{p_str}。"
 
     # ── ANOVA style ──
@@ -205,27 +204,21 @@ def _build_apa(method: str, method_label: str, stats: dict[str, Any]) -> str:
     if f_val is not None and p is not None:
         df_model = stats.get("df")
         df_str = f"({int(df_model)}, ...)" if df_model is not None else ""
-        return (
-            f"采用{method_label}，结果F{df_str} = {f_val:.2f}，{_apa_p(p)}。"
-        )
+        return f"采用{method_label}，结果F{df_str} = {f_val:.2f}，{_apa_p(p)}。"
 
     # ── Correlation style ──
     r = stats.get("r")
     n = stats.get("n_valid") or stats.get("n")
     if r is not None and p is not None:
         n_str = f", N = {int(n)}" if n is not None else ""
-        return (
-            f"采用{method_label}，结果r = {r:.3f}{n_str}，{_apa_p(p)}。"
-        )
+        return f"采用{method_label}，结果r = {r:.3f}{n_str}，{_apa_p(p)}。"
 
     # ── Chi-square style ──
     chi2 = stats.get("chi_square")
     if chi2 is not None and p is not None:
         df_chi = stats.get("df")
         df_str = f"({int(df_chi)}, N = ...)" if df_chi is not None else ""
-        return (
-            f"采用{method_label}，结果χ²{df_str} = {chi2:.2f}，{_apa_p(p)}。"
-        )
+        return f"采用{method_label}，结果χ²{df_str} = {chi2:.2f}，{_apa_p(p)}。"
 
     # ── Generic fallback ──
     if p is not None:

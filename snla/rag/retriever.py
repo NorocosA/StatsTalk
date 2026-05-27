@@ -157,6 +157,7 @@ class Retriever:
             List of chunk dicts, sorted by page.
         """
         from snla.rag.store import get_by_command
+
         return get_by_command(command, persist_dir=self._persist_dir)
 
     # ---- Knowledge Base Info ----
@@ -164,18 +165,18 @@ class Retriever:
     def list_commands(self) -> list[str]:
         """List all indexed command names."""
         from snla.rag.store import list_commands
+
         return list_commands(self._persist_dir)
 
     def stats(self) -> dict[str, Any]:
         """Get knowledge base statistics."""
         from snla.rag.store import collection_stats
+
         return collection_stats(self._persist_dir)
 
     # ---- Validator Integration ----
 
-    def validate_command(
-        self, command: str
-    ) -> dict[str, Any]:
+    def validate_command(self, command: str) -> dict[str, Any]:
         """Check if a command exists in the knowledge base and return its info.
 
         Used by validator.py to enhance validation with official subcommand lists.
@@ -221,9 +222,7 @@ class Retriever:
 
     # ---- Syntax Prompt Integration ----
 
-    def get_context_for_method(
-        self, method: str, n_chunks: int = 3
-    ) -> str:
+    def get_context_for_method(self, method: str, n_chunks: int = 3) -> str:
         """Retrieve relevant documentation context for a statistical method.
 
         Used to augment LLM syntax generation prompts with official

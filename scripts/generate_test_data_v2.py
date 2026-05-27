@@ -10,6 +10,7 @@ Adds variables that the original test_data.sav was missing:
 
 Also includes all original variables from test_data.sav.
 """
+
 import os
 import random
 import sys
@@ -48,7 +49,10 @@ class_ids = [class_id_map[c] for c in classes_str]
 # ── NEW: income (correlated with age and education) ────────────────────
 education_levels = [1] * 7 + [2] * 10 + [3] * 8 + [4] * 5  # 1=HS, 2=BA, 3=MA, 4=PhD
 random.shuffle(education_levels)
-income = [round(3000 + edu * 2000 + age * 200 + random.gauss(0, 1500), 0) for edu, age in zip(education_levels, ages)]
+income = [
+    round(3000 + edu * 2000 + age * 200 + random.gauss(0, 1500), 0)
+    for edu, age in zip(education_levels, ages)
+]
 income = [max(2000, min(20000, i)) for i in income]
 
 # ── NEW: anxiety (negatively correlated with score) ────────────────────
@@ -66,24 +70,27 @@ groups = [1] * 15 + [2] * 15
 random.shuffle(groups)
 
 # ── Build DataFrame ─────────────────────────────────────────────────────
-df = pd.DataFrame({
-    "gender": genders,
-    "score": scores,
-    "class": classes_str,
-    "class_id": class_ids,
-    "age": ages,
-    "income": income,
-    "education": education_levels,
-    "anxiety": anxiety,
-    "exam1": exam1,
-    "exam2": exam2,
-    "group": groups,
-})
+df = pd.DataFrame(
+    {
+        "gender": genders,
+        "score": scores,
+        "class": classes_str,
+        "class_id": class_ids,
+        "age": ages,
+        "income": income,
+        "education": education_levels,
+        "anxiety": anxiety,
+        "exam1": exam1,
+        "exam2": exam2,
+        "group": groups,
+    }
+)
 
 # ── Write .sav ──────────────────────────────────────────────────────────
 outdir = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "data", "fixtures",
+    "data",
+    "fixtures",
 )
 os.makedirs(outdir, exist_ok=True)
 outpath = os.path.join(outdir, "test_data_v2.sav")
@@ -92,9 +99,16 @@ pyreadstat.write_sav(
     df,
     outpath,
     column_labels=[
-        "Gender", "Test Score", "Class Name", "Class ID",
-        "Age", "Monthly Income", "Education Level",
-        "Anxiety Score", "Exam 1 Score", "Exam 2 Score",
+        "Gender",
+        "Test Score",
+        "Class Name",
+        "Class ID",
+        "Age",
+        "Monthly Income",
+        "Education Level",
+        "Anxiety Score",
+        "Exam 1 Score",
+        "Exam 2 Score",
         "Treatment Group",
     ],
     variable_value_labels={
@@ -104,10 +118,17 @@ pyreadstat.write_sav(
         "group": {1: "Control", 2: "Treatment"},
     },
     variable_measure={
-        "gender": "nominal", "score": "scale", "class": "nominal",
-        "class_id": "nominal", "age": "scale", "income": "scale",
-        "education": "ordinal", "anxiety": "scale",
-        "exam1": "scale", "exam2": "scale", "group": "nominal",
+        "gender": "nominal",
+        "score": "scale",
+        "class": "nominal",
+        "class_id": "nominal",
+        "age": "scale",
+        "income": "scale",
+        "education": "ordinal",
+        "anxiety": "scale",
+        "exam1": "scale",
+        "exam2": "scale",
+        "group": "nominal",
     },
 )
 

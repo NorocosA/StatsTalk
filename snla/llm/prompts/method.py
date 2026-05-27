@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # ── Available methods catalog (injected into the system prompt) ────────
 _AVAILABLE_METHODS: dict[str, str] = {
     "independent_t_test": "独立样本t检验（两组比较，连续因变量）",
@@ -89,33 +88,18 @@ def _build_system_prompt() -> str:
         "}",
         "",
         "字段说明：",
-        (
-            "- recommended_method: 推荐的方法，可选值包括 "
-            + ", ".join(_AVAILABLE_METHODS.keys())
-        ),
-        (
-            "- alternatives: 备选方法列表（可能为空数组），"
-            "当首选方法假设不满足时可供选择的替代方法"
-        ),
+        ("- recommended_method: 推荐的方法，可选值包括 " + ", ".join(_AVAILABLE_METHODS.keys())),
+        ("- alternatives: 备选方法列表（可能为空数组），当首选方法假设不满足时可供选择的替代方法"),
         (
             "- assumptions_check: 需要检验的统计假设列表，"
             f"可选值包括 {', '.join(_VALID_ASSUMPTIONS)}"
         ),
-        (
-            "- grouping_variable: 分组变量名，"
-            "不适用时（如相关分析）为 null"
-        ),
-        (
-            "- test_variable: 检验变量名，"
-            "不适用时（如频数分析）为 null"
-        ),
+        ("- grouping_variable: 分组变量名，不适用时（如相关分析）为 null"),
+        ("- test_variable: 检验变量名，不适用时（如频数分析）为 null"),
         "- rationale: 选择该方法的详细中文理由",
         "- confidence: 0-1 置信度，反映推荐的确定程度",
         "",
-        (
-            "请严格按照上述 JSON 格式输出，"
-            "不要包含任何额外说明或 markdown 代码块标记。"
-        ),
+        ("请严格按照上述 JSON 格式输出，不要包含任何额外说明或 markdown 代码块标记。"),
     ]
 
     return "\n".join(lines)
@@ -147,9 +131,7 @@ def _format_variables(variables: list[dict[str, Any]]) -> str:
         if label:
             suffix_parts.append(label)
         if value_labels:
-            pairs = " ".join(
-                f"{k}={v}" for k, v in sorted(value_labels.items())
-            )
+            pairs = " ".join(f"{k}={v}" for k, v in sorted(value_labels.items()))
             suffix_parts.append(f"值标签: {pairs}")
 
         suffix = ", ".join(suffix_parts)
@@ -218,10 +200,7 @@ def _build_few_shot_section() -> str:
         # ── 2: compare_groups (3+) → oneway_anova ─────────────────
         {
             "intent": "compare_groups",
-            "variables": (
-                "class (String, 班级A/班级B/班级C), "
-                "score (Numeric)"
-            ),
+            "variables": ("class (String, 班级A/班级B/班级C), score (Numeric)"),
             "question": "三个班级成绩差异",
             "output": (
                 '{"recommended_method": "oneway_anova", '
@@ -251,10 +230,7 @@ def _build_few_shot_section() -> str:
         # ── 4: relationship (categorical) → chi_square ────────────
         {
             "intent": "relationship",
-            "variables": (
-                "gender (Numeric, 1=男 2=女), "
-                "pass_exam (Numeric, 0=否 1=是)"
-            ),
+            "variables": ("gender (Numeric, 1=男 2=女), pass_exam (Numeric, 0=否 1=是)"),
             "question": "性别和通过率有关系吗",
             "output": (
                 '{"recommended_method": "chi_square", '

@@ -36,10 +36,12 @@ def _get_retriever():
     enhancement — the system functions normally without it.
     """
     import os
+
     if os.getenv("SKIP_RAG", "").lower() in ("1", "true", "yes"):
         return None
     try:
         from snla.rag.retriever import get_retriever
+
         return get_retriever()
     except (ImportError, OSError) as exc:
         logger.debug("RAG retriever unavailable: %s", exc)
@@ -128,8 +130,8 @@ def enhance_validation(
         - unrecognized_commands: list[str] (commands not in SPSS reference)
         - command_categories: dict[str, str] (command → category mapping)
     """
-    from snla.syntax.validator import validate as basic_validate
     from snla.syntax.validator import extract_commands
+    from snla.syntax.validator import validate as basic_validate
 
     # Basic validation first
     result = basic_validate(syntax, var_list)
@@ -193,12 +195,9 @@ def get_dataset_context_for_prompt(variables: list[dict]) -> str:
         RAG context string, or empty string if no relevant docs found.
     """
     # Determine likely methods based on variable types
-    has_categorical = any(
-        v.get("value_labels") for v in variables
-    )
+    has_categorical = any(v.get("value_labels") for v in variables)
     has_continuous = any(
-        v.get("type") == "Numeric" and not v.get("value_labels")
-        for v in variables
+        v.get("type") == "Numeric" and not v.get("value_labels") for v in variables
     )
 
     contexts: list[str] = []

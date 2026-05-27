@@ -3,7 +3,6 @@ sensitive-variable scanning, and normal variable pass-through."""
 
 from snla.data.sanitizer import filter_for_cloud, sanitize_variables
 
-
 # ── Cloud-safe field filtering ──────────────────────────────────────────────
 
 
@@ -19,9 +18,7 @@ def test_filter_cloud_safe():
 
     assert "variable_names" in result
     assert "row_count" in result
-    assert "raw_data" not in result, (
-        f"raw_data should be filtered out, got keys={list(result)}"
-    )
+    assert "raw_data" not in result, f"raw_data should be filtered out, got keys={list(result)}"
     assert "identifiers" not in result, (
         f"identifiers should be filtered out, got keys={list(result)}"
     )
@@ -44,15 +41,11 @@ def test_sanitize_sensitive_variable():
 
     assert count == 2, f"Expected 2 sensitive variables, got {count}"
     # First sensitive → var_01
-    assert output[0]["name"] == "var_01", (
-        f"Expected var_01, got {output[0]['name']}"
-    )
+    assert output[0]["name"] == "var_01", f"Expected var_01, got {output[0]['name']}"
     assert output[0]["original_name"] == "患者姓名"
     assert output[0]["desensitized"] is True
     # Second sensitive → var_02
-    assert output[1]["name"] == "var_02", (
-        f"Expected var_02, got {output[1]['name']}"
-    )
+    assert output[1]["name"] == "var_02", f"Expected var_02, got {output[1]['name']}"
     assert output[1]["original_name"] == "email_addr"
     assert output[1]["desensitized"] is True
 
@@ -95,19 +88,11 @@ def test_sanitize_count():
     assert output[0]["desensitized"] is True
     assert output[0]["original_name"] == "patient_id"
 
-    assert output[2]["name"] == "var_02", (
-        f"姓名 should become var_02, got {output[2]['name']}"
-    )
+    assert output[2]["name"] == "var_02", f"姓名 should become var_02, got {output[2]['name']}"
     assert output[2]["desensitized"] is True
     assert output[2]["original_name"] == "姓名"
 
     # Normal variables unchanged
-    assert output[1] == variables[1], (
-        f"score should be unchanged: {output[1]}"
-    )
-    assert output[3] == variables[3], (
-        f"age should be unchanged: {output[3]}"
-    )
-    assert output[4] == variables[4], (
-        f"class should be unchanged: {output[4]}"
-    )
+    assert output[1] == variables[1], f"score should be unchanged: {output[1]}"
+    assert output[3] == variables[3], f"age should be unchanged: {output[3]}"
+    assert output[4] == variables[4], f"class should be unchanged: {output[4]}"

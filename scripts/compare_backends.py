@@ -54,19 +54,19 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # ---------------------------------------------------------------------------
 
 METHOD_FILTER_MAP: dict[str, list[str]] = {
-    "ttest":                 ["independent_t_test", "paired_t_test"],
-    "independent_ttest":     ["independent_t_test"],
-    "paired_ttest":          ["paired_t_test"],
-    "anova":                 ["oneway_anova"],
-    "regression":            ["simple_regression"],
-    "correlation":           ["pearson_correlation", "spearman_correlation", "correlations"],
-    "pearson":               ["pearson_correlation", "correlations"],
-    "spearman":              ["spearman_correlation"],
-    "chisquare":             ["chi_square", "crosstabs"],
-    "frequencies":           ["frequencies"],
-    "descriptives":          ["descriptives"],
-    "mannwhitney":           ["mann_whitney_u"],
-    "kruskalwallis":         ["kruskal_wallis"],
+    "ttest": ["independent_t_test", "paired_t_test"],
+    "independent_ttest": ["independent_t_test"],
+    "paired_ttest": ["paired_t_test"],
+    "anova": ["oneway_anova"],
+    "regression": ["simple_regression"],
+    "correlation": ["pearson_correlation", "spearman_correlation", "correlations"],
+    "pearson": ["pearson_correlation", "correlations"],
+    "spearman": ["spearman_correlation"],
+    "chisquare": ["chi_square", "crosstabs"],
+    "frequencies": ["frequencies"],
+    "descriptives": ["descriptives"],
+    "mannwhitney": ["mann_whitney_u"],
+    "kruskalwallis": ["kruskal_wallis"],
 }
 
 DEFAULT_TIMEOUT = 120  # seconds per test case
@@ -260,7 +260,7 @@ def _prepare_data_copy(
 
     # Subset
     if subset_size:
-        df = df.iloc[:int(subset_size)]
+        df = df.iloc[: int(subset_size)]
 
     # Introduce missing
     if introduce_missing and missing_fraction > 0:
@@ -413,8 +413,7 @@ def _run_single_case(
     # Build kwargs for BackendAdapter.run_spss / run_python
     # ------------------------------------------------------------------
     kwargs: dict[str, Any] = {}
-    for key in ("grouping_var", "test_var", "dep_var", "indep_var",
-                "var1", "var2", "groups"):
+    for key in ("grouping_var", "test_var", "dep_var", "indep_var", "var1", "var2", "groups"):
         if key in test_case and test_case[key] is not None:
             kwargs[key] = test_case[key]
 
@@ -423,17 +422,19 @@ def _run_single_case(
         kwargs["groups"] = tuple(kwargs["groups"])
 
     # Pass params dict (minus boundary keys that _prepare_data_copy consumed)
-    clean_params = {k: v for k, v in params.items()
-                    if k not in ("subset_size", "introduce_missing",
-                                 "missing_fraction", "exec_mode")}
+    clean_params = {
+        k: v
+        for k, v in params.items()
+        if k not in ("subset_size", "introduce_missing", "missing_fraction", "exec_mode")
+    }
     if clean_params:
         kwargs["params"] = clean_params
 
     # ------------------------------------------------------------------
     # Determine which backends to run
     # ------------------------------------------------------------------
-    run_spss = (backend_filter is None or backend_filter == "spss")
-    run_py   = (backend_filter is None or backend_filter == "python")
+    run_spss = backend_filter is None or backend_filter == "spss"
+    run_py = backend_filter is None or backend_filter == "python"
 
     # SPSS execution
     spss_result = None
@@ -516,30 +517,30 @@ def _run_single_case(
 
     # Progress indicator (ASCII-safe for Windows consoles)
     status_spss = "OK" if spss_success else ("FAIL" if spss_error else "SKIP")
-    status_py   = "OK" if py_success else ("FAIL" if py_error else "SKIP")
+    status_py = "OK" if py_success else ("FAIL" if py_error else "SKIP")
 
     return {
-        "id":                 case_id,
-        "method":             method,
-        "description":        test_case.get("description", ""),
-        "data_file":          data_file_rel,
-        "spss_success":       spss_success,
-        "py_success":         py_success,
-        "spss_stats":         spss_stats,
-        "py_stats":           py_stats,
-        "p_diff":             comparison.get("p_diff"),
-        "effect_size_ratio":  comparison.get("effect_size_ratio"),
-        "df_diff":            comparison.get("df_diff"),
+        "id": case_id,
+        "method": method,
+        "description": test_case.get("description", ""),
+        "data_file": data_file_rel,
+        "spss_success": spss_success,
+        "py_success": py_success,
+        "spss_stats": spss_stats,
+        "py_stats": py_stats,
+        "p_diff": comparison.get("p_diff"),
+        "effect_size_ratio": comparison.get("effect_size_ratio"),
+        "df_diff": comparison.get("df_diff"),
         "conclusion_conflict": comparison.get("conclusion_conflict", False),
         "test_statistic_key": comparison.get("test_statistic_key"),
         "test_statistic_diff_rel": comparison.get("test_statistic_diff_rel"),
-        "n_valid_spss":       comparison.get("n_valid_spss"),
-        "n_valid_py":         comparison.get("n_valid_py"),
-        "notes":              " | ".join(notes_parts) if notes_parts else "",
-        "duration_spss_s":    spss_duration,
-        "duration_py_s":      py_duration,
-        "_progress_spss":     status_spss,
-        "_progress_py":       status_py,
+        "n_valid_spss": comparison.get("n_valid_spss"),
+        "n_valid_py": comparison.get("n_valid_py"),
+        "notes": " | ".join(notes_parts) if notes_parts else "",
+        "duration_spss_s": spss_duration,
+        "duration_py_s": py_duration,
+        "_progress_spss": status_spss,
+        "_progress_py": status_py,
     }
 
 
@@ -580,12 +581,12 @@ def _compute_method_trust(
         rate = conflicts / tested if tested > 0 else 0.0
         trusted = (1.0 - rate) >= trust_threshold if tested > 0 else False
         methods_out[method] = {
-            "trusted":       trusted,
+            "trusted": trusted,
             "conflict_rate": round(rate, 4),
-            "cases_tested":  tested,
-            "cases_failed":  stats["failed"],
-            "cases_total":   stats["total"],
-            "conflicts":     conflicts,
+            "cases_tested": tested,
+            "cases_failed": stats["failed"],
+            "cases_total": stats["total"],
+            "conflicts": conflicts,
         }
 
     return methods_out
@@ -609,7 +610,9 @@ def _print_summary(
     print(separator)
     print(f"Alpha threshold: {alpha} | Trust threshold: {trust_threshold}")
     print()
-    print(f"{'Method':<28} {'Cases':>5}  {'Failed':>6}  {'Conflicts':>9}  {'Rate':>6}  {'Trusted':>7}")
+    print(
+        f"{'Method':<28} {'Cases':>5}  {'Failed':>6}  {'Conflicts':>9}  {'Rate':>6}  {'Trusted':>7}"
+    )
     print(f"{'—' * 28}  {'—' * 5}  {'—' * 6}  {'—' * 9}  {'—' * 6}  {'—' * 7}")
 
     total_cases = 0
@@ -624,19 +627,24 @@ def _print_summary(
         conflicts_for_method = info.get("conflicts", 0)
         total_conflicts += conflicts_for_method
 
-        tested_both = sum(1 for r in results if r["method"] == method
-                          and r["spss_success"] and r["py_success"])
+        tested_both = sum(
+            1 for r in results if r["method"] == method and r["spss_success"] and r["py_success"]
+        )
         total_tested += tested_both
 
         rate_str = f"{info['conflict_rate']:.3f}" if info["cases_tested"] > 0 else "N/A"
         trusted_str = "YES" if info["trusted"] else ("NO" if info["cases_tested"] > 0 else "—")
-        print(f"{method:<28} {info['cases_total']:>5}  {info['cases_failed']:>6}  "
-              f"{conflicts_for_method:>9}  {rate_str:>6}  {trusted_str:>7}")
+        print(
+            f"{method:<28} {info['cases_total']:>5}  {info['cases_failed']:>6}  "
+            f"{conflicts_for_method:>9}  {rate_str:>6}  {trusted_str:>7}"
+        )
 
     print(f"{'—' * 28}  {'—' * 5}  {'—' * 6}  {'—' * 9}  {'—' * 6}  {'—' * 7}")
     overall_rate = total_conflicts / total_tested if total_tested > 0 else 0.0
-    print(f"{'TOTAL':<28} {total_cases:>5}  {total_failed:>6}  "
-          f"{total_conflicts:>9}  {overall_rate:.3f}")
+    print(
+        f"{'TOTAL':<28} {total_cases:>5}  {total_failed:>6}  "
+        f"{total_conflicts:>9}  {overall_rate:.3f}"
+    )
 
     trusted = [m for m, i in method_trust.items() if i["trusted"]]
     not_trusted = [m for m, i in method_trust.items() if not i["trusted"] and i["cases_tested"] > 0]
@@ -676,9 +684,9 @@ def _build_comparison_json(
 ) -> dict[str, Any]:
     """Build the ``backend_comparison.json`` payload."""
     spss_failed = sum(1 for r in results if not r["spss_success"])
-    py_failed   = sum(1 for r in results if not r["py_success"])
-    both_ok     = sum(1 for r in results if r["spss_success"] and r["py_success"])
-    conflicts   = sum(1 for r in results if r.get("conclusion_conflict"))
+    py_failed = sum(1 for r in results if not r["py_success"])
+    both_ok = sum(1 for r in results if r["spss_success"] and r["py_success"])
+    conflicts = sum(1 for r in results if r.get("conclusion_conflict"))
 
     clean_results: list[dict[str, Any]] = []
     for r in results:
@@ -687,16 +695,16 @@ def _build_comparison_json(
 
     return {
         "meta": {
-            "generated_at":       datetime.now(timezone.utc).isoformat(),
-            "alpha_threshold":    alpha,
-            "total_cases":        len(results),
-            "spss_available":     spss_available,
-            "python_available":   python_available,
-            "spss_failed":        spss_failed,
-            "py_failed":          py_failed,
-            "both_succeeded":     both_ok,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "alpha_threshold": alpha,
+            "total_cases": len(results),
+            "spss_available": spss_available,
+            "python_available": python_available,
+            "spss_failed": spss_failed,
+            "py_failed": py_failed,
+            "both_succeeded": both_ok,
             "conclusion_conflicts": conflicts,
-            "total_conflict_rate":  round(conflicts / both_ok, 4) if both_ok > 0 else None,
+            "total_conflict_rate": round(conflicts / both_ok, 4) if both_ok > 0 else None,
         },
         "results": clean_results,
     }
@@ -709,10 +717,10 @@ def _build_trust_json(
 ) -> dict[str, Any]:
     """Build the ``method_trust.json`` payload."""
     return {
-        "generated_at":    datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "alpha_threshold": alpha,
         "trust_threshold": trust_threshold,
-        "methods":         method_trust,
+        "methods": method_trust,
     }
 
 
@@ -726,31 +734,45 @@ def main() -> None:
         description="P5-3 Backend Comparison: SPSS vs Python (pingouin) validation",
     )
     parser.add_argument(
-        "--methods", type=str, default=None,
+        "--methods",
+        type=str,
+        default=None,
         help="Comma-separated method filter (e.g., ttest,anova,correlation)",
     )
     parser.add_argument(
-        "--ids", type=str, default=None,
+        "--ids",
+        type=str,
+        default=None,
         help="Comma-separated test case IDs (e.g., ttest_independent_001,anova_oneway_001)",
     )
     parser.add_argument(
-        "--backend", type=str, choices=["spss", "python"], default=None,
+        "--backend",
+        type=str,
+        choices=["spss", "python"],
+        default=None,
         help="Run only one backend (default: both)",
     )
     parser.add_argument(
-        "--list", action="store_true",
+        "--list",
+        action="store_true",
         help="List available test cases and exit",
     )
     parser.add_argument(
-        "--alpha", type=float, default=0.05,
+        "--alpha",
+        type=float,
+        default=0.05,
         help="Significance threshold for conclusion conflict detection (default: 0.05)",
     )
     parser.add_argument(
-        "--trust-threshold", type=float, default=DEFAULT_TRUST_THRESHOLD,
+        "--trust-threshold",
+        type=float,
+        default=DEFAULT_TRUST_THRESHOLD,
         help=f"Minimum (1 - conflict_rate) to trust a method (default: {DEFAULT_TRUST_THRESHOLD})",
     )
     parser.add_argument(
-        "--timeout", type=int, default=DEFAULT_TIMEOUT,
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT,
         help=f"Max seconds per test case (default: {DEFAULT_TIMEOUT})",
     )
     args = parser.parse_args()
@@ -761,8 +783,7 @@ def main() -> None:
     if args.list:
         methods_filter = args.methods.split(",") if args.methods else None
         ids_filter = args.ids.split(",") if args.ids else None
-        cases = load_test_cases(YAML_PATH, methods_filter=methods_filter,
-                                 ids_filter=ids_filter)
+        cases = load_test_cases(YAML_PATH, methods_filter=methods_filter, ids_filter=ids_filter)
         print(f"Test cases ({len(cases)}):")
         print(f"{'ID':<35} {'Method':<25} {'Description'}")
         print(f"{'—' * 35} {'—' * 25} {'—' * 40}")
@@ -777,8 +798,10 @@ def main() -> None:
     python_available = True  # pingouin/pandas are always importable
 
     if not spss_available and args.backend is None:
-        print("[WARNING] SPSS not detected (stats.exe not found). "
-              "Use --backend python to skip SPSS.", file=sys.stderr)
+        print(
+            "[WARNING] SPSS not detected (stats.exe not found). Use --backend python to skip SPSS.",
+            file=sys.stderr,
+        )
         print("[WARNING] Will attempt SPSS execution anyway — expect failures.\n", file=sys.stderr)
     elif not spss_available and args.backend == "spss":
         print("[ERROR] SPSS not available but --backend spss was requested.", file=sys.stderr)
@@ -790,8 +813,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     methods_filter = args.methods.split(",") if args.methods else None
     ids_filter = args.ids.split(",") if args.ids else None
-    test_cases = load_test_cases(YAML_PATH, methods_filter=methods_filter,
-                                  ids_filter=ids_filter)
+    test_cases = load_test_cases(YAML_PATH, methods_filter=methods_filter, ids_filter=ids_filter)
 
     if not test_cases:
         print("[ERROR] No test cases matched the filter.", file=sys.stderr)
@@ -856,34 +878,36 @@ def main() -> None:
                 break
             except Exception as exc:
                 entry = {
-                    "id":                 case_id,
-                    "method":             tc.get("method", ""),
-                    "description":        tc.get("description", ""),
-                    "data_file":          tc.get("data_file", ""),
-                    "spss_success":       False,
-                    "py_success":         False,
-                    "spss_stats":         None,
-                    "py_stats":           None,
-                    "p_diff":             None,
-                    "effect_size_ratio":  None,
-                    "df_diff":            None,
+                    "id": case_id,
+                    "method": tc.get("method", ""),
+                    "description": tc.get("description", ""),
+                    "data_file": tc.get("data_file", ""),
+                    "spss_success": False,
+                    "py_success": False,
+                    "spss_stats": None,
+                    "py_stats": None,
+                    "p_diff": None,
+                    "effect_size_ratio": None,
+                    "df_diff": None,
                     "conclusion_conflict": False,
-                    "notes":              f"Script error: {exc}",
-                    "duration_spss_s":    0,
-                    "duration_py_s":      0,
-                    "_progress_spss":     "FAIL",
-                    "_progress_py":       "FAIL",
+                    "notes": f"Script error: {exc}",
+                    "duration_spss_s": 0,
+                    "duration_py_s": 0,
+                    "_progress_spss": "FAIL",
+                    "_progress_py": "FAIL",
                 }
 
             results.append(entry)
 
             # Print progress
             spss = entry["_progress_spss"]
-            py   = entry["_progress_py"]
+            py = entry["_progress_py"]
             d_spss = f"({entry['duration_spss_s']:.1f}s)" if entry["spss_success"] else ""
-            d_py   = f"({entry['duration_py_s']:.1f}s)" if entry["py_success"] else ""
+            d_py = f"({entry['duration_py_s']:.1f}s)" if entry["py_success"] else ""
             conflict_marker = " **CONFLICT**" if entry.get("conclusion_conflict") else ""
-            print(f"[{idx}/{total}] {case_id}: SPSS {spss} {d_spss} | Python {py} {d_py}{conflict_marker}")
+            print(
+                f"[{idx}/{total}] {case_id}: SPSS {spss} {d_spss} | Python {py} {d_py}{conflict_marker}"
+            )
 
         # ------------------------------------------------------------------
         # Compute method trust
@@ -894,7 +918,10 @@ def main() -> None:
         # Build & save outputs
         # ------------------------------------------------------------------
         comparison_json = _build_comparison_json(
-            results, args.alpha, spss_available, python_available,
+            results,
+            args.alpha,
+            spss_available,
+            python_available,
         )
         trust_json = _build_trust_json(method_trust, args.alpha, args.trust_threshold)
 

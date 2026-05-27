@@ -1,4 +1,5 @@
 """Batch run all 50 test cases with real LLM and collect metrics."""
+
 import csv
 import json
 import sys
@@ -29,8 +30,8 @@ def main():
         expected = norm_method(row.get("预期统计方法", ""))
         category = row.get("分类", "")
 
-        print(f"\n{'='*60}")
-        print(f"[{i+1}/50] {cid} ({category})")
+        print(f"\n{'=' * 60}")
+        print(f"[{i + 1}/50] {cid} ({category})")
         print(f"  Query: {query[:60]}")
         if expected:
             print(f"  Expected: {expected}")
@@ -55,29 +56,45 @@ def main():
             method_match = method.startswith(expected[:5]) if expected else True
 
             result = {
-                "id": cid, "category": category, "query": query[:60],
-                "expected_method": expected, "actual_method": method,
-                "intent": intent, "method_correct": method_match,
-                "syntax_valid": syntax_ok, "exec_ok": exec_ok,
-                "p_value": p_val, "elapsed_s": round(elapsed, 1),
-                "explanation": explanation, "error": None,
+                "id": cid,
+                "category": category,
+                "query": query[:60],
+                "expected_method": expected,
+                "actual_method": method,
+                "intent": intent,
+                "method_correct": method_match,
+                "syntax_valid": syntax_ok,
+                "exec_ok": exec_ok,
+                "p_value": p_val,
+                "elapsed_s": round(elapsed, 1),
+                "explanation": explanation,
+                "error": None,
             }
 
             icon = "✅" if (exec_ok and method_match) else ("⚠️" if exec_ok else "❌")
-            print(f"  {icon} intent={intent} method={method} "
-                  f"exec={'OK' if exec_ok else 'FAIL'} "
-                  f"match={'OK' if method_match else 'WRONG'} "
-                  f"({elapsed:.1f}s)")
+            print(
+                f"  {icon} intent={intent} method={method} "
+                f"exec={'OK' if exec_ok else 'FAIL'} "
+                f"match={'OK' if method_match else 'WRONG'} "
+                f"({elapsed:.1f}s)"
+            )
 
         except Exception as e:
             elapsed = time.perf_counter() - t0
             result = {
-                "id": cid, "category": category, "query": query[:60],
-                "expected_method": expected, "actual_method": "ERROR",
-                "intent": "?", "method_correct": False,
-                "syntax_valid": False, "exec_ok": False,
-                "p_value": None, "elapsed_s": round(elapsed, 1),
-                "explanation": "", "error": str(e)[:200],
+                "id": cid,
+                "category": category,
+                "query": query[:60],
+                "expected_method": expected,
+                "actual_method": "ERROR",
+                "intent": "?",
+                "method_correct": False,
+                "syntax_valid": False,
+                "exec_ok": False,
+                "p_value": None,
+                "elapsed_s": round(elapsed, 1),
+                "explanation": "",
+                "error": str(e)[:200],
             }
             print(f"  ❌ ERROR: {str(e)[:100]}")
 
@@ -101,27 +118,28 @@ def main():
     summary = {
         "total": total,
         "exec_success": exec_ok,
-        "exec_rate": f"{exec_ok/total*100:.0f}%",
+        "exec_rate": f"{exec_ok / total * 100:.0f}%",
         "syntax_valid": syntax_ok,
         "method_correct": method_ok,
-        "method_rate": f"{method_ok/total*100:.0f}%",
+        "method_rate": f"{method_ok / total * 100:.0f}%",
         "errors": errors,
         "total_time_s": round(total_time, 1),
         "avg_time_s": round(avg_time, 1),
     }
 
-    print(f"\n{'='*60}")
-    print(f"RESULTS: {exec_ok}/{total} executed ({exec_ok/total*100:.0f}%)")
-    print(f"  Method correct: {method_ok}/{total} ({method_ok/total*100:.0f}%)")
+    print(f"\n{'=' * 60}")
+    print(f"RESULTS: {exec_ok}/{total} executed ({exec_ok / total * 100:.0f}%)")
+    print(f"  Method correct: {method_ok}/{total} ({method_ok / total * 100:.0f}%)")
     print(f"  Syntax valid: {syntax_ok}/{total}")
     print(f"  Errors: {errors}")
-    print(f"  Total time: {total_time/60:.1f} min ({avg_time:.1f}s avg)")
-    print(f"{'='*60}")
+    print(f"  Total time: {total_time / 60:.1f} min ({avg_time:.1f}s avg)")
+    print(f"{'=' * 60}")
 
     # Save summary
     with open("p0_output/llm_50_summary.json", "w", encoding="utf-8") as f:
-        json.dump({"summary": summary, "results": results}, f, indent=2,
-                  ensure_ascii=False, default=str)
+        json.dump(
+            {"summary": summary, "results": results}, f, indent=2, ensure_ascii=False, default=str
+        )
 
     print(f"\nReports saved to p0_output/llm_50_*.json")
 

@@ -50,9 +50,7 @@ def build(
     else:
         logger.info("  Target: all SNLA essential commands")
 
-    chunk_objects: list[CommandChunk] = extract_command_chunks(
-        pdf_path, commands=commands
-    )
+    chunk_objects: list[CommandChunk] = extract_command_chunks(pdf_path, commands=commands)
     chunks = [c.to_dict() for c in chunk_objects]
     chunk_time = time.perf_counter() - t0
     logger.info(
@@ -136,11 +134,14 @@ def main():
         # Try known locations
         candidates = [
             r"D:\Projects\SPSS Natural Language Assistant(SNLA)\IBM_SPSS26_Instruction\IBM_SPSS_Statistics_Command_Syntax_Reference.pdf",
-            str(Path(__file__).resolve().parent.parent.parent
+            str(
+                Path(__file__).resolve().parent.parent.parent
                 / "IBM_SPSS26_Instruction"
-                / "IBM_SPSS_Statistics_Command_Syntax_Reference.pdf"),
+                / "IBM_SPSS_Statistics_Command_Syntax_Reference.pdf"
+            ),
         ]
         import os
+
         for cand in candidates:
             if os.path.exists(cand):
                 pdf_path = cand
@@ -156,6 +157,7 @@ def main():
         commands = [c.strip().upper() for c in args.cmds.split(",")]
     elif not args.all:
         from snla.rag.chunker import SNLA_ESSENTIAL_COMMANDS
+
         commands = list(SNLA_ESSENTIAL_COMMANDS)
 
     result = build(pdf_path, commands=commands, persist_dir=args.persist_dir)

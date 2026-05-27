@@ -1,0 +1,29 @@
+[tool.ruff]
+# Ruff — all-in-one linter + formatter for Python
+# Run: ruff check --fix  (auto-fix lint)
+# Run: ruff format       (format code)
+
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "W",     # pycodestyle warnings
+    "UP",    # pyupgrade (modern Python)
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+]
+ignore = [
+    "E402",  # module-level import not at top (allowed for sys.path setup)
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["E402"]   # scripts may need path manipulation
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

@@ -8,7 +8,6 @@ are mocked or isolated via conftest fixtures.
 
 import pytest
 
-
 # ===========================================================================
 # Test 1: Intent prompt structure
 # ===========================================================================
@@ -31,17 +30,13 @@ def test_intent_prompt_structure(sample_variables):
 
     # System prompt must define all four intent categories
     for intent in ("describe", "compare_groups", "relationship", "follow_up"):
-        assert intent in system_content, (
-            f"System prompt should mention intent category '{intent}'"
-        )
+        assert intent in system_content, f"System prompt should mention intent category '{intent}'"
 
     # ── Second message: user role ───────────────────────────────────────
     assert messages[1]["role"] == "user", "Second message should have role='user'"
     user_content = messages[1]["content"]
 
-    assert user_input in user_content, (
-        "User message should contain the original input text"
-    )
+    assert user_input in user_content, "User message should contain the original input text"
     assert "示例" in user_content or "Examples" in user_content, (
         "User message should contain few-shot examples"
     )
@@ -76,12 +71,8 @@ def test_syntax_prompt_structure(sample_variables):
     # ── System prompt ───────────────────────────────────────────────────
     assert messages[0]["role"] == "system", "First message should have role='system'"
     sys_content = messages[0]["content"]
-    assert "SPSS" in sys_content, (
-        "System prompt should mention SPSS expertise"
-    )
-    assert "语法" in sys_content, (
-        "System prompt should reference 语法 (syntax) in Chinese"
-    )
+    assert "SPSS" in sys_content, "System prompt should mention SPSS expertise"
+    assert "语法" in sys_content, "System prompt should reference 语法 (syntax) in Chinese"
     assert "JSON" in sys_content or "json" in sys_content.lower(), (
         "System prompt should reference JSON output format"
     )
@@ -90,20 +81,12 @@ def test_syntax_prompt_structure(sample_variables):
     assert messages[1]["role"] == "user", "Second message should have role='user'"
     user_content = messages[1]["content"]
     # Dataset context with variable names
-    assert "gender" in user_content, (
-        "User message should contain variable 'gender'"
-    )
-    assert "score" in user_content, (
-        "User message should contain variable 'score'"
-    )
+    assert "gender" in user_content, "User message should contain variable 'gender'"
+    assert "score" in user_content, "User message should contain variable 'score'"
     # Dataset summary
-    assert "200" in user_content, (
-        "User message should contain dataset row count (200)"
-    )
+    assert "200" in user_content, "User message should contain dataset row count (200)"
     # Method identifier
-    assert "independent_t_test" in user_content, (
-        "User message should mention the requested method"
-    )
+    assert "independent_t_test" in user_content, "User message should mention the requested method"
 
 
 # ===========================================================================
@@ -138,13 +121,9 @@ def test_method_prompt_structure(sample_variables):
     assert messages[1]["role"] == "user", "Second message should have role='user'"
     user_content = messages[1]["content"]
     # Variable context
-    assert "gender" in user_content, (
-        "User message should contain variable 'gender'"
-    )
+    assert "gender" in user_content, "User message should contain variable 'gender'"
     # Intent classification
-    assert "compare_groups" in user_content, (
-        "User message should mention the analysis intent"
-    )
+    assert "compare_groups" in user_content, "User message should mention the analysis intent"
     # Output format reference
     assert "recommended_method" in user_content, (
         "User message should reference the required output format"
@@ -167,8 +146,7 @@ def test_validator_with_llm_generated_syntax():
     result = validate(valid_syntax, var_list=["gender", "score"])
 
     assert result["valid"] is True, (
-        f"Valid syntax with known variables should pass, "
-        f"got errors={result['errors']}"
+        f"Valid syntax with known variables should pass, got errors={result['errors']}"
     )
     assert len(result["errors"]) == 0, (
         f"Valid syntax should produce no errors, got {result['errors']}"
@@ -181,12 +159,9 @@ def test_validator_with_llm_generated_syntax():
     invalid_syntax = "T-TEST GROUPS=gender(1 2) /VARIABLES=nonexistent."
     result2 = validate(invalid_syntax, var_list=["gender", "score"])
 
-    assert result2["valid"] is False, (
-        "Syntax referencing non-existent variable should fail"
-    )
+    assert result2["valid"] is False, "Syntax referencing non-existent variable should fail"
     assert any("nonexistent" in e for e in result2["errors"]), (
-        f"Expected error mentioning 'nonexistent', "
-        f"got errors={result2['errors']}"
+        f"Expected error mentioning 'nonexistent', got errors={result2['errors']}"
     )
 
 
@@ -205,9 +180,7 @@ def test_sanitizer_session_mapping(sensitive_variables):
 
     # ── Sanitize the sensitive variables ────────────────────────────────
     sanitized, count = sanitize_variables(sensitive_variables)
-    assert count >= 2, (
-        f"Expected at least 2 sensitive variables, got {count}"
-    )
+    assert count >= 2, f"Expected at least 2 sensitive variables, got {count}"
 
     # ── Create session state and populate ───────────────────────────────
     session = SessionState()
@@ -222,12 +195,10 @@ def test_sanitizer_session_mapping(sensitive_variables):
     # ── Verify desensitized names present ───────────────────────────────
     var_names = [v["name"] for v in sanitized]
     assert "var_01" in var_names, (
-        f"First sensitive variable should be renamed to var_01, "
-        f"got names={var_names}"
+        f"First sensitive variable should be renamed to var_01, got names={var_names}"
     )
     assert "var_02" in var_names, (
-        f"Second sensitive variable should be renamed to var_02, "
-        f"got names={var_names}"
+        f"Second sensitive variable should be renamed to var_02, got names={var_names}"
     )
 
     # ── Verify original names are preserved ─────────────────────────────
@@ -252,9 +223,7 @@ def test_sanitizer_session_mapping(sensitive_variables):
         assert isinstance(original_name, str) and len(original_name) > 0
 
     # ── Verify reverse mapping consistency ──────────────────────────────
-    assert session.reverse_var_name_map, (
-        "reverse_var_name_map should not be empty"
-    )
+    assert session.reverse_var_name_map, "reverse_var_name_map should not be empty"
     for original, cloud in session.reverse_var_name_map.items():
         assert cloud.startswith("var_"), (
             f"Reverse map value should start with 'var_', got '{cloud}'"
@@ -274,12 +243,10 @@ def test_sanitizer_session_mapping(sensitive_variables):
     first_orig = session.var_name_map.get(first_cloud, "")
     second_orig = session.var_name_map.get(second_cloud, "")
     assert first_orig in restored, (
-        f"map_to_local should restore '{first_orig}' in syntax, "
-        f"got: {restored}"
+        f"map_to_local should restore '{first_orig}' in syntax, got: {restored}"
     )
     assert second_orig in restored, (
-        f"map_to_local should restore '{second_orig}' in syntax, "
-        f"got: {restored}"
+        f"map_to_local should restore '{second_orig}' in syntax, got: {restored}"
     )
 
 
@@ -309,12 +276,8 @@ def test_session_state_flow(sample_variables):
     )
 
     # ── Verify history ──────────────────────────────────────────────────
-    assert len(session.history) == 2, (
-        f"Expected 2 history entries, got {len(session.history)}"
-    )
-    assert session.history[0]["role"] == "user", (
-        "First history entry should have role='user'"
-    )
+    assert len(session.history) == 2, f"Expected 2 history entries, got {len(session.history)}"
+    assert session.history[0]["role"] == "user", "First history entry should have role='user'"
     assert "比较" in session.history[0]["content"], (
         "First history entry should contain user request"
     )
@@ -330,17 +293,14 @@ def test_session_state_flow(sample_variables):
         "last_analysis should not be None after set_last_analysis()"
     )
     assert session.last_analysis["method"] == "independent_t_test", (
-        f"Expected method='independent_t_test', "
-        f"got {session.last_analysis['method']}"
+        f"Expected method='independent_t_test', got {session.last_analysis['method']}"
     )
     assert session.last_analysis["grouping_var"] == "gender"
     assert session.last_analysis["test_var"] == "score"
 
     # ── Verify variable access ──────────────────────────────────────────
     var_names = session.get_variable_names()
-    assert len(var_names) == 4, (
-        f"Expected 4 variable names, got {len(var_names)}: {var_names}"
-    )
+    assert len(var_names) == 4, f"Expected 4 variable names, got {len(var_names)}: {var_names}"
     assert "gender" in var_names
     assert "score" in var_names
     assert "class" in var_names
@@ -351,19 +311,13 @@ def test_session_state_flow(sample_variables):
     assert gender_var["type"] == "Numeric"
 
     nonexistent = session.get_variable("nonexistent")
-    assert nonexistent is None, (
-        "get_variable('nonexistent') should return None"
-    )
+    assert nonexistent is None, "get_variable('nonexistent') should return None"
 
     # ── Verify cancellation lifecycle ───────────────────────────────────
-    assert session.cancellation_token is False, (
-        "cancellation_token should initialise as False"
-    )
+    assert session.cancellation_token is False, "cancellation_token should initialise as False"
 
     session.cancel()
-    assert session.cancellation_token is True, (
-        "cancel() should set cancellation_token to True"
-    )
+    assert session.cancellation_token is True, "cancel() should set cancellation_token to True"
 
     session.reset_cancellation()
     assert session.cancellation_token is False, (
@@ -381,26 +335,17 @@ def test_template_fallback():
     get_syntax_by_method correctly dispatches to templates, with a
     ValueError for unknown methods."""
     from snla.syntax.templates import (
-        ttest_independent,
-        anova_oneway,
         TEMPLATE_MAP,
         get_syntax_by_method,
+        ttest_independent,
     )
 
     # ── Direct template call: ttest_independent ─────────────────────────
     syntax = ttest_independent("gender", "score", (1, 2))
-    assert "T-TEST" in syntax, (
-        f"ttest_independent output should contain 'T-TEST', got: {syntax}"
-    )
-    assert "GROUPS=gender(1 2)" in syntax, (
-        f"Output should contain GROUPS clause, got: {syntax}"
-    )
-    assert "/VARIABLES=score" in syntax, (
-        f"Output should contain VARIABLES clause, got: {syntax}"
-    )
-    assert syntax.rstrip().endswith("."), (
-        f"SPSS syntax must end with a period, got: {syntax}"
-    )
+    assert "T-TEST" in syntax, f"ttest_independent output should contain 'T-TEST', got: {syntax}"
+    assert "GROUPS=gender(1 2)" in syntax, f"Output should contain GROUPS clause, got: {syntax}"
+    assert "/VARIABLES=score" in syntax, f"Output should contain VARIABLES clause, got: {syntax}"
+    assert syntax.rstrip().endswith("."), f"SPSS syntax must end with a period, got: {syntax}"
 
     # ── get_syntax_by_method dispatch ───────────────────────────────────
     dispatched = get_syntax_by_method(
@@ -409,12 +354,9 @@ def test_template_fallback():
         test_var="score",
         groups=(1, 2),
     )
-    assert "T-TEST" in dispatched, (
-        f"Dispatched syntax should contain T-TEST, got: {dispatched}"
-    )
+    assert "T-TEST" in dispatched, f"Dispatched syntax should contain T-TEST, got: {dispatched}"
     assert dispatched == syntax, (
-        "get_syntax_by_method should produce identical output to "
-        "ttest_independent direct call"
+        "get_syntax_by_method should produce identical output to ttest_independent direct call"
     )
 
     # ── Unknown method raises ValueError ────────────────────────────────
@@ -426,9 +368,7 @@ def test_template_fallback():
 
     # ── All TEMPLATE_MAP entries are callable ───────────────────────────
     for key, func in TEMPLATE_MAP.items():
-        assert callable(func), (
-            f"TEMPLATE_MAP entry '{key}' should be a callable function"
-        )
+        assert callable(func), f"TEMPLATE_MAP entry '{key}' should be a callable function"
 
 
 # ===========================================================================
@@ -454,8 +394,7 @@ def test_explainer_constraints(
     # ── SIGNIFICANT (p=0.021 ≤ 0.05) ────────────────────────────────────
     constraints_sig = apply_constraints(analysis_result_ttest)
     assert constraints_sig["significance"] == "SIGNIFICANT", (
-        f"p=0.021 should be SIGNIFICANT, "
-        f"got {constraints_sig['significance']}"
+        f"p=0.021 should be SIGNIFICANT, got {constraints_sig['significance']}"
     )
     assert "存在统计学上的显著差异" in constraints_sig["forced_phrase"], (
         f"Significant forced_phrase should mention significant difference, "
@@ -466,8 +405,7 @@ def test_explainer_constraints(
     # (0.051 < 0.10 triggers the EDGE_SIGNIFICANT boundary per code rules)
     constraints_ns = apply_constraints(analysis_result_not_sig)
     assert constraints_ns["significance"] == "EDGE_SIGNIFICANT", (
-        f"p=0.051 is < 0.10 → expected EDGE_SIGNIFICANT, "
-        f"got {constraints_ns['significance']}"
+        f"p=0.051 is < 0.10 → expected EDGE_SIGNIFICANT, got {constraints_ns['significance']}"
     )
     assert "未达统计学显著水平" in constraints_ns["forced_phrase"], (
         f"Non-sig forced_phrase should mention '未达统计学显著水平', "
@@ -483,8 +421,7 @@ def test_explainer_constraints(
     # ── EDGE_SIGNIFICANT (p=0.09, 0.05 < 0.09 < 0.10) ──────────────────
     constraints_edge = apply_constraints(analysis_result_edge_sig)
     assert constraints_edge["significance"] == "EDGE_SIGNIFICANT", (
-        f"p=0.09 should be EDGE_SIGNIFICANT, "
-        f"got {constraints_edge['significance']}"
+        f"p=0.09 should be EDGE_SIGNIFICANT, got {constraints_edge['significance']}"
     )
     assert "边缘显著" in constraints_edge["forced_phrase"], (
         f"Edge forced_phrase should mention 边缘显著 (borderline significant), "

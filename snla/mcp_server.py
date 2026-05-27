@@ -23,20 +23,20 @@ Design decisions (from P6 grill, 2026-05-23):
     - Python backend fast path for trusted methods; ENGINE_BUSY for SPSS contention
     - simple_regression: hard-reject without SPSS with actionable alternatives
 """
+
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import os
 import shutil
-import tempfile
 import time
 import traceback
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
@@ -45,24 +45,22 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 os.chdir(PROJECT_ROOT)  # config.py reads .env from CWD
 
 # ── SNLA imports (after path setup) ────────────────────────────────────
-from snla.config import DEBUG, LLM_MOCK, STATS_BACKEND
-from snla.trust import is_method_trusted, get_trusted_methods, trust_loaded_from
+from snla.config import STATS_BACKEND
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
-from snla.orchestrator import planner, GreylistPending, NoPendingError, PlanResult
+from snla.explainer.export import export_to_docx
+from snla.explainer.naturalize import explain as naturalize_explain
+from snla.orchestrator import GreylistPending, NoPendingError, PlanResult, planner
+from snla.parser.output import parse as parse_output
 from snla.syntax.templates import get_syntax_by_method
 from snla.syntax.validator import validate as validate_syntax
-from snla.parser.output import parse as parse_output
-from snla.explainer.naturalize import explain as naturalize_explain
-from snla.explainer.export import export_to_docx
-from snla.session import SessionState
-
+from snla.trust import get_trusted_methods, is_method_trusted, trust_loaded_from
 
 # ═════════════════════════════════════════════════════════════════════════
 # Constants
 # ═════════════════════════════════════════════════════════════════════════
 
-SESSION_TTL = 30 * 60          # 30 minutes — uploads/{session_id}/ cleanup
+SESSION_TTL = 30 * 60  # 30 minutes — uploads/{session_id}/ cleanup
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB max upload
 
 
@@ -71,24 +69,32 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB max upload
 # ═════════════════════════════════════════════════════════════════════════
 
 METHOD_TO_ANALYSIS = {
-    "independent_t_test": "T-TEST", "paired_t_test": "T-TEST",
-    "oneway_anova": "ANOVA", "simple_regression": "REGRESSION",
-    "pearson_correlation": "CORRELATIONS", "correlations": "CORRELATIONS",
+    "independent_t_test": "T-TEST",
+    "paired_t_test": "T-TEST",
+    "oneway_anova": "ANOVA",
+    "simple_regression": "REGRESSION",
+    "pearson_correlation": "CORRELATIONS",
+    "correlations": "CORRELATIONS",
     "spearman_correlation": "CORRELATIONS",
-    "chi_square": "CROSSTABS", "crosstabs": "CROSSTABS",
-    "frequencies": "FREQUENCIES", "descriptives": "DESCRIPTIVES",
-    "mann_whitney_u": "T-TEST", "kruskal_wallis": "ANOVA",
+    "chi_square": "CROSSTABS",
+    "crosstabs": "CROSSTABS",
+    "frequencies": "FREQUENCIES",
+    "descriptives": "DESCRIPTIVES",
+    "mann_whitney_u": "T-TEST",
+    "kruskal_wallis": "ANOVA",
 }
+
 
 @dataclass
 class MCPState:
     """Per-session analysis state."""
+
     variables: list[dict] = None
     dataset_meta: dict | None = None
     file_path: str | None = None
-    last_analysis: dict | None = None          # metadata for follow-up
-    last_result: Any = None                     # AnalysisResult from parser
-    last_explanation: str = ""                  # natural-language explanation
+    last_analysis: dict | None = None  # metadata for follow-up
+    last_result: Any = None  # AnalysisResult from parser
+    last_explanation: str = ""  # natural-language explanation
     last_method: str = ""
     last_query: str = ""
     _executing: bool = False
@@ -107,6 +113,7 @@ _upload_dir = Path("uploads")
 # Helpers
 # ═════════════════════════════════════════════════════════════════════════
 
+
 def _session_state(ctx: Context) -> MCPState:
     """Get or create per-session state."""
     sid = ctx.session_id
@@ -121,8 +128,7 @@ def _engine_busy() -> dict:
         "error": {
             "category": "system",
             "user_message": (
-                "当前正有另一个分析在执行中（SPSS 引擎为独占资源），"
-                "预计 15 秒后可用，请稍后重试。"
+                "当前正有另一个分析在执行中（SPSS 引擎为独占资源），预计 15 秒后可用，请稍后重试。"
             ),
             "code": "ENGINE_BUSY",
             "suggestion": None,
@@ -130,8 +136,7 @@ def _engine_busy() -> dict:
     }
 
 
-def _mk_error(category: str, user_message: str, code: str,
-              suggestion: str | None = None) -> dict:
+def _mk_error(category: str, user_message: str, code: str, suggestion: str | None = None) -> dict:
     """Factory for structured error responses (grill Q6)."""
     return {
         "ok": False,
@@ -162,6 +167,7 @@ def _cleanup_stale_uploads():
 # Lifespan
 # ═════════════════════════════════════════════════════════════════════════
 
+
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     """Startup: create upload directory. Shutdown: cleanup."""
@@ -180,6 +186,7 @@ mcp = FastMCP("SNLA", lifespan=server_lifespan)
 # Tool: snla_status
 # ═════════════════════════════════════════════════════════════════════════
 
+
 @mcp.tool()
 async def snla_status(ctx: Context) -> dict:
     """Get server health, trusted methods, and SPSS availability.
@@ -189,6 +196,7 @@ async def snla_status(ctx: Context) -> dict:
     consult this before routing user requests to specific methods.
     """
     from snla.config import check_spss_available
+
     state = _session_state(ctx)
     return {
         "ok": True,
@@ -207,6 +215,7 @@ async def snla_status(ctx: Context) -> dict:
 # Tool: snla_upload
 # ═════════════════════════════════════════════════════════════════════════
 
+
 @mcp.tool()
 async def snla_upload(
     ctx: Context,
@@ -222,16 +231,19 @@ async def snla_upload(
     state = _session_state(ctx)
     fp = Path(file_path)
     if not fp.exists():
-        return _mk_error("user", f"文件不存在: {file_path}", "FILE_NOT_FOUND",
-                         "请检查文件路径后重试。")
+        return _mk_error(
+            "user", f"文件不存在: {file_path}", "FILE_NOT_FOUND", "请检查文件路径后重试。"
+        )
 
     size = fp.stat().st_size
     if size > MAX_FILE_SIZE:
-        return _mk_error("user",
-                         f"文件过大 ({size / 1024 / 1024:.1f} MB)，"
-                         f"最大支持 {MAX_FILE_SIZE / 1024 / 1024:.0f} MB",
-                         "FILE_TOO_LARGE",
-                         "请使用更小的数据集。")
+        return _mk_error(
+            "user",
+            f"文件过大 ({size / 1024 / 1024:.1f} MB)，"
+            f"最大支持 {MAX_FILE_SIZE / 1024 / 1024:.0f} MB",
+            "FILE_TOO_LARGE",
+            "请使用更小的数据集。",
+        )
 
     # Copy to session-scoped upload directory
     session_dir = _upload_dir / ctx.session_id
@@ -246,13 +258,13 @@ async def snla_upload(
         state.variables = meta.get("variables", [])
         state.dataset_meta = meta
     except Exception as e:
-        return _mk_error("system", f"文件解析失败: {e}", "PARSE_ERROR",
-                         "请确认文件格式正确（.sav 或 .csv）。")
+        return _mk_error(
+            "system", f"文件解析失败: {e}", "PARSE_ERROR", "请确认文件格式正确（.sav 或 .csv）。"
+        )
 
     cloud_vars = filter_for_cloud({"variables": state.variables}).get("variables", [])
     await ctx.info(
-        f"已上传 {fp.name}（{len(state.variables)} 个变量，"
-        f"{meta.get('row_count', 0)} 条记录）"
+        f"已上传 {fp.name}（{len(state.variables)} 个变量，{meta.get('row_count', 0)} 条记录）"
     )
 
     return {
@@ -268,6 +280,7 @@ async def snla_upload(
 # Tool: snla_variables
 # ═════════════════════════════════════════════════════════════════════════
 
+
 @mcp.tool()
 async def snla_variables(ctx: Context) -> dict:
     """List variables in the currently uploaded data file.
@@ -277,8 +290,9 @@ async def snla_variables(ctx: Context) -> dict:
     """
     state = _session_state(ctx)
     if not state.variables:
-        return _mk_error("user", "请先上传数据文件", "NO_DATA",
-                         "使用 snla_upload 上传 .sav 或 .csv 文件后重试。")
+        return _mk_error(
+            "user", "请先上传数据文件", "NO_DATA", "使用 snla_upload 上传 .sav 或 .csv 文件后重试。"
+        )
     cloud_vars = filter_for_cloud({"variables": state.variables}).get("variables", [])
     return {
         "ok": True,
@@ -291,6 +305,7 @@ async def snla_variables(ctx: Context) -> dict:
 # ═════════════════════════════════════════════════════════════════════════
 # Tool: snla_analyze
 # ═════════════════════════════════════════════════════════════════════════
+
 
 @mcp.tool()
 async def snla_analyze(
@@ -325,12 +340,14 @@ async def snla_analyze(
 
     # ── Guard: data required ────────────────────────────────────────
     if not state.variables:
-        return _mk_error("user", "请先上传数据文件", "NO_DATA",
-                         "使用 snla_upload 上传 .sav 或 .csv 文件后重试。")
+        return _mk_error(
+            "user", "请先上传数据文件", "NO_DATA", "使用 snla_upload 上传 .sav 或 .csv 文件后重试。"
+        )
 
     if not query.strip():
-        return _mk_error("user", "请输入分析问题", "EMPTY_QUERY",
-                         "例如: '比较男女成绩差异' 或 '描述统计'。")
+        return _mk_error(
+            "user", "请输入分析问题", "EMPTY_QUERY", "例如: '比较男女成绩差异' 或 '描述统计'。"
+        )
 
     state._executing = True
     state._cancelled = False
@@ -339,7 +356,8 @@ async def snla_analyze(
         # ── Phase 1: Planning (via orchestrator) ──────────────────
         await ctx.report_progress(0, 5, "正在识别分析意图…")
         plan: PlanResult = planner.plan(
-            sid, query,
+            sid,
+            query,
             variables=state.variables,
             dataset_meta=state.dataset_meta,
             last_analysis=state.last_analysis,
@@ -351,6 +369,7 @@ async def snla_analyze(
         # ── P5-4: simple_regression gate ──────────────────────────
         if method == "simple_regression":
             from snla.config import check_spss_available
+
             if not check_spss_available():
                 state._executing = False
                 return _mk_error(
@@ -359,7 +378,7 @@ async def snla_analyze(
                     "你可以：(1) 在本地安装 SNLA 桌面版连接 SPSS，"
                     "(2) 使用相关分析（Pearson/Spearman）作为替代。",
                     "METHOD_UNAVAILABLE",
-                    "建议改用 pearson_correlation 或 spearman_correlation。"
+                    "建议改用 pearson_correlation 或 spearman_correlation。",
                 )
 
         # ── Python backend fast path ──────────────────────────────
@@ -384,22 +403,26 @@ async def snla_analyze(
                 "system",
                 f"语法验证失败: {'; '.join(validation['errors'])}",
                 "SYNTAX_INVALID",
-                "请尝试更具体地描述分析需求。"
+                "请尝试更具体地描述分析需求。",
             )
 
         greylist_warnings = [
-            w for w in validation.get("warnings", [])
+            w
+            for w in validation.get("warnings", [])
             if "greylist" in w.lower() or "confirm" in w.lower()
         ]
 
         # ── Greylist gate ─────────────────────────────────────────
         if greylist_warnings and not confirm_greylist:
-            planner.stage_greylist(sid, GreylistPending(
-                syntax=syntax,
-                warnings=greylist_warnings,
-                method=method,
-                user_input=query,
-            ))
+            planner.stage_greylist(
+                sid,
+                GreylistPending(
+                    syntax=syntax,
+                    warnings=greylist_warnings,
+                    method=method,
+                    user_input=query,
+                ),
+            )
             state._executing = False
             return {
                 "ok": False,
@@ -415,6 +438,7 @@ async def snla_analyze(
         # ── Execute SPSS ──────────────────────────────────────────
         await ctx.report_progress(3, 5, "正在执行 SPSS 分析…")
         from snla.executor.spss import SPSSExecutor
+
         executor = SPSSExecutor()
         exec_result = executor.run(syntax)
 
@@ -429,7 +453,7 @@ async def snla_analyze(
                 "system",
                 f"SPSS 执行失败: {exec_result.get('error', '未知错误')}",
                 "EXECUTION_FAILED",
-                "请检查数据文件是否正确，或尝试更简单的分析。"
+                "请检查数据文件是否正确，或尝试更简单的分析。",
             )
 
         # ── Parse + Explain ───────────────────────────────────────
@@ -451,8 +475,9 @@ async def snla_analyze(
         state._executing = False
 
         await ctx.report_progress(5, 5, "分析完成")
-        return _format_response(method, plan.plan_explanation, syntax,
-                                parsed, explanation, greylist_warnings)
+        return _format_response(
+            method, plan.plan_explanation, syntax, parsed, explanation, greylist_warnings
+        )
 
     except asyncio.CancelledError:
         state._executing = False
@@ -461,8 +486,7 @@ async def snla_analyze(
     except Exception as e:
         state._executing = False
         traceback.print_exc()
-        return _mk_error("system", str(e), "INTERNAL_ERROR",
-                         "服务内部错误，请稍后重试。")
+        return _mk_error("system", str(e), "INTERNAL_ERROR", "服务内部错误，请稍后重试。")
     finally:
         state._executing = False
 
@@ -470,6 +494,7 @@ async def snla_analyze(
 # ═════════════════════════════════════════════════════════════════════════
 # Tool: snla_confirm
 # ═════════════════════════════════════════════════════════════════════════
+
 
 @mcp.tool()
 async def snla_confirm(ctx: Context) -> dict:
@@ -488,8 +513,7 @@ async def snla_confirm(ctx: Context) -> dict:
     try:
         pg: GreylistPending = planner.pop_pending(sid)
     except NoPendingError:
-        return _mk_error("user", "没有待确认的操作", "NO_PENDING",
-                         "当前没有等待确认的灰名单操作。")
+        return _mk_error("user", "没有待确认的操作", "NO_PENDING", "当前没有等待确认的灰名单操作。")
 
     state._executing = True
     state._cancelled = False
@@ -503,12 +527,15 @@ async def snla_confirm(ctx: Context) -> dict:
         # Execute on temp copy
         if state.file_path:
             from snla.executor.spss import SPSSExecutor
+
             executor = SPSSExecutor()
             exec_result = executor.execute_on_temp_copy(
-                syntax=syntax, data_path=state.file_path,
+                syntax=syntax,
+                data_path=state.file_path,
             )
         else:
             from snla.executor.spss import SPSSExecutor
+
             executor = SPSSExecutor()
             exec_result = executor.run(syntax)
 
@@ -545,9 +572,7 @@ async def snla_confirm(ctx: Context) -> dict:
         await ctx.report_progress(4, 4, "完成")
 
         result = _format_response(method, "", syntax, parsed, explanation, pg.warnings)
-        result["temp_copy_note"] = (
-            "此操作已在数据的临时副本上执行，您的原始数据文件未被修改。"
-        )
+        result["temp_copy_note"] = "此操作已在数据的临时副本上执行，您的原始数据文件未被修改。"
         return result
 
     except asyncio.CancelledError:
@@ -557,8 +582,7 @@ async def snla_confirm(ctx: Context) -> dict:
     except Exception as e:
         state._executing = False
         traceback.print_exc()
-        return _mk_error("system", str(e), "INTERNAL_ERROR",
-                         "服务内部错误，请稍后重试。")
+        return _mk_error("system", str(e), "INTERNAL_ERROR", "服务内部错误，请稍后重试。")
     finally:
         state._executing = False
 
@@ -566,6 +590,7 @@ async def snla_confirm(ctx: Context) -> dict:
 # ═════════════════════════════════════════════════════════════════════════
 # Tool: snla_cancel
 # ═════════════════════════════════════════════════════════════════════════
+
 
 @mcp.tool()
 async def snla_cancel(ctx: Context) -> dict:
@@ -586,6 +611,7 @@ async def snla_cancel(ctx: Context) -> dict:
 # Tool: snla_export
 # ═════════════════════════════════════════════════════════════════════════
 
+
 @mcp.tool()
 async def snla_export(ctx: Context) -> dict:
     """Export the last analysis result as a Word (.docx) report.
@@ -596,8 +622,9 @@ async def snla_export(ctx: Context) -> dict:
     sid = ctx.session_id
 
     if not state.last_result:
-        return _mk_error("user", "没有可导出的分析结果", "NO_RESULT",
-                         "请先使用 snla_analyze 执行分析。")
+        return _mk_error(
+            "user", "没有可导出的分析结果", "NO_RESULT", "请先使用 snla_analyze 执行分析。"
+        )
 
     try:
         output_path = _upload_dir / sid / f"snla_report_{sid[:8]}.docx"
@@ -619,13 +646,13 @@ async def snla_export(ctx: Context) -> dict:
             "content_base64": base64.b64encode(content).decode(),
         }
     except Exception as e:
-        return _mk_error("system", f"导出失败: {e}", "EXPORT_FAILED",
-                         "请稍后重试。")
+        return _mk_error("system", f"导出失败: {e}", "EXPORT_FAILED", "请稍后重试。")
 
 
 # ═════════════════════════════════════════════════════════════════════════
 # Internal helpers
 # ═════════════════════════════════════════════════════════════════════════
+
 
 def _format_response(
     method: str,
@@ -639,10 +666,7 @@ def _format_response(
     # Extract tables from parsed result
     tables = []
     if hasattr(parsed, "tables"):
-        tables = [
-            {"title": t.title, "rows": t.rows}
-            for t in parsed.tables
-        ]
+        tables = [{"title": t.title, "rows": t.rows} for t in parsed.tables]
     elif isinstance(parsed, dict):
         tables = parsed.get("tables", [])
 
@@ -694,6 +718,7 @@ async def _execute_python_backend(
     await ctx.report_progress(2, 4, "正在通过 Python 引擎执行分析…")
 
     import pandas as pd
+
     from snla.executor.python import PythonStatsExecutor
 
     # Load dataframe
@@ -705,6 +730,7 @@ async def _execute_python_backend(
     try:
         if suffix == ".sav":
             import pyreadstat
+
             df, _ = pyreadstat.read_sav(file_path)
         else:
             df = pd.read_csv(file_path)
@@ -713,8 +739,9 @@ async def _execute_python_backend(
 
     # Execute
     py_exec = PythonStatsExecutor()
-    result = py_exec.execute(method, df, grouping_var=gvar, test_var=tvar,
-                             dep_var=gvar, indep_var=tvar)
+    result = py_exec.execute(
+        method, df, grouping_var=gvar, test_var=tvar, dep_var=gvar, indep_var=tvar
+    )
 
     # P5-4: check trust
     if not is_method_trusted(method):
@@ -747,6 +774,7 @@ async def _execute_python_backend(
 
 if __name__ == "__main__":
     import sys
+
     if "--transport" in sys.argv:
         idx = sys.argv.index("--transport")
         transport = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "stdio"

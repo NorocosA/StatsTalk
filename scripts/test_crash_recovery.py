@@ -5,6 +5,7 @@ Tests that SPSS can recover after forced termination:
 2. Force-terminate 3 times during analysis
 3. Verify SPSS can still execute normally on 4th attempt
 """
+
 import os
 import sys
 import time
@@ -26,20 +27,26 @@ def run_baseline():
 def force_terminate_test():
     """Terminate SPSS 3 times, verify recovery on 4th."""
     for i in range(3):
-        print(f"  [TERMINATE #{i+1}] Starting...")
+        print(f"  [TERMINATE #{i + 1}] Starting...")
         e = SPSSExecutor()
         # Use a syntax that takes measurable time
         # We'll submit it and immediately terminate the executor
         try:
             from snla.config import SPSS_PYTHON_PATH
             import subprocess
+
             # Start a long-running script
             proc = subprocess.Popen(
-                [SPSS_PYTHON_PATH, "-c",
-                 "import spss, time; spss.Submit('GET FILE=\\'" +
-                 os.path.abspath(DATA).replace("\\", "/") + "\\'.'); "
-                 "time.sleep(5)"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                [
+                    SPSS_PYTHON_PATH,
+                    "-c",
+                    "import spss, time; spss.Submit('GET FILE=\\'"
+                    + os.path.abspath(DATA).replace("\\", "/")
+                    + "\\'.'); "
+                    "time.sleep(5)",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
             time.sleep(1)  # Let it start
             proc.terminate()
@@ -48,9 +55,9 @@ def force_terminate_test():
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
-            print(f"  [TERMINATE #{i+1}] Done")
+            print(f"  [TERMINATE #{i + 1}] Done")
         except Exception as exc:
-            print(f"  [TERMINATE #{i+1}] Error: {exc}")
+            print(f"  [TERMINATE #{i + 1}] Error: {exc}")
             return False
     return True
 

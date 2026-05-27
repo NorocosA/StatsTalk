@@ -6,11 +6,8 @@ types, labels, and value_labels reach the LLM — never raw data or
 identifiers.
 """
 
-import pytest
-
 from snla.data.sanitizer import CLOUD_SAFE_FIELDS, filter_for_cloud, sanitize_variables
 from snla.session import SessionState
-
 
 # =========================================================================
 # Test 1: Full privacy pipeline — sensitive variables end-to-end
@@ -46,9 +43,7 @@ def test_full_privacy_pipeline(sensitive_variables):
     # Strip to cloud-safe fields only (what actually goes to LLM)
     safe_vars = []
     for v in cloud_vars:
-        safe_vars.append({
-            k: v[k] for k in ("name", "type", "label", "value_labels") if k in v
-        })
+        safe_vars.append({k: v[k] for k in ("name", "type", "label", "value_labels") if k in v})
     assert len(safe_vars) == len(sensitive_variables), (
         f"Expected {len(sensitive_variables)} safe vars, got {len(safe_vars)}"
     )
@@ -56,9 +51,7 @@ def test_full_privacy_pipeline(sensitive_variables):
     # ── Step 4: Verify cloud safety ─────────────────────────────────────
     # Sensitive variables should have desensitized names
     desensitized_names = {v["name"] for v in safe_vars if v["name"].startswith("var_")}
-    assert len(desensitized_names) == 3, (
-        f"Expected 3 desensitized names, got {desensitized_names}"
-    )
+    assert len(desensitized_names) == 3, f"Expected 3 desensitized names, got {desensitized_names}"
     assert "var_01" in desensitized_names
     assert "var_02" in desensitized_names
     assert "var_03" in desensitized_names
@@ -100,12 +93,8 @@ def test_full_privacy_pipeline(sensitive_variables):
 
     # ── Step 6: map_to_local (restore for SPSS execution) ────────────────
     restored = session.map_to_local(llm_syntax)
-    assert "患者姓名" in restored, (
-        f"map_to_local should restore '患者姓名', got: {restored}"
-    )
-    assert "手机号" in restored, (
-        f"map_to_local should restore '手机号', got: {restored}"
-    )
+    assert "患者姓名" in restored, f"map_to_local should restore '患者姓名', got: {restored}"
+    assert "手机号" in restored, f"map_to_local should restore '手机号', got: {restored}"
     assert "var_01" not in restored, (
         f"Desensitized name 'var_01' should NOT appear after restoration, got: {restored}"
     )
@@ -154,9 +143,7 @@ def test_filter_for_cloud_strips_unsafe():
 
     # Exactly the safe keys remain
     expected = {"variable_names", "variable_types", "row_count"}
-    assert set(filtered.keys()) == expected, (
-        f"Expected only {expected}, got {set(filtered.keys())}"
-    )
+    assert set(filtered.keys()) == expected, f"Expected only {expected}, got {set(filtered.keys())}"
 
 
 # =========================================================================
@@ -209,9 +196,7 @@ def test_cloud_safe_fields_definition():
     # These must NEVER be in the safe set
     dangerous = {"raw_data", "identifiers", "free_text_responses", "value_labels"}
     for key in dangerous:
-        assert key not in CLOUD_SAFE_FIELDS, (
-            f"DANGER: '{key}' must NOT be in CLOUD_SAFE_FIELDS"
-        )
+        assert key not in CLOUD_SAFE_FIELDS, f"DANGER: '{key}' must NOT be in CLOUD_SAFE_FIELDS"
 
     assert len(CLOUD_SAFE_FIELDS) >= 6, (
         f"CLOUD_SAFE_FIELDS size changed from 6 to {len(CLOUD_SAFE_FIELDS)} — "

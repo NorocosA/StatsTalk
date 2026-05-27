@@ -36,6 +36,7 @@ SEED = 42
 # Step 1: Load original
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def load_original(path):
     """Load existing test_data.sav, return (df, meta)."""
     df, meta = pyreadstat.read_sav(path)
@@ -46,6 +47,7 @@ def load_original(path):
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 2: Extend rows (bootstrap with jitter)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def extend_rows(df_original, n_rows):
     """Extend DataFrame to n_rows by sampling with replacement + small jitter.
@@ -71,6 +73,7 @@ def extend_rows(df_original, n_rows):
 # ═══════════════════════════════════════════════════════════════════════════
 # Step 3: Add new columns
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def add_new_columns(df, n_rows):
     """Add 8 new columns for P5-3 backend comparison validation.
@@ -120,6 +123,7 @@ def add_new_columns(df, n_rows):
 # Step 4: Add NaN values (boundary dataset only)
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def add_nan_values(df, n_nan=3):
     """Insert NaN into score and income for boundary testing."""
     idx_score = RNG.choice(len(df), size=min(n_nan, len(df)), replace=False)
@@ -135,19 +139,22 @@ def add_nan_values(df, n_nan=3):
 # Step 5: Build metadata
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def build_variable_labels(original_labels_dict):
     """Combine original and new variable labels into a single dict."""
     labels = dict(original_labels_dict)
-    labels.update({
-        "pre_score": "Pre-test Score",
-        "post_score": "Post-test Score",
-        "income": "Annual Income",
-        "education": "Education Level",
-        "department": "Department",
-        "treatment_group": "Treatment Group",
-        "stress_level": "Stress Level",
-        "satisfaction": "Satisfaction Score",
-    })
+    labels.update(
+        {
+            "pre_score": "Pre-test Score",
+            "post_score": "Post-test Score",
+            "income": "Annual Income",
+            "education": "Education Level",
+            "department": "Department",
+            "treatment_group": "Treatment Group",
+            "stress_level": "Stress Level",
+            "satisfaction": "Satisfaction Score",
+        }
+    )
     return labels
 
 
@@ -186,6 +193,7 @@ def build_measure_map():
 # ═══════════════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def main():
     os.makedirs(FIXTURES_DIR, exist_ok=True)
@@ -255,10 +263,16 @@ def main():
             corr = df_check[["score", "pre_score"]].dropna().corr().iloc[0, 1]
             print(f"     Correlation score vs pre_score: r={corr:.3f}")
         if "income" in df_check.columns:
-            print(f"     Income range: {df_check['income'].min():.0f} - {df_check['income'].max():.0f}")
+            print(
+                f"     Income range: {df_check['income'].min():.0f} - {df_check['income'].max():.0f}"
+            )
         if "stress_level" in df_check.columns:
-            print(f"     Stress level range: {df_check['stress_level'].min():.1f} - {df_check['stress_level'].max():.1f}")
-            print(f"     Stress level mean: {df_check['stress_level'].mean():.1f} (target: ~30, right-skewed)")
+            print(
+                f"     Stress level range: {df_check['stress_level'].min():.1f} - {df_check['stress_level'].max():.1f}"
+            )
+            print(
+                f"     Stress level mean: {df_check['stress_level'].mean():.1f} (target: ~30, right-skewed)"
+            )
 
     print("\n" + "=" * 60)
     print("Done! Both datasets ready for P5-3 validation.")

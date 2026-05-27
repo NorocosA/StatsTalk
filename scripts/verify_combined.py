@@ -6,6 +6,7 @@ Tests test_data.sav (50 cases) then airline.sav (15 cases) with real LLM,
 Usage:
     python scripts/verify_combined.py [--skip-spss] [--dataset airline|testdata|both]
 """
+
 import csv
 import json
 import os
@@ -22,7 +23,12 @@ os.environ["LLM_CALL_LOG"] = "false"
 from snla.data.reader import read_and_extract
 from snla.syntax.validator import validate
 from snla.ui.server import (
-    session, _phase1_plan, _syntax_template, _make_executor, _execute_syntax, _parse_output
+    session,
+    _phase1_plan,
+    _syntax_template,
+    _make_executor,
+    _execute_syntax,
+    _parse_output,
 )
 
 COOLDOWN = 30  # seconds between cases
@@ -56,15 +62,15 @@ for ds_name, sav_path, csv_path in DATASETS:
     session.variables = meta.get("variables", [])
     session.history = []
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Dataset: {ds_name} — {meta['row_count']} rows, {meta['column_count']} vars")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     for v in session.variables[:6]:
         vl = v.get("value_labels", {}) or {}
-        vl_s = f" [{', '.join(f'{k}={v}' for k,v in list(vl.items())[:3])}]" if vl else ""
-        print(f"  {v['name']:25s} {v.get('type','?'):8s} {v.get('label','')}{vl_s}")
+        vl_s = f" [{', '.join(f'{k}={v}' for k, v in list(vl.items())[:3])}]" if vl else ""
+        print(f"  {v['name']:25s} {v.get('type', '?'):8s} {v.get('label', '')}{vl_s}")
     if len(session.variables) > 6:
-        print(f"  ... +{len(session.variables)-6} more variables")
+        print(f"  ... +{len(session.variables) - 6} more variables")
 
     with open(csv_path, "r", encoding="utf-8-sig") as f:
         cases = list(csv.DictReader(f))
@@ -72,7 +78,7 @@ for ds_name, sav_path, csv_path in DATASETS:
     ds_passed = ds_failed = ds_exec_ok = ds_exec_fail = 0
 
     for idx, case in enumerate(cases):
-        cid = case.get("编号", str(idx+1))
+        cid = case.get("编号", str(idx + 1))
         query = case["NL描述"].strip()
         expected = case.get("预期统计方法", "").strip()
 
@@ -117,7 +123,7 @@ for ds_name, sav_path, csv_path in DATASETS:
                     print(f"     WARN No stat output")
                     ds_exec_ok += 1
             else:
-                print(f"     FAIL SPSS: {exec_result.get('error','?')}")
+                print(f"     FAIL SPSS: {exec_result.get('error', '?')}")
                 ds_exec_fail += 1
 
         method_ok = method == expected
@@ -126,9 +132,16 @@ for ds_name, sav_path, csv_path in DATASETS:
             status = "通过"
         else:
             status = "方法偏差"
-        all_results.append({**case, "验收状态": status, "实际方法": method,
-                            "分组变量": gvar or "", "检验变量": tvar or "",
-                            "LLM耗时s": f"{llm_time:.1f}"})
+        all_results.append(
+            {
+                **case,
+                "验收状态": status,
+                "实际方法": method,
+                "分组变量": gvar or "",
+                "检验变量": tvar or "",
+                "LLM耗时s": f"{llm_time:.1f}",
+            }
+        )
 
         # ── Cooldown ──
         if idx < len(cases) - 1:
@@ -136,8 +149,10 @@ for ds_name, sav_path, csv_path in DATASETS:
             time.sleep(COOLDOWN)
             print(" done")
 
-    print(f"\n--- {ds_name} Summary: {ds_passed} passed, {ds_failed} failed, "
-          f"SPSS {ds_exec_ok} ok / {ds_exec_fail} fail ---")
+    print(
+        f"\n--- {ds_name} Summary: {ds_passed} passed, {ds_failed} failed, "
+        f"SPSS {ds_exec_ok} ok / {ds_exec_fail} fail ---"
+    )
     total_passed += ds_passed
     total_failed += ds_failed
     total_exec_ok += ds_exec_ok
@@ -151,7 +166,9 @@ with open(report_path, "w", encoding="utf-8-sig", newline="") as f:
     writer.writeheader()
     writer.writerows(all_results)
 
-print(f"\n{'='*80}")
-print(f"FINAL: {total_passed} method-match, {total_failed} issues, "
-      f"SPSS {total_exec_ok} ok / {total_exec_fail} fail")
+print(f"\n{'=' * 80}")
+print(
+    f"FINAL: {total_passed} method-match, {total_failed} issues, "
+    f"SPSS {total_exec_ok} ok / {total_exec_fail} fail"
+)
 print(f"Report: {report_path}")
