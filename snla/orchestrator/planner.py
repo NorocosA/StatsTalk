@@ -44,6 +44,20 @@ def _plan(
     """
     from snla.config import LLM_MOCK
 
+    def _rag(result: PlanResult) -> PlanResult:
+        """Inject RAG SPSS documentation context into plan_explanation (optional)."""
+        try:
+            from snla.rag.integration import get_syntax_context
+
+            ctx = get_syntax_context(result.method, n_chunks=2, max_chars=1500)
+            if ctx:
+                result.plan_explanation = (
+                    f"[SPSS 官方语法参考]\n{ctx}\n\n{result.plan_explanation}"
+                )
+        except Exception:
+            pass
+        return result
+
     if LLM_MOCK or not _has_llm():
         method = _mock_intent(user_input, last_analysis)
         valid = {
@@ -63,12 +77,12 @@ def _plan(
         if method not in valid:
             method = "descriptives"
         cat, num = _auto_detect_vars(variables)
-        return PlanResult(
+        return _rag(PlanResult(
             method=method,
             plan_explanation=f"（MOCK 模式）{method}",
             grouping_variable=cat,
             test_variable=num,
-        )
+        ))
 
     # ── Real LLM path ─────────────────────────────────────────────────
     from snla.llm.client import LLMClient
@@ -146,19 +160,19 @@ def _plan(
         }
         if method not in valid_methods:
             method = "descriptives"
-        return PlanResult(
+        return _rag(PlanResult(
             method=method,
             plan_explanation=plan,
             grouping_variable=gvar,
             test_variable=tvar,
-        )
+        ))
     except Exception:
-        return PlanResult(
+        return _rag(PlanResult(
             method="descriptives",
             plan_explanation="",
             grouping_variable=None,
             test_variable=None,
-        )
+        ))
 
 
 # ═════════════════════════════════════════════════════════════════════════
