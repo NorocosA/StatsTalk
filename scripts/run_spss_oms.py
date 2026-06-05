@@ -1,9 +1,11 @@
 """Execute SPSS syntax via built-in Python 3.4 interpreter."""
 
 import spss, spssaux, os, sys
+from pathlib import Path
 
-data_path = r"D:/Projects/SPSS Natural Language Assistant(SNLA)/data/fixtures/test_data.sav"
-outdir = r"D:/Projects/SPSS Natural Language Assistant(SNLA)/p0_output"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+data_path = str(PROJECT_ROOT / "data" / "fixtures" / "test_data.sav")
+outdir = str(PROJECT_ROOT / "p0_output")
 os.makedirs(outdir, exist_ok=True)
 
 xml_path = os.path.join(outdir, "frequencies_test.xml").replace("\\", "/")

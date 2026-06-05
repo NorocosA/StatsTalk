@@ -132,7 +132,7 @@ def export_to_docx(
     # ── Footer ───────────────────────────────────────────────────────────
     doc.add_paragraph("")
     doc.add_paragraph(
-        "本报告由 SPSS Natural Language Assistant (SNLA) 自动生成。",
+        "本报告由 StatsTalk 自动生成。",
     ).runs[0].italic = True
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)

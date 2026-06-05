@@ -1,4 +1,4 @@
-"""Privacy sanitizer for SPSS Natural Language Assistant (SNLA).
+"""Privacy sanitizer for StatsTalk.
 
 Provides two functions:
   - filter_for_cloud: strips unsafe fields from metadata before sending to cloud LLM.

@@ -1,8 +1,11 @@
 """Test SPSS syntax execution via built-in Python 3.4."""
 import spss, spssaux, os, sys
 
-data_path = r'D:/Projects/SPSS Natural Language Assistant(SNLA)/data/fixtures/test_data.sav'
-outdir = r'D:/Projects/SPSS Natural Language Assistant(SNLA)/p0_output'
+* NOTE: Hardcoded paths removed - use Python-based path resolution instead.
+* data_path and outdir should be passed from Python caller or set via environment.
+* Example: data_path = r'D:/Projects/StatsTalk/data/fixtures/test_data.sav'
+* Example: outdir = r'D:/Projects/StatsTalk/p0_output'
+
 os.makedirs(outdir, exist_ok=True)
 
 # Route OMS output to XML

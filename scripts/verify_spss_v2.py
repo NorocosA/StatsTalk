@@ -6,10 +6,12 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 sys.path.insert(0, ".")
 import json, os, time
 from datetime import datetime
+from pathlib import Path
 from snla.executor.spss import SPSSExecutor
 
 executor = SPSSExecutor()
-data_path = r"D:\Projects\SPSS Natural Language Assistant(SNLA)\data\fixtures\test_data.sav"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+data_path = str(PROJECT_ROOT / "data" / "fixtures" / "test_data.sav")
 
 # 5 analysis types with test syntax
 tests = [
@@ -60,7 +62,7 @@ report = {
     "results": results,
 }
 
-outdir = r"D:\Projects\SPSS Natural Language Assistant(SNLA)\p0_output"
+outdir = str(PROJECT_ROOT / "p0_output")
 with open(os.path.join(outdir, "connectivity_report.json"), "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2, ensure_ascii=False)
 print(f"Report saved: {os.path.join(outdir, 'connectivity_report.json')}")
