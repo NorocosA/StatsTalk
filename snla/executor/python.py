@@ -276,6 +276,10 @@ class PythonStatsExecutor:
         tv = test_var or data.columns[1]
         clean = data[[gv, tv]].dropna()
 
+        if len(clean[gv].unique()) < 2:
+            return AnalysisResult(analysis_type="ONEWAY ANOVA", statistics={}, n_valid=len(clean),
+                                  notes=["分组变量只有一个水平，无法进行 ANOVA 分析。"])
+
         res = pg.anova(data=clean, dv=tv, between=gv, detailed=True)
         f_val = float(res["F"].iloc[0])
         p_val = float(res["p_unc"].iloc[0])
@@ -491,7 +495,7 @@ class PythonStatsExecutor:
             r.update({str(k): int(v) for k, v in row.items()})
             ctab_rows.append(r)
 
-        return AnalysisResult(
+        result = AnalysisResult(
             analysis_type="CROSSTABS",
             tables=[
                 TableResult(
@@ -509,6 +513,11 @@ class PythonStatsExecutor:
             n_valid=len(clean),
             parser_used="python_pingouin",
         )
+        if "expected" in dir() and hasattr(expected, 'values'):
+            min_expected = min(expected.values().flat) if hasattr(expected, 'values') else None
+            if min_expected is not None and min_expected < 5:
+                result.notes.append(f"最小期望频数为 {min_expected:.1f}（<5），卡方检验结果可能不可靠。")
+        return result
 
     # ==================================================================
     # Frequencies (counts & percentages)
@@ -577,7 +586,10 @@ class PythonStatsExecutor:
             }
         ]
 
-        return AnalysisResult(
+        nan_stats = [k for k, v in {"mean": rows[0]["Mean"], "std_dev": rows[0]["StdDev"],
+                                      "minimum": rows[0]["Min"], "maximum": rows[0]["Max"]}.items()
+                     if isinstance(v, float) and (v != v)]
+        result = AnalysisResult(
             analysis_type="DESCRIPTIVES",
             tables=[
                 TableResult(
@@ -596,6 +608,9 @@ class PythonStatsExecutor:
             n_missing=int(len(data) - len(col)),
             parser_used="python_pingouin",
         )
+        if nan_stats:
+            result.notes.append(f"以下统计量为 NaN（常数列或无变异）：{', '.join(nan_stats)}")
+        return result
 
     # ==================================================================
     # Mann-Whitney U (non-parametric)
@@ -666,6 +681,10 @@ class PythonStatsExecutor:
         gv = grouping_var or data.columns[0]
         tv = test_var or data.columns[1]
         clean = data[[gv, tv]].dropna()
+
+        if len(clean[gv].unique()) < 2:
+            return AnalysisResult(analysis_type="KRUSKAL_WALLIS", statistics={}, n_valid=len(clean),
+                                  notes=["分组变量只有一个水平，无法进行 Kruskal-Wallis 检验。"])
 
         res = pg.kruskal(data=clean, dv=tv, between=gv)
         h_val = float(res["H"].iloc[0])

@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 # Maximum number of retry attempts for LLM HTTP calls
 LLM_MAX_RETRIES = 3
 
+# Timeout for LLM HTTP calls (connect_timeout, read_timeout)
+LLM_CONNECT_TIMEOUT = 10   # seconds
+LLM_READ_TIMEOUT = 120     # seconds
+
 # ---------------------------------------------------------------------------
 # TLS adapter for servers with strict/complex SSL configurations
 # (e.g. opencode.ai which requires relaxed cipher settings on some platforms)
@@ -296,7 +300,7 @@ class LLMClient:
                     endpoint,
                     headers=headers,
                     json=payload,
-                    timeout=120,
+                    timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),
                 )
                 response.raise_for_status()
                 break  # success
@@ -387,7 +391,7 @@ class LLMClient:
                 response = self._session.post(
                     endpoint,
                     json=payload,
-                    timeout=120,
+                    timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),
                 )
                 response.raise_for_status()
                 break  # success

@@ -46,6 +46,9 @@ ALLOWED_EXTENSIONS = {".sav", ".csv"}
 ALLOWED_MIME_TYPES = {"application/octet-stream", "text/csv"}
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
+# ── Query limits ──────────────────────────────────────────────────────
+MAX_QUERY_LENGTH = 2000  # max characters per user query
+
 # In-memory session (one user, one session)
 session = SessionState()
 UI_DIR = Path(__file__).resolve().parent
@@ -54,6 +57,11 @@ UI_DIR = Path(__file__).resolve().parent
 _executing: bool = False  # True while /api/analyze is running
 _active_executor: SPSSExecutor | None = None  # for cancellation
 _was_cancelled: bool = False  # True when user requested cancellation
+
+# ── Rate limiting ─────────────────────────────────────────────────────
+_rate_limit_store: dict[str, list[float]] = {}
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 10  # max requests per window
 
 # ── P5-4: SPSS availability & method trust helpers ──────────────────
 
@@ -186,6 +194,21 @@ def cancel():
     return jsonify({"ok": True})
 
 
+# ── Rate limit helper ─────────────────────────────────────────────────
+def _check_rate_limit(endpoint: str = "/api/analyze") -> bool:
+    """Return True if rate limit exceeded."""
+    import time
+
+    now = time.time()
+    timestamps = _rate_limit_store.get(endpoint, [])
+    timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+    _rate_limit_store[endpoint] = timestamps
+    if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        return True
+    timestamps.append(now)
+    return False
+
+
 # ── Analyze ───────────────────────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
@@ -194,9 +217,24 @@ def analyze():
     if _executing:
         return jsonify({"error": "An analysis is already running"}), 409
 
+    if _check_rate_limit():
+        return (
+            jsonify(
+                {
+                    "error": f"请求过于频繁，请等待后再试（每{RATE_LIMIT_WINDOW}秒最多{RATE_LIMIT_MAX_REQUESTS}次）"
+                }
+            ),
+            429,
+        )
+
     data = request.get_json(force=True)
     user_input = data.get("text", "").strip()
     confirm_greylist = data.get("confirm_greylist", False)
+
+    if not isinstance(data.get("text"), str):
+        return jsonify({"error": "输入类型无效"}), 400
+    if len(user_input) > MAX_QUERY_LENGTH:
+        return jsonify({"error": f"输入文本过长（最大 {MAX_QUERY_LENGTH} 字符）"}), 400
 
     if not user_input:
         return jsonify({"error": "Empty input"}), 400
