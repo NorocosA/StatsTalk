@@ -23,6 +23,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from flask import Flask, jsonify, request, send_from_directory
 
 from snla.config import DEBUG, LLM_MOCK, STATS_BACKEND
+from snla.data.persistence import load_session, save_session
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
 from snla.orchestrator import GreylistPending, NoPendingError, planner
@@ -51,6 +52,9 @@ MAX_QUERY_LENGTH = 2000  # max characters per user query
 
 # In-memory session (one user, one session)
 session = SessionState()
+_load_ok = load_session(session)
+if _load_ok:
+    logger.info("Restored previous session from SQLite")
 UI_DIR = Path(__file__).resolve().parent
 
 # ── Concurrency & state guards ───────────────────────────────────────
@@ -154,6 +158,9 @@ def upload():
         session.dataset_meta = meta
         session.variables = meta.get("variables", [])
 
+        # Persist so a desktop restart doesn't lose the uploaded dataset
+        save_session(session)
+
         # Sanitize for cloud safety
         cloud_safe = filter_for_cloud(meta)
         cloud_vars = cloud_safe.get("variables", session.variables)
@@ -242,6 +249,18 @@ def analyze():
     if not session.variables:
         return jsonify({"error": "Please upload a data file first"}), 400
 
+    # ── Range expansion (Q1-Q10 → Q1, Q2, ..., Q10) ────────────────
+    try:
+        from snla.data.range_expander import expand_query
+
+        var_names = [v["name"] for v in session.variables]
+        expanded = expand_query(user_input, var_names)
+        if expanded != user_input:
+            logger.info("Range expanded: %s → %s", user_input, expanded)
+            user_input = expanded
+    except Exception:
+        logger.warning("Range expansion failed, continuing with original input", exc_info=True)
+
     _executing = True
     _was_cancelled = False
     session.reset_cancellation()
@@ -266,6 +285,7 @@ def analyze():
         # ── Python backend fast path ───────────────────────────────
         py_response = _run_python_backend(plan_result, user_input)
         if py_response is not None:
+            save_session(session)
             return jsonify(py_response)
 
         # ── Syntax generation + validation + greylist gate ────────
@@ -344,6 +364,8 @@ def analyze():
             "method": method,
             "syntax": syntax,
         }
+
+        save_session(session)
 
         return jsonify(
             {
@@ -445,6 +467,8 @@ def confirm_greylist():
             }
         )
         session.last_analysis = {"method": method, "syntax": syntax}
+
+        save_session(session)
 
         return jsonify(
             {

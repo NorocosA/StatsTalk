@@ -31,6 +31,9 @@ venv/
 # P0 验证输出
 p0_output/
 
+# SNLA 会话持久化
+snla_session.db
+
 # RAG 向量库
 .chromadb/
 
