@@ -22,9 +22,15 @@ from snla.parser.schema import AnalysisResult, TableResult
 class PythonStatsExecutor:
     """Execute statistical analyses using Python libraries.
 
-    Covers all 12 analysis types in ``snla/syntax/templates.py`` using
-    ``pingouin`` for inferential statistics and ``pandas`` for descriptive
-    summaries.  Every method returns a fully-populated ``AnalysisResult``.
+    Covers 15 analysis types using ``pingouin`` for inferential statistics
+    and ``pandas`` for descriptive summaries.  Every method returns a
+    fully-populated ``AnalysisResult``.
+
+    **Available methods**: independent_t_test, paired_t_test, oneway_anova,
+    simple_regression, multiple_regression, logistic_regression,
+    pearson_correlation, spearman_correlation, correlations, chi_square,
+    crosstabs, frequencies, descriptives, mann_whitney_u, kruskal_wallis,
+    wilcoxon.
 
     Usage::
 
@@ -73,6 +79,10 @@ class PythonStatsExecutor:
             "descriptives": self._descriptives,
             "mann_whitney_u": self._mann_whitney,
             "kruskal_wallis": self._kruskal_wallis,
+            # ── P5/P6 additions ─────────────────────────────────────
+            "wilcoxon": self._wilcoxon,
+            "multiple_regression": self._multiple_regression,
+            "logistic_regression": self._logistic_regression,
         }
         handler = dispatch.get(method)
         if handler is None:
@@ -90,6 +100,7 @@ class PythonStatsExecutor:
             var1=var1,
             var2=var2,
             groups=groups,
+            **kwargs,
         )
 
     # ==================================================================
@@ -709,5 +720,199 @@ class PythonStatsExecutor:
             ],
             statistics={"h": h_val, "p_value": p_val, "eta_sq": eta_sq, "n_valid": len(clean)},
             n_valid=len(clean),
+            parser_used="python_pingouin",
+        )
+
+    # ==================================================================
+    # Wilcoxon Signed-Rank (non-parametric paired test)
+    # ==================================================================
+
+    def _wilcoxon(
+        self,
+        data: pd.DataFrame,
+        test_var: str | None = None,
+        grouping_var: str | None = None,
+        **__: Any,
+    ) -> AnalysisResult:
+        """Wilcoxon signed-rank test — a non-parametric alternative to the
+        paired t-test.  Compares two related samples (two columns or two
+        groups of a grouping variable).
+
+        Returns W-statistic and p-value via ``pingouin.wilcoxon``.
+        """
+        import pingouin as pg
+
+        # For paired test, need two columns or two groups
+        cols = list(data.select_dtypes(include="number").columns)
+
+        if len(cols) < 2:
+            return AnalysisResult(
+                analysis_type="WILCOXON",
+                notes=["Python backend: Wilcoxon test requires ≥2 numeric columns"],
+                parser_used="python_pingouin",
+            )
+
+        # Grab the first two numeric columns
+        x = data[cols[0]].dropna()
+        y = data[cols[1]].dropna()
+        # Align lengths
+        n = min(len(x), len(y))
+        x, y = x.iloc[:n], y.iloc[:n]
+
+        if n < 2:
+            return AnalysisResult(
+                analysis_type="WILCOXON",
+                notes=["Python backend: insufficient data for Wilcoxon test"],
+                parser_used="python_pingouin",
+            )
+
+        res = pg.wilcoxon(x, y)
+        w_val = float(res["W-val"].iloc[0])
+        p_val = float(res["p-val"].iloc[0])
+
+        return AnalysisResult(
+            analysis_type="WILCOXON",
+            tables=[
+                TableResult(
+                    title="Wilcoxon Signed-Rank Test",
+                    rows=[
+                        {
+                            "W": round(w_val, 4),
+                            "p_value": round(p_val, 4),
+                            "N": n,
+                            "variables": f"{cols[0]} × {cols[1]}",
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
+            ],
+            statistics={"w_value": w_val, "p_value": p_val, "n_valid": n},
+            n_valid=n,
+            parser_used="python_pingouin",
+        )
+
+    # ==================================================================
+    # Multiple Regression (linear, multiple predictors)
+    # ==================================================================
+
+    def _multiple_regression(
+        self,
+        data: pd.DataFrame,
+        dep_var: str | None = None,
+        **kwargs: Any,
+    ) -> AnalysisResult:
+        """Multiple linear regression via ``pingouin.linear_regression``.
+
+        Accepts a list of predictor columns via the ``covariates`` kwarg.
+        Falls back to all numeric columns (minus dep_var) when no
+        covariates are specified.
+        """
+        import pingouin as pg
+
+        dep = dep_var or data.columns[0]
+        predictors: list[str] = kwargs.get("covariates") or [
+            c
+            for c in data.select_dtypes(include="number").columns
+            if c != dep
+        ]
+
+        if not predictors:
+            return AnalysisResult(
+                analysis_type="REGRESSION",
+                notes=["Python backend: no predictors available for multiple regression"],
+                parser_used="python_pingouin",
+            )
+
+        all_vars = [dep] + predictors
+        clean = data[all_vars].dropna()
+
+        if len(clean) < len(predictors) + 2:
+            return AnalysisResult(
+                analysis_type="REGRESSION",
+                notes=[
+                    f"Python backend: insufficient data ({len(clean)} rows, "
+                    f"{len(predictors)} predictors) for multiple regression"
+                ],
+                parser_used="python_pingouin",
+            )
+
+        res = pg.linear_regression(clean[predictors], clean[dep])
+        r2 = float(res["r2"].iloc[0])
+        adj_r2 = float(res["adj_r2"].iloc[0])
+
+        coef_rows = []
+        for _, row in res.iterrows():
+            coef_rows.append(
+                {
+                    "Predictor": row.get("names", "—"),
+                    "B": round(float(row["coef"]), 4),
+                    "SE": round(float(row["se"]), 4),
+                    "t": round(float(row["T"]), 4),
+                    "p": round(float(row["pval"]), 4),
+                }
+            )
+
+        return AnalysisResult(
+            analysis_type="REGRESSION",
+            tables=[
+                TableResult(
+                    title="Model Summary",
+                    rows=[
+                        {
+                            "R_squared": round(r2, 4),
+                            "Adj_R_squared": round(adj_r2, 4),
+                            "N": len(clean),
+                            "predictors": len(predictors),
+                        },
+                    ],
+                    source_format="python_pingouin",
+                ),
+                TableResult(
+                    title="Coefficients",
+                    rows=coef_rows,
+                    source_format="python_pingouin",
+                ),
+            ],
+            statistics={
+                "r_squared": r2,
+                "adj_r_squared": adj_r2,
+                "n_valid": len(clean),
+                "n_predictors": len(predictors),
+            },
+            n_valid=len(clean),
+            parser_used="python_pingouin",
+        )
+
+    # ==================================================================
+    # Logistic Regression (placeholder)
+    # ==================================================================
+
+    def _logistic_regression(
+        self,
+        data: pd.DataFrame,
+        dep_var: str | None = None,
+        **kwargs: Any,
+    ) -> AnalysisResult:
+        """Logistic regression — placeholder.
+
+        pingouin does not provide logistic regression; statsmodels is
+        required.  Returns a polite "not yet supported" result that will
+        trigger the SPSS fallback when available.
+        """
+        dep = dep_var or (data.columns[0] if len(data.columns) > 0 else "?")
+        predictors = kwargs.get("covariates", [])
+        if not predictors:
+            predictors_str = "no predictors specified"
+        else:
+            predictors_str = ", ".join(str(p) for p in predictors)
+
+        return AnalysisResult(
+            analysis_type="REGRESSION",
+            notes=[
+                f"Python backend: logistic regression 尚未实现（需要 statsmodels 库）。"
+                f"  Dependent: {dep}.  Predictors: {predictors_str}.",
+                "This method will fall through to the SPSS backend when available.",
+            ],
+            statistics={},
             parser_used="python_pingouin",
         )
