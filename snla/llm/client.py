@@ -87,8 +87,16 @@ class LLMClient:
         self.max_output_tokens = config.LLM_MAX_OUTPUT_TOKENS
         self.debug = config.DEBUG
 
-        self._session = requests.Session()
-        self._session.mount("https://", _build_tls_adapter())
+        # Two sessions: permissive TLS for opencode.ai, default for everything else
+        self._session_default = requests.Session()
+        self._session_permissive = requests.Session()
+        self._session_permissive.mount("https://", _build_tls_adapter())
+
+    def _get_session(self, endpoint: str) -> requests.Session:
+        """Return the appropriate session based on endpoint TLS requirements."""
+        if "opencode.ai" in endpoint:
+            return self._session_permissive
+        return self._session_default
 
     def chat(
         self,
@@ -296,7 +304,7 @@ class LLMClient:
         max_retries = LLM_MAX_RETRIES
         for attempt in range(max_retries + 1):
             try:
-                response = self._session.post(
+                response = self._get_session(endpoint).post(
                     endpoint,
                     headers=headers,
                     json=payload,
@@ -388,7 +396,7 @@ class LLMClient:
         max_retries = LLM_MAX_RETRIES
         for attempt in range(max_retries + 1):
             try:
-                response = self._session.post(
+                response = self._get_session(endpoint).post(
                     endpoint,
                     json=payload,
                     timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),

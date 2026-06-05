@@ -96,3 +96,56 @@ def validate():
     if not LLM_API_KEY and not LLM_MOCK:
         warnings.append("LLM_API_KEY 未配置且未启用 LLM_MOCK")
     return warnings
+
+
+def reload_config() -> list[str]:
+    """Reload .env and update module-level config variables. Returns list of changed keys.
+
+    Only updates string-based config values (LLM_ENDPOINT, LLM_MODEL, SPSS_PYTHON_PATH, etc.).
+    Computed values (int/bool conversions like LLM_MAX_INPUT_TOKENS) are skipped — restart required.
+    """
+    from dotenv import dotenv_values
+
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    if not os.path.exists(env_path):
+        return []
+
+    new_values = dotenv_values(env_path)
+    changed = []
+
+    # Only touch string-based config vars (skip computed int/bool conversions)
+    string_keys = {
+        "SPSS_EXECUTABLE",
+        "SPSS_PYTHON_PATH",
+        "SPSS_EXEC_MODE",
+        "LLM_ENDPOINT",
+        "LLM_API_KEY",
+        "LLM_MODEL",
+        "LLM_MAX_INPUT_TOKENS",
+        "LLM_MAX_OUTPUT_TOKENS",
+        "LLM_MAX_HISTORY_ROUNDS",
+        "SPSS_EXECUTION_TIMEOUT",
+        "P0_OUTPUT_DIR",
+        "STATS_BACKEND",
+        "LLM_CALL_LOG",
+        "LLM_MOCK",
+        "DEBUG",
+    }
+
+    for key, value in new_values.items():
+        if key not in string_keys:
+            continue
+        current = globals().get(key)
+        if current is None:
+            globals()[key] = value
+            changed.append(key)
+        elif str(current) != str(value):
+            globals()[key] = value
+            changed.append(key)
+
+    if changed:
+        import logging
+
+        logging.getLogger(__name__).info("Config reloaded, changed: %s", changed)
+
+    return changed
