@@ -179,7 +179,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[dict]:
         shutil.rmtree(_upload_dir, ignore_errors=True)
 
 
-mcp = FastMCP("SNLA", lifespan=server_lifespan)
+mcp = FastMCP("StatsTalk", lifespan=server_lifespan)
 
 
 # ═════════════════════════════════════════════════════════════════════════

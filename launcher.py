@@ -1,4 +1,4 @@
-"""SNLA Desktop Launcher — PyWebView Edition.
+"""StatsTalk Desktop Launcher — PyWebView Edition.
 
 Starts an embedded Flask server, then opens a native desktop window
 via the system WebView (Edge WebView2 on Windows). No browser needed.
@@ -30,7 +30,7 @@ def main():
     url = f"http://127.0.0.1:{port}"
 
     print("=" * 50)
-    print("  SPSS Natural Language Assistant")
+    print("  StatsTalk")
     print("=" * 50)
     print(f"  Starting server on port {port}...")
 
@@ -55,7 +55,7 @@ def main():
         import webview
         print("  Opening desktop window...")
         webview.create_window(
-            "SPSS Natural Language Assistant",
+            "StatsTalk",
             url,
             width=1100,
             height=800,

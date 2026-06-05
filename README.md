@@ -1,6 +1,6 @@
-# SPSS Natural Language Assistant (SNLA)
+# StatsTalk
 
-用说话的方式完成统计分析——让 SPSS 操作零门槛。支持 **SPSS** 和 **Python (pingouin)** 双统计引擎。
+用说话的方式完成统计分析。支持 SPSS 和 Python 双引擎。
 
 ## 快速开始
 
