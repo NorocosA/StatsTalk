@@ -214,7 +214,7 @@ def _llm_fix_syntax(failed_syntax: str, error_text: str, method: str | None = No
         from snla.llm.client import LLMClient
 
         cloud_vars = filter_for_cloud({"variables": _server.session.variables}).get("variables", [])
-        var_list = "\n".join(f"  - {v['name']} ({v.get('type', '?')})" for v in cloud_vars[:30])
+        var_list = "\n".join(f"  - {v.get('name', '?')} ({v.get('type', '?')})" for v in cloud_vars[:30])
 
         # Try RAG context retrieval for official SPSS syntax reference
         rag_context = ""

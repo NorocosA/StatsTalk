@@ -1,8 +1,18 @@
 """
-SNLA Data Reader
+StatsTalk Data Reader — sole authority on variable dict structure.
 
 Reads .sav (SPSS) and .csv files, extracting variable metadata
 for the LLM pipeline. Raw data values are NEVER exposed to cloud APIs.
+
+CONTRACT: This module is the **single writer** of the variable dict
+structure consumed by all downstream modules (planner, _pipeline,
+mcp_server, validator, etc.). Every variable dict produced by
+extract_metadata() has the shape:
+    {"name": str, "type": str, "label": str, "value_labels": dict | None}
+
+If you need to add/change variable dict fields, do it here.  Do NOT
+create variable dicts from scratch in other modules — trust this
+contract instead.
 """
 
 import os
