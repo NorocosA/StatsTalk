@@ -101,7 +101,7 @@ def _plan(
             items = list(vl.items())[:5]
             vl_str = " [" + " ".join(f"{k}={v}" for k, v in items) + "]"
         var_lines.append(
-            f"  - {v['name']} ({v.get('type', '?')}){': ' + lbl if lbl else ''}{vl_str}"
+            f"  - {v.get('name', '?')} ({v.get('type', '?')}){': ' + lbl if lbl else ''}{vl_str}"
         )
     var_catalog = "\n".join(var_lines)
 
@@ -192,10 +192,13 @@ def _auto_detect_vars(variables: list[dict]) -> tuple[str | None, str | None]:
     """
     cat_var = num_var = None
     for v in variables:
+        name = v.get("name")
+        if not name:
+            continue
         if v.get("value_labels") and not cat_var:
-            cat_var = v["name"]
+            cat_var = name
         elif v.get("type") == "Numeric" and not num_var:
-            num_var = v["name"]
+            num_var = name
         if cat_var and num_var:
             break
     return cat_var, num_var
