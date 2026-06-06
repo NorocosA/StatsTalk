@@ -12,10 +12,10 @@ CLOUD_SAFE_FIELDS: set[str] = {
     "row_count",
     "column_count",
     "filename",
-    # Field names within variable dicts (documentation reference)
-    "variable_names",
-    "variable_types",
-    "variable_labels",
+    # Field names within variable dicts
+    "name",
+    "type",
+    "label",
     # NOTE: value_labels intentionally excluded — contains actual value mappings
     # (e.g., {1:"Male"}) that could leak sensitive information to cloud LLM.
     "aggregate_stats",

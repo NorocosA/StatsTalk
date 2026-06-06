@@ -388,8 +388,8 @@ def _prepare_syntax(
             syntax = fixed
             validation = validate(syntax, [v["name"] for v in _server.session.variables])
         else:
-            # Use pre-built template directly
-            syntax = _syntax_template(method)
+            # Use pre-built template directly — preserve original variables
+            syntax = _syntax_template(method, grouping_var=grouping_variable, test_var=test_variable)
             validation = validate(syntax, [v["name"] for v in _server.session.variables])
             used_template = True
 

@@ -9,21 +9,21 @@ from snla.data.sanitizer import filter_for_cloud, sanitize_variables
 def test_filter_cloud_safe():
     """Only CLOUD_SAFE_FIELDS keys survive; unsafe keys (raw_data, identifiers) are dropped."""
     metadata = {
-        "variable_names": ["gender", "score"],
+        "name": ["gender", "score"],
         "row_count": 200,
         "raw_data": [[1, 2], [3, 4]],
         "identifiers": ["id_001", "id_002"],
     }
     result = filter_for_cloud(metadata)
 
-    assert "variable_names" in result
+    assert "name" in result
     assert "row_count" in result
     assert "raw_data" not in result, f"raw_data should be filtered out, got keys={list(result)}"
     assert "identifiers" not in result, (
         f"identifiers should be filtered out, got keys={list(result)}"
     )
     # Ensure unsafe keys are the only ones missing
-    assert set(result.keys()) == {"variable_names", "row_count"}, (
+    assert set(result.keys()) == {"name", "row_count"}, (
         f"Unexpected result keys: {set(result.keys())}"
     )
 

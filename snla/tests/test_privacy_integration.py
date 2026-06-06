@@ -119,8 +119,8 @@ def test_filter_for_cloud_strips_unsafe():
     Only keys listed in CLOUD_SAFE_FIELDS should survive filtering.
     """
     metadata = {
-        "variable_names": ["gender", "score"],
-        "variable_types": {"gender": "Numeric"},
+        "name": ["gender", "score"],
+        "type": {"gender": "Numeric"},
         "row_count": 200,
         "raw_data": [[1, 85.5], [2, 92.0]],
         "identifiers": ["P001", "P002"],
@@ -131,8 +131,8 @@ def test_filter_for_cloud_strips_unsafe():
     filtered = filter_for_cloud(metadata)
 
     # Safe keys survive
-    assert "variable_names" in filtered
-    assert "variable_types" in filtered
+    assert "name" in filtered
+    assert "type" in filtered
     assert "row_count" in filtered
 
     # Unsafe keys are dropped
@@ -142,7 +142,7 @@ def test_filter_for_cloud_strips_unsafe():
     assert "unknown_key" not in filtered, "unknown keys should be filtered out"
 
     # Exactly the safe keys remain
-    expected = {"variable_names", "variable_types", "row_count"}
+    expected = {"name", "type", "row_count"}
     assert set(filtered.keys()) == expected, f"Expected only {expected}, got {set(filtered.keys())}"
 
 
@@ -183,9 +183,9 @@ def test_cloud_safe_fields_definition():
     This is a regression test: if someone accidentally adds a key like
     'raw_data' to the safe set, every LLM call would leak data.
     """
-    assert "variable_names" in CLOUD_SAFE_FIELDS
-    assert "variable_types" in CLOUD_SAFE_FIELDS
-    assert "variable_labels" in CLOUD_SAFE_FIELDS
+    assert "name" in CLOUD_SAFE_FIELDS
+    assert "type" in CLOUD_SAFE_FIELDS
+    assert "label" in CLOUD_SAFE_FIELDS
     # value_labels intentionally excluded — contains actual value mappings
     # like {1:"Male"} that could leak private information to cloud LLM
     assert "value_labels" not in CLOUD_SAFE_FIELDS
