@@ -482,6 +482,73 @@ def variables():
     )
 
 
+# ── Demo Mode ─────────────────────────────────────────────────────────
+@app.route("/api/load-demo", methods=["POST"])
+def load_demo():
+    """Load bundled sample data for demo mode (no file upload needed)."""
+    demo_path = os.path.join(str(PROJECT_ROOT), "data", "fixtures", "test_data.sav")
+    if not os.path.exists(demo_path):
+        return jsonify({"error": "示例数据文件不存在"}), 404
+    try:
+        meta = read_and_extract(demo_path)
+        meta["file_path"] = demo_path
+        meta["filename"] = "test_data.sav (Demo)"
+        session.dataset_meta = meta
+        session.variables = meta.get("variables", [])
+        cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
+        save_session(session)
+        return jsonify(
+            {
+                "ok": True,
+                "filename": "test_data.sav",
+                "variables": cloud_vars,
+                "row_count": meta.get("row_count", 0),
+            }
+        )
+    except Exception as e:
+        logger.exception("Demo load failed")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Startup Warnings ────────────────────────────────────────────────────
+@app.route("/api/startup-warnings", methods=["GET"])
+def startup_warnings():
+    """Return config validation warnings for first-launch UI guidance."""
+    from snla.config import LLM_MOCK, STATS_BACKEND, validate
+
+    raw = validate()
+    guidance = []
+    for w in raw:
+        if "SPSS" in w and LLM_MOCK:
+            guidance.append({
+                "level": "info",
+                "message": "Demo 模式已启用，无需 SPSS 或 API Key。",
+                "action": None,
+            })
+        elif "LLM_API_KEY" in w:
+            guidance.append({
+                "level": "warning",
+                "message": w,
+                "action": "settings",
+            })
+        elif "SPSS" in w:
+            guidance.append({
+                "level": "info",
+                "message": w + " 将自动使用 Python 后端。",
+                "action": None,
+            })
+        else:
+            guidance.append({"level": "warning", "message": w, "action": None})
+
+    return jsonify({
+        "ok": True,
+        "warnings": guidance,
+        "llm_mock": LLM_MOCK,
+        "spss_available": _spss_available(),
+        "backend": STATS_BACKEND,
+    })
+
+
 # ── Settings ──────────────────────────────────────────────────────────
 @app.route("/api/settings", methods=["GET", "POST"])
 def settings():

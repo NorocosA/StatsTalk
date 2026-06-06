@@ -88,6 +88,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 .status { text-align: center; color: #909399; font-size: 13px; padding: 10px; }
 
+/* Welcome / onboarding */
+#welcome-section { padding: 24px; text-align: center; }
+#welcome-section .welcome-title { font-size: 18px; color: #1a1a2e; }
+#welcome-section .welcome-subtitle { color: #666; margin: 10px 0; font-size: 14px; }
+#welcome-section .demo-btn { background: #67c23a; color: #fff; border: none; padding: 12px 30px; font-size: 16px; border-radius: 8px; cursor: pointer; margin: 10px 0; transition: background 0.2s; }
+#welcome-section .demo-btn:hover { background: #5daf34; }
+#welcome-section .demo-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+#welcome-section .demo-hint { font-size: 12px; color: #999; }
+#welcome-section .welcome-divider { margin: 20px 0; border: none; border-top: 1px solid #eee; }
+#welcome-section .steps-guide { text-align: left; color: #555; font-size: 14px; line-height: 1.8; }
+#welcome-section .quick-examples { text-align: left; color: #888; font-size: 13px; margin-top: 8px; }
+#welcome-section .quick-examples a { color: #67c23a; margin: 0 5px; text-decoration: none; }
+#welcome-section .quick-examples a:hover { text-decoration: underline; color: #5daf34; }
+
 /* Degradation card */
 .degradation-card { background: #fdf6ec; border-left: 4px solid #e6a23c; padding: 12px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
 .degradation-card .deg-title { font-weight: 600; color: #e6a23c; margin-bottom: 6px; }
@@ -167,16 +181,28 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         </div>
     </div>
     <div id="messages">
-        <div class="msg assistant">
-            <div class="bubble">
-                <strong>欢迎使用 StatsTalk！</strong><br><br>
-                用说话的方式完成统计分析。<br><br>
-                <strong>快速开始：</strong><br>
-                1. 在左侧上传数据文件（.sav 或 .csv）<br>
-                2. 在下方输入分析需求<br>
-                3. 查看白话解读的结果<br><br>
-                <em>示例：比较男女生在成绩上是否有显著差异</em>
-            </div>
+        <div id="welcome-section">
+            <div class="welcome-title"><strong>欢迎使用 StatsTalk！</strong></div>
+            <p class="welcome-subtitle">用说话的方式完成统计分析</p>
+
+            <button onclick="loadDemo()" id="demoBtn" class="demo-btn">
+                🚀 试用 Demo（无需配置）
+            </button>
+            <p class="demo-hint">自动加载示例数据，即刻体验</p>
+
+            <hr class="welcome-divider">
+            <p class="steps-guide">
+                <strong>📋 三步开始：</strong><br>
+                1. 上传数据文件（.sav 或 .csv）<br>
+                2. 输入分析需求<br>
+                3. 查看白话解读的结果<br>
+            </p>
+            <p class="quick-examples">
+                <strong>💡 快捷示例：</strong>
+                <a href="#" onclick="setQuery('比较男女生在成绩上是否有显著差异'); return false;">比较男女成绩</a>
+                <a href="#" onclick="setQuery('显示成绩的描述统计'); return false;">描述统计</a>
+                <a href="#" onclick="setQuery('研究年龄和成绩的关系'); return false;">相关分析</a>
+            </p>
         </div>
     </div>
     <div id="context-hint"></div>
@@ -231,6 +257,7 @@ const glMessage = document.getElementById("gl-message");
 const glWarnings = document.getElementById("gl-warnings");
 const glCancel = document.getElementById("gl-cancel");
 const glConfirm = document.getElementById("gl-confirm");
+const welcomeSection = document.getElementById("welcome-section");
 
 // ── File upload enable ───────────────────────────────────
 fileInput.addEventListener("change", () => {
@@ -258,6 +285,7 @@ async function uploadFile() {
             userInput.disabled = false;
             sendBtn.disabled = false;
             renderVariables(data.variables, data.row_count);
+            hideWelcome();
             // Clear multi-turn context and analysis state on new file upload
             lastAnalysis = null;
             hasAnalysis = false;
@@ -649,6 +677,21 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
     try {
         const statusResp = await fetch("/api/status");
         const status = await statusResp.json();
+        
+        // Hide welcome if data already loaded (restored session or demo)
+        if (status.has_data) {
+            hasData = true;
+            userInput.disabled = false;
+            sendBtn.disabled = false;
+            hideWelcome();
+            // Restore variable list from session
+            const varResp = await fetch("/api/variables");
+            const varData = await varResp.json();
+            if (varData.variables) {
+                renderVariables(varData.variables, varData.row_count);
+            }
+        }
+        
         const backendSelect = document.getElementById("s-backend");
         const notice = document.getElementById("backend-notice");
         
@@ -674,7 +717,76 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
             setTimeout(function() { notice.classList.remove("show"); }, 5000);
         }
     } catch(e) { /* /api/status unavailable — skip auto-detect */ }
+
+    // Show config warnings on first launch
+    try {
+        const wResp = await fetch("/api/startup-warnings");
+        const wData = await wResp.json();
+        if (wData.warnings && wData.warnings.length > 0) {
+            let container = document.getElementById("warnings") || document.createElement("div");
+            container.id = "warnings";
+            container.style.cssText = "margin: 10px 0;";
+            wData.warnings.forEach(w => {
+                let div = document.createElement("div");
+                div.style.cssText = "padding: 8px 12px; margin: 4px 0; border-radius: 4px; font-size: 13px;";
+                if (w.level === "warning") {
+                    div.style.background = "#fff3cd"; div.style.color = "#856404"; div.style.border = "1px solid #ffeaa7";
+                } else {
+                    div.style.background = "#d4edda"; div.style.color = "#155724"; div.style.border = "1px solid #c3e6cb";
+                }
+                let msg = w.message;
+                if (w.action === "settings") {
+                    msg += ' <a href="#" onclick="document.getElementById(\'settings-toggle\').click()" style="color:#856404;text-decoration:underline;">前往设置 →</a>';
+                }
+                div.innerHTML = msg;
+                container.appendChild(div);
+            });
+            let main = document.getElementById("messages");
+            if (main && main.firstChild) main.insertBefore(container, main.firstChild);
+        }
+    } catch(e) { /* startup-warnings unavailable */ }
 })();
+
+// ── Demo & Quick Actions ──────────────────────────────────
+function loadDemo() {
+    let btn = document.getElementById('demoBtn');
+    btn.disabled = true;
+    btn.textContent = '正在加载...';
+    fetch('/api/load-demo', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                hasData = true;
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                renderVariables(data.variables, data.row_count);
+                btn.textContent = '✅ Demo 就绪！输入问题试试吧';
+                btn.style.background = '#5daf34';
+                hideWelcome();
+            } else {
+                throw new Error(data.error);
+            }
+        })
+        .catch(e => {
+            btn.textContent = '❌ 加载失败，请手动上传';
+            btn.disabled = false;
+        });
+}
+
+function setQuery(text) {
+    if (!hasData) {
+        // If no data yet, focus the file input area
+        fileInput.focus();
+        return;
+    }
+    userInput.value = text;
+    userInput.focus();
+}
+
+function hideWelcome() {
+    let welcome = document.getElementById('welcome-section');
+    if (welcome) welcome.style.display = 'none';
+}
 
 // ── Utils ─────────────────────────────────────────────────
 function esc(s) {
