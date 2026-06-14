@@ -288,8 +288,12 @@ class PythonStatsExecutor:
         clean = data[[gv, tv]].dropna()
 
         if len(clean[gv].unique()) < 2:
-            return AnalysisResult(analysis_type="ONEWAY ANOVA", statistics={}, n_valid=len(clean),
-                                  notes=["分组变量只有一个水平，无法进行 ANOVA 分析。"])
+            return AnalysisResult(
+                analysis_type="ONEWAY ANOVA",
+                statistics={},
+                n_valid=len(clean),
+                notes=["分组变量只有一个水平，无法进行 ANOVA 分析。"],
+            )
 
         res = pg.anova(data=clean, dv=tv, between=gv, detailed=True)
         f_val = float(res["F"].iloc[0])
@@ -524,10 +528,12 @@ class PythonStatsExecutor:
             n_valid=len(clean),
             parser_used="python_pingouin",
         )
-        if "expected" in dir() and hasattr(expected, 'flat'):
-            min_expected = min(expected.flat) if hasattr(expected, 'flat') else None
+        if "expected" in dir() and hasattr(expected, "flat"):
+            min_expected = min(expected.flat) if hasattr(expected, "flat") else None
             if min_expected is not None and min_expected < 5:
-                result.notes.append(f"最小期望频数为 {min_expected:.1f}（<5），卡方检验结果可能不可靠。")
+                result.notes.append(
+                    f"最小期望频数为 {min_expected:.1f}（<5），卡方检验结果可能不可靠。"
+                )
         return result
 
     # ==================================================================
@@ -597,9 +603,16 @@ class PythonStatsExecutor:
             }
         ]
 
-        nan_stats = [k for k, v in {"mean": rows[0]["Mean"], "std_dev": rows[0]["StdDev"],
-                                      "minimum": rows[0]["Min"], "maximum": rows[0]["Max"]}.items()
-                     if isinstance(v, float) and (v != v)]
+        nan_stats = [
+            k
+            for k, v in {
+                "mean": rows[0]["Mean"],
+                "std_dev": rows[0]["StdDev"],
+                "minimum": rows[0]["Min"],
+                "maximum": rows[0]["Max"],
+            }.items()
+            if isinstance(v, float) and (v != v)
+        ]
         result = AnalysisResult(
             analysis_type="DESCRIPTIVES",
             tables=[
@@ -694,8 +707,12 @@ class PythonStatsExecutor:
         clean = data[[gv, tv]].dropna()
 
         if len(clean[gv].unique()) < 2:
-            return AnalysisResult(analysis_type="KRUSKAL_WALLIS", statistics={}, n_valid=len(clean),
-                                  notes=["分组变量只有一个水平，无法进行 Kruskal-Wallis 检验。"])
+            return AnalysisResult(
+                analysis_type="KRUSKAL_WALLIS",
+                statistics={},
+                n_valid=len(clean),
+                notes=["分组变量只有一个水平，无法进行 Kruskal-Wallis 检验。"],
+            )
 
         res = pg.kruskal(data=clean, dv=tv, between=gv)
         h_val = float(res["H"].iloc[0])
@@ -811,9 +828,7 @@ class PythonStatsExecutor:
 
         dep = dep_var or data.columns[0]
         predictors: list[str] = kwargs.get("covariates") or [
-            c
-            for c in data.select_dtypes(include="number").columns
-            if c != dep
+            c for c in data.select_dtypes(include="number").columns if c != dep
         ]
 
         if not predictors:

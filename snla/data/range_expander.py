@@ -5,6 +5,7 @@ like "Q1-Q10" or "age-Q1 to age-Q10" into explicit variable lists.
 Used as a pre-processor before the LLM planner so the LLM never sees
 range syntax — it only sees explicit variable names.
 """
+
 import re
 
 
@@ -20,8 +21,8 @@ def detect_range_pattern(user_input: str) -> tuple[str, str, str, str] | None:
     """
     # Pattern: prefix + digits + (separator) + prefix? + digits + suffix
     patterns = [
-        (r'(\w+?)(\d+)\s*[-–—至到]\s*\1?(\d+)(\b|$)', True),   # Q1-Q10, item_1至item_5
-        (r'(\w+?)(\d+)\s*[-–—至到]\s*(\d+)(\b|$)', False),        # 1-10 (no prefix)
+        (r"(\w+?)(\d+)\s*[-–—至到]\s*\1?(\d+)(\b|$)", True),  # Q1-Q10, item_1至item_5
+        (r"(\w+?)(\d+)\s*[-–—至到]\s*(\d+)(\b|$)", False),  # 1-10 (no prefix)
     ]
 
     for pattern, has_prefix in patterns:
@@ -30,13 +31,14 @@ def detect_range_pattern(user_input: str) -> tuple[str, str, str, str] | None:
             if has_prefix:
                 prefix, start_num, end_num, _ = match.groups()
             else:
-                prefix, start_num, end_num, _ = match.groups() if len(match.groups()) >= 4 else match.groups() + ("",)
+                prefix, start_num, end_num, _ = (
+                    match.groups() if len(match.groups()) >= 4 else match.groups() + ("",)
+                )
             return (prefix, start_num, end_num, "")
     return None
 
 
-def expand_range(prefix: str, start: str, end: str,
-                 available_variables: list[str]) -> list[str]:
+def expand_range(prefix: str, start: str, end: str, available_variables: list[str]) -> list[str]:
     """Expand a variable range against actual available variables.
 
     Args:
@@ -95,5 +97,5 @@ def expand_query(user_input: str, available_variables: list[str]) -> str:
 
     # Replace the range pattern in the query
     var_list = ", ".join(expanded)
-    modified = re.sub(r'\w+\d+\s*[-–—至到]\s*\w+\d+', var_list, user_input, count=1)
+    modified = re.sub(r"\w+\d+\s*[-–—至到]\s*\w+\d+", var_list, user_input, count=1)
     return modified

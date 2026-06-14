@@ -26,12 +26,8 @@ def sample_df():
     return pd.DataFrame(
         {
             "group": ["A"] * 15 + ["B"] * 15,
-            "score": np.concatenate(
-                [rng.normal(70, 10, 15), rng.normal(80, 10, 15)]
-            ),
-            "score2": np.concatenate(
-                [rng.normal(65, 8, 15), rng.normal(85, 12, 15)]
-            ),
+            "score": np.concatenate([rng.normal(70, 10, 15), rng.normal(80, 10, 15)]),
+            "score2": np.concatenate([rng.normal(65, 8, 15), rng.normal(85, 12, 15)]),
             "category": rng.choice(["X", "Y"], 30),
             "age": rng.integers(20, 60, 30),
         }
@@ -126,9 +122,7 @@ class TestPairedTTest:
 
     def test_paired_same_var_returns_note(self, executor, sample_df):
         """Specifying the same variable twice returns early with a note."""
-        result = executor.execute(
-            "paired_t_test", sample_df, var1="score", var2="score"
-        )
+        result = executor.execute("paired_t_test", sample_df, var1="score", var2="score")
         assert result.analysis_type == "T-TEST"
         assert len(result.notes) >= 1
         assert any("different variables" in n for n in result.notes)
@@ -142,9 +136,7 @@ class TestPairedTTest:
 class TestOneWayANOVA:
     def test_execute_anova(self, executor, sample_df):
         """ANOVA between two groups produces F and p-value."""
-        result = executor.execute(
-            "oneway_anova", sample_df, grouping_var="group", test_var="score"
-        )
+        result = executor.execute("oneway_anova", sample_df, grouping_var="group", test_var="score")
 
         assert result.analysis_type == "ANOVA"
         assert result.parser_used == "python_pingouin"
@@ -164,9 +156,7 @@ class TestOneWayANOVA:
         df = pd.DataFrame(
             {"group": ["X"] * 10, "score": np.random.default_rng(99).normal(70, 10, 10)}
         )
-        result = executor.execute(
-            "oneway_anova", df, grouping_var="group", test_var="score"
-        )
+        result = executor.execute("oneway_anova", df, grouping_var="group", test_var="score")
 
         assert result.analysis_type in ("ANOVA", "ONEWAY ANOVA")
         assert len(result.notes) >= 1
@@ -220,9 +210,7 @@ class TestDescriptives:
 class TestPearsonCorrelation:
     def test_execute_correlation(self, executor, sample_df):
         """Pearson r between 'score' and 'age' returns r and p_value."""
-        result = executor.execute(
-            "pearson_correlation", sample_df, var1="score", var2="age"
-        )
+        result = executor.execute("pearson_correlation", sample_df, var1="score", var2="age")
 
         assert result.analysis_type == "CORRELATIONS"
         assert result.parser_used == "python_pingouin"
@@ -238,9 +226,7 @@ class TestPearsonCorrelation:
 
     def test_correlation_same_var_falls_back(self, executor, sample_df):
         """Correlation with same var1/var2 falls back to two numeric cols."""
-        result = executor.execute(
-            "pearson_correlation", sample_df, var1="score", var2="score"
-        )
+        result = executor.execute("pearson_correlation", sample_df, var1="score", var2="score")
         # Should still produce a result by falling back to two different numeric cols
         assert result.analysis_type == "CORRELATIONS"
         assert "r" in result.statistics
@@ -248,9 +234,7 @@ class TestPearsonCorrelation:
 
     def test_spearman_correlation(self, executor, sample_df):
         """Spearman rank correlation returns r and p_value."""
-        result = executor.execute(
-            "spearman_correlation", sample_df, var1="score", var2="age"
-        )
+        result = executor.execute("spearman_correlation", sample_df, var1="score", var2="age")
 
         assert result.analysis_type == "CORRELATIONS"
         assert result.parser_used == "python_pingouin"
@@ -294,9 +278,7 @@ class TestChiSquare:
     )
     def test_crosstabs_alias(self, executor, sample_df):
         """'crosstabs' method alias maps to chi_square handler."""
-        result = executor.execute(
-            "crosstabs", sample_df, grouping_var="group", test_var="category"
-        )
+        result = executor.execute("crosstabs", sample_df, grouping_var="group", test_var="category")
         assert result.analysis_type == "CROSSTABS"
         assert "chi_square" in result.statistics
 
@@ -355,9 +337,7 @@ class TestKruskalWallis:
         df = pd.DataFrame(
             {"group": ["X"] * 10, "score": np.random.default_rng(77).normal(70, 10, 10)}
         )
-        result = executor.execute(
-            "kruskal_wallis", df, grouping_var="group", test_var="score"
-        )
+        result = executor.execute("kruskal_wallis", df, grouping_var="group", test_var="score")
 
         assert result.analysis_type == "KRUSKAL_WALLIS"
         assert len(result.notes) >= 1
@@ -396,9 +376,7 @@ class TestFrequencies:
         Note: value_counts(dropna=False) treats NaN as a "value", so n_valid
         counts ALL rows.  n_missing reflects rows outside the counted set.
         """
-        df = pd.DataFrame(
-            {"category": ["X", "Y", "X", np.nan, "Y", "X", "Y", "Y"]}
-        )
+        df = pd.DataFrame({"category": ["X", "Y", "X", np.nan, "Y", "X", "Y", "Y"]})
         result = executor.execute("frequencies", df, test_var="category")
 
         # dropna=False → NaN is counted as a category (not treated as missing)
@@ -414,9 +392,7 @@ class TestFrequencies:
 class TestRegression:
     def test_execute_regression(self, executor, sample_df):
         """Simple regression of score ~ age returns coefficients and R²."""
-        result = executor.execute(
-            "simple_regression", sample_df, dep_var="score", indep_var="age"
-        )
+        result = executor.execute("simple_regression", sample_df, dep_var="score", indep_var="age")
 
         assert result.analysis_type == "REGRESSION"
         assert result.parser_used == "python_pingouin"
@@ -465,9 +441,7 @@ class TestEdgeCases:
 
     def test_correlations_alias(self, executor, sample_df):
         """'correlations' alias maps to pearson correlation."""
-        result = executor.execute(
-            "correlations", sample_df, var1="score", var2="age"
-        )
+        result = executor.execute("correlations", sample_df, var1="score", var2="age")
         assert result.analysis_type == "CORRELATIONS"
         assert "r" in result.statistics
 

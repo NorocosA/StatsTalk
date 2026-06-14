@@ -212,7 +212,9 @@ def explain_template(
             break
 
     if stat_type == "MWU" and rank_biserial is not None:
-        sentences.append(f"{_interpret_mwu_effect(rank_biserial)}（秩双列相关系数={rank_biserial:.3f}）。")
+        sentences.append(
+            f"{_interpret_mwu_effect(rank_biserial)}（秩双列相关系数={rank_biserial:.3f}）。"
+        )
     elif stat_type == "KWH" and eps_squared is not None:
         sentences.append(f"{_interpret_kwh_effect(eps_squared)}（ε²={eps_squared:.3f}）。")
 

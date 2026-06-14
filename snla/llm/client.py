@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 LLM_MAX_RETRIES = 3
 
 # Timeout for LLM HTTP calls (connect_timeout, read_timeout)
-LLM_CONNECT_TIMEOUT = 10   # seconds
-LLM_READ_TIMEOUT = 120     # seconds
+LLM_CONNECT_TIMEOUT = 10  # seconds
+LLM_READ_TIMEOUT = 120  # seconds
 
 # ---------------------------------------------------------------------------
 # TLS adapter for servers with strict/complex SSL configurations

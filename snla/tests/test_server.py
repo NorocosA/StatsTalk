@@ -65,9 +65,7 @@ def mock_llm():
     and planner.py imports it from snla.config directly.  Both must
     be patched to prevent accidental LLM calls during tests.
     """
-    with patch("snla.config.LLM_MOCK", True), patch(
-        "snla.ui.server.LLM_MOCK", True
-    ):
+    with patch("snla.config.LLM_MOCK", True), patch("snla.ui.server.LLM_MOCK", True):
         yield
 
 
@@ -385,9 +383,7 @@ class TestGreylistFlow:
 
     @patch("snla.ui.server._prepare_syntax")
     @patch("snla.ui.server._run_python_backend", return_value=None)
-    def test_analyze_greylist_triggered(
-        self, mock_py, mock_prep, client, sample_variables
-    ):
+    def test_analyze_greylist_triggered(self, mock_py, mock_prep, client, sample_variables):
         """Syntax with greylist warnings → requires_confirmation=true."""
         _setup_session_with_data(sample_variables)
         mock_prep.return_value = {
@@ -525,13 +521,19 @@ class TestEdgeCases:
         # Patch planner.plan to return an unknown method
         from snla.orchestrator import PlanResult
 
-        with patch.object(planner, "plan", return_value=PlanResult(
-            method="nonexistent_method",
-            plan_explanation="Test unknown method",
-            grouping_variable="gender",
-            test_variable="score",
-        )), \
-             patch("snla.ui.server._run_python_backend", return_value=None):
+        with (
+            patch.object(
+                planner,
+                "plan",
+                return_value=PlanResult(
+                    method="nonexistent_method",
+                    plan_explanation="Test unknown method",
+                    grouping_variable="gender",
+                    test_variable="score",
+                ),
+            ),
+            patch("snla.ui.server._run_python_backend", return_value=None),
+        ):
             resp = client.post("/api/analyze", json={"text": "测试未知方法"})
             # Should fail with 500 since _syntax_template calls get_syntax_by_method
             # which raises ValueError for unknown methods

@@ -141,7 +141,9 @@ def _execute_syntax(syntax: str, executor=None, cancellation_token: bool = False
     import snla.ui.server as _server
 
     # Find the data file path — use the last uploaded file
-    data_path = _server.session.dataset_meta.get("file_path", "") if _server.session.dataset_meta else ""
+    data_path = (
+        _server.session.dataset_meta.get("file_path", "") if _server.session.dataset_meta else ""
+    )
     if not data_path and _server.session.dataset_meta:
         # Re-save from in-memory data if available
         pass
@@ -214,7 +216,9 @@ def _llm_fix_syntax(failed_syntax: str, error_text: str, method: str | None = No
         from snla.llm.client import LLMClient
 
         cloud_vars = filter_for_cloud({"variables": _server.session.variables}).get("variables", [])
-        var_list = "\n".join(f"  - {v.get('name', '?')} ({v.get('type', '?')})" for v in cloud_vars[:30])
+        var_list = "\n".join(
+            f"  - {v.get('name', '?')} ({v.get('type', '?')})" for v in cloud_vars[:30]
+        )
 
         # Try RAG context retrieval for official SPSS syntax reference
         rag_context = ""
@@ -237,7 +241,10 @@ def _llm_fix_syntax(failed_syntax: str, error_text: str, method: str | None = No
             user_content = f"SPSS 官方语法参考:\n{rag_context}\n\n{user_content}"
 
         messages = [
-            {"role": "system", "content": "你是 SPSS 语法专家。修正下面的语法错误。如有官方参考文档，严格按文档规范修正。"},
+            {
+                "role": "system",
+                "content": "你是 SPSS 语法专家。修正下面的语法错误。如有官方参考文档，严格按文档规范修正。",
+            },
             {"role": "user", "content": user_content},
         ]
         client = LLMClient()
@@ -389,7 +396,9 @@ def _prepare_syntax(
             validation = validate(syntax, [v["name"] for v in _server.session.variables])
         else:
             # Use pre-built template directly — preserve original variables
-            syntax = _syntax_template(method, grouping_var=grouping_variable, test_var=test_variable)
+            syntax = _syntax_template(
+                method, grouping_var=grouping_variable, test_var=test_variable
+            )
             validation = validate(syntax, [v["name"] for v in _server.session.variables])
             used_template = True
 

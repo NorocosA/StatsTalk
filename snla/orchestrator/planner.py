@@ -51,9 +51,7 @@ def _plan(
 
             ctx = get_syntax_context(result.method, n_chunks=2, max_chars=1500)
             if ctx:
-                result.plan_explanation = (
-                    f"[SPSS 官方语法参考]\n{ctx}\n\n{result.plan_explanation}"
-                )
+                result.plan_explanation = f"[SPSS 官方语法参考]\n{ctx}\n\n{result.plan_explanation}"
         except Exception:
             pass
         return result
@@ -77,12 +75,14 @@ def _plan(
         if method not in valid:
             method = "descriptives"
         cat, num = _auto_detect_vars(variables)
-        return _rag(PlanResult(
-            method=method,
-            plan_explanation=f"（MOCK 模式）{method}",
-            grouping_variable=cat,
-            test_variable=num,
-        ))
+        return _rag(
+            PlanResult(
+                method=method,
+                plan_explanation=f"（MOCK 模式）{method}",
+                grouping_variable=cat,
+                test_variable=num,
+            )
+        )
 
     # ── Real LLM path ─────────────────────────────────────────────────
     from snla.llm.client import LLMClient
@@ -160,19 +160,23 @@ def _plan(
         }
         if method not in valid_methods:
             method = "descriptives"
-        return _rag(PlanResult(
-            method=method,
-            plan_explanation=plan,
-            grouping_variable=gvar,
-            test_variable=tvar,
-        ))
+        return _rag(
+            PlanResult(
+                method=method,
+                plan_explanation=plan,
+                grouping_variable=gvar,
+                test_variable=tvar,
+            )
+        )
     except Exception:
-        return _rag(PlanResult(
-            method="descriptives",
-            plan_explanation="",
-            grouping_variable=None,
-            test_variable=None,
-        ))
+        return _rag(
+            PlanResult(
+                method="descriptives",
+                plan_explanation="",
+                grouping_variable=None,
+                test_variable=None,
+            )
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════

@@ -79,6 +79,7 @@ _was_cancelled: bool = False  # True when user requested cancellation
 # ── Rate limiting ─────────────────────────────────────────────────────
 _rate_limit_store: dict[str, list[float]] = {}
 
+
 # ── CORS for local WebView ────────────────────────────────────────────
 @app.after_request
 def _cors(response):
@@ -506,6 +507,7 @@ def load_demo():
     # In PyInstaller bundle, data is in sys._MEIPASS
     if not os.path.exists(demo_path):
         import sys
+
         bundle_root = getattr(sys, "_MEIPASS", "")
         if bundle_root:
             demo_path = os.path.join(bundle_root, "data", "fixtures", "test_data.sav")
@@ -542,33 +544,41 @@ def startup_warnings():
     guidance = []
     for w in raw:
         if "SPSS" in w and LLM_MOCK:
-            guidance.append({
-                "level": "info",
-                "message": "Demo 模式已启用，无需 SPSS 或 API Key。",
-                "action": None,
-            })
+            guidance.append(
+                {
+                    "level": "info",
+                    "message": "Demo 模式已启用，无需 SPSS 或 API Key。",
+                    "action": None,
+                }
+            )
         elif "LLM_API_KEY" in w:
-            guidance.append({
-                "level": "warning",
-                "message": w,
-                "action": "settings",
-            })
+            guidance.append(
+                {
+                    "level": "warning",
+                    "message": w,
+                    "action": "settings",
+                }
+            )
         elif "SPSS" in w:
-            guidance.append({
-                "level": "info",
-                "message": w + " 将自动使用 Python 后端。",
-                "action": None,
-            })
+            guidance.append(
+                {
+                    "level": "info",
+                    "message": w + " 将自动使用 Python 后端。",
+                    "action": None,
+                }
+            )
         else:
             guidance.append({"level": "warning", "message": w, "action": None})
 
-    return jsonify({
-        "ok": True,
-        "warnings": guidance,
-        "llm_mock": LLM_MOCK,
-        "spss_available": _spss_available(),
-        "backend": STATS_BACKEND,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "warnings": guidance,
+            "llm_mock": LLM_MOCK,
+            "spss_available": _spss_available(),
+            "backend": STATS_BACKEND,
+        }
+    )
 
 
 # ── Settings ──────────────────────────────────────────────────────────

@@ -95,24 +95,25 @@ def save_session(session_state, db_path: str | Path = DB_PATH):
     try:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS session (key TEXT PRIMARY KEY, value TEXT)"
-        )
+        c.execute("CREATE TABLE IF NOT EXISTS session (key TEXT PRIMARY KEY, value TEXT)")
 
         _upsert(c, "dataset_meta", _serialise(session_state.dataset_meta or {}))
         _upsert(c, "variables", _serialise(session_state.variables or []))
         _upsert(c, "var_name_map", _serialise(session_state.var_name_map or {}))
         _upsert(
-            c, "reverse_var_name_map",
+            c,
+            "reverse_var_name_map",
             _serialise(session_state.reverse_var_name_map or {}),
         )
         _upsert(c, "history", _serialise(session_state.history or []))
         _upsert(
-            c, "last_analysis",
+            c,
+            "last_analysis",
             _serialise(session_state.last_analysis or {}),
         )
         _upsert(
-            c, "current_stage",
+            c,
+            "current_stage",
             _serialise(session_state.current_stage or "UPLOADING"),
         )
 
@@ -133,13 +134,8 @@ def load_session(session_state, db_path: str | Path = DB_PATH) -> bool:
     try:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS session (key TEXT PRIMARY KEY, value TEXT)"
-        )
-        rows = {
-            row[0]: row[1]
-            for row in c.execute("SELECT key, value FROM session").fetchall()
-        }
+        c.execute("CREATE TABLE IF NOT EXISTS session (key TEXT PRIMARY KEY, value TEXT)")
+        rows = {row[0]: row[1] for row in c.execute("SELECT key, value FROM session").fetchall()}
         conn.close()
     except Exception:
         logger.exception("Failed to read session from %s", db_path)
@@ -149,27 +145,13 @@ def load_session(session_state, db_path: str | Path = DB_PATH) -> bool:
         return False
 
     try:
-        session_state.dataset_meta = _deserialise(
-            rows.get("dataset_meta", "{}")
-        )
-        session_state.variables = _deserialise(
-            rows.get("variables", "[]")
-        )
-        session_state.var_name_map = _deserialise(
-            rows.get("var_name_map", "{}")
-        )
-        session_state.reverse_var_name_map = _deserialise(
-            rows.get("reverse_var_name_map", "{}")
-        )
-        session_state.history = _deserialise(
-            rows.get("history", "[]")
-        )
-        session_state.last_analysis = _deserialise(
-            rows.get("last_analysis", "null")
-        )
-        session_state.current_stage = _deserialise(
-            rows.get("current_stage", '"READY"')
-        )
+        session_state.dataset_meta = _deserialise(rows.get("dataset_meta", "{}"))
+        session_state.variables = _deserialise(rows.get("variables", "[]"))
+        session_state.var_name_map = _deserialise(rows.get("var_name_map", "{}"))
+        session_state.reverse_var_name_map = _deserialise(rows.get("reverse_var_name_map", "{}"))
+        session_state.history = _deserialise(rows.get("history", "[]"))
+        session_state.last_analysis = _deserialise(rows.get("last_analysis", "null"))
+        session_state.current_stage = _deserialise(rows.get("current_stage", '"READY"'))
         logger.info(
             "Restored session: %d variables, %d history entries, stage=%s",
             len(session_state.variables),

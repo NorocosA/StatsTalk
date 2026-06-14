@@ -134,7 +134,11 @@ def main():
         # Try known locations
         PROJECT_ROOT = Path(__file__).resolve().parent.parent
         candidates = [
-            str(PROJECT_ROOT / "IBM_SPSS26_Instruction" / "IBM_SPSS_Statistics_Command_Syntax_Reference.pdf"),
+            str(
+                PROJECT_ROOT
+                / "IBM_SPSS26_Instruction"
+                / "IBM_SPSS_Statistics_Command_Syntax_Reference.pdf"
+            ),
             str(
                 Path(__file__).resolve().parent.parent.parent
                 / "IBM_SPSS26_Instruction"

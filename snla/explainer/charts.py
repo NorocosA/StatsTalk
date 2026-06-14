@@ -28,10 +28,17 @@ import numpy as np
 # Chinese font configuration
 # ---------------------------------------------------------------------------
 
+
 def _setup_chinese_font() -> None:
     """Try to set a Chinese-friendly font; silently fall back to default."""
-    candidates = ["SimHei", "Microsoft YaHei", "Microsoft JhengHei",
-                  "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei"]
+    candidates = [
+        "SimHei",
+        "Microsoft YaHei",
+        "Microsoft JhengHei",
+        "PingFang SC",
+        "Noto Sans CJK SC",
+        "WenQuanYi Micro Hei",
+    ]
     for name in candidates:
         if name in [f.name for f in matplotlib.font_manager.fontManager.ttflist]:
             plt.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
@@ -77,8 +84,16 @@ def bar_chart(
     fig, ax = plt.subplots(figsize=(6, 4))
 
     if errors and len(errors) == n:
-        ax.bar(x, means, width, yerr=errors, capsize=5,
-               color="#4A90D9", edgecolor="white", linewidth=0.8)
+        ax.bar(
+            x,
+            means,
+            width,
+            yerr=errors,
+            capsize=5,
+            color="#4A90D9",
+            edgecolor="white",
+            linewidth=0.8,
+        )
     else:
         ax.bar(x, means, width, color="#4A90D9", edgecolor="white", linewidth=0.8)
 
@@ -89,8 +104,14 @@ def bar_chart(
 
     # Add value labels on top of bars
     for i, (xi, mi) in enumerate(zip(x, means, strict=True)):
-        ax.text(xi, mi + (errors[i] if errors and len(errors) == n else 0) + 0.02 * max(means),
-                f"{mi:.1f}", ha="center", va="bottom", fontsize=10)
+        ax.text(
+            xi,
+            mi + (errors[i] if errors and len(errors) == n else 0) + 0.02 * max(means),
+            f"{mi:.1f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -144,8 +165,14 @@ def scatter_plot(
         coeffs = np.polyfit(x_arr, y_arr, 1)
         poly_fn = np.poly1d(coeffs)
         x_line = np.linspace(x_arr.min(), x_arr.max(), 100)
-        ax.plot(x_line, poly_fn(x_line), color="#E74C3C", linewidth=2, alpha=0.8,
-                label=f"y = {coeffs[0]:.2f}x + {coeffs[1]:.2f}")
+        ax.plot(
+            x_line,
+            poly_fn(x_line),
+            color="#E74C3C",
+            linewidth=2,
+            alpha=0.8,
+            label=f"y = {coeffs[0]:.2f}x + {coeffs[1]:.2f}",
+        )
         ax.legend(fontsize=10)
 
     ax.set_xlabel(xlabel, fontsize=11)
@@ -202,8 +229,9 @@ def histogram(
 
     if show_mean:
         mean_val = float(np.mean(arr))
-        ax.axvline(mean_val, color="#E74C3C", linewidth=2, linestyle="--",
-                   label=f"均值 = {mean_val:.1f}")
+        ax.axvline(
+            mean_val, color="#E74C3C", linewidth=2, linestyle="--", label=f"均值 = {mean_val:.1f}"
+        )
         ax.legend(fontsize=10)
 
     ax.set_xlabel(xlabel, fontsize=11)
@@ -240,23 +268,40 @@ def generate_chart(result: Any, method: str) -> str | None:
 
     # ---- Bar chart: t-test, ANOVA, Mann-Whitney, Kruskal-Wallis ----------
     bar_methods = {
-        "independent_t_test", "paired_t_test", "oneway_anova",
-        "mann_whitney_u", "kruskal_wallis",
+        "independent_t_test",
+        "paired_t_test",
+        "oneway_anova",
+        "mann_whitney_u",
+        "kruskal_wallis",
     }
-    bar_types = {"T-TEST", "PAIRED T-TEST", "PAIRED_SAMPLES_TTEST",
-                 "ONEWAY", "ANOVA", "UNIANOVA",
-                 "MANN_WHITNEY", "KRUSKAL_WALLIS"}
+    bar_types = {
+        "T-TEST",
+        "PAIRED T-TEST",
+        "PAIRED_SAMPLES_TTEST",
+        "ONEWAY",
+        "ANOVA",
+        "UNIANOVA",
+        "MANN_WHITNEY",
+        "KRUSKAL_WALLIS",
+    }
 
     if method in bar_methods or analysis_type in bar_types:
         return _bar_from_result(result)
 
     # ---- Scatter plot: correlation, regression ---------------------------
     scatter_methods = {
-        "pearson_correlation", "spearman_correlation", "simple_regression",
+        "pearson_correlation",
+        "spearman_correlation",
+        "simple_regression",
         "multiple_regression",
     }
-    scatter_types = {"CORRELATION", "CORRELATIONS", "NONPAR CORR",
-                     "REGRESSION", "LINEAR REGRESSION"}
+    scatter_types = {
+        "CORRELATION",
+        "CORRELATIONS",
+        "NONPAR CORR",
+        "REGRESSION",
+        "LINEAR REGRESSION",
+    }
 
     if method in scatter_methods or analysis_type in scatter_types:
         return _scatter_from_result(result)
@@ -346,8 +391,11 @@ def _scatter_from_result(result: Any) -> str | None:
         title = _chart_title_for_result(result, "相关性分析")
         show_line = result.analysis_type.upper() in {"REGRESSION", "LINEAR REGRESSION"}
         return scatter_plot(
-            list(x_data), list(y_data),
-            title=title, xlabel=str(xlabel), ylabel=str(ylabel),
+            list(x_data),
+            list(y_data),
+            title=title,
+            xlabel=str(xlabel),
+            ylabel=str(ylabel),
             show_line=show_line,
         )
 
