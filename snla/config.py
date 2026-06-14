@@ -25,6 +25,7 @@ else:
         f.write("# StatsTalk — auto-generated for Demo mode\n")
         f.write("LLM_MOCK=true\n")
         f.write("STATS_BACKEND=python\n")
+        f.write("LLM_MAX_OUTPUT_TOKENS=10000\n")
     load_dotenv(_ENV_PATH)
 
 
