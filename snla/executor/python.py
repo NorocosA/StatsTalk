@@ -524,8 +524,8 @@ class PythonStatsExecutor:
             n_valid=len(clean),
             parser_used="python_pingouin",
         )
-        if "expected" in dir() and hasattr(expected, 'values'):
-            min_expected = min(expected.values().flat) if hasattr(expected, 'values') else None
+        if "expected" in dir() and hasattr(expected, 'flat'):
+            min_expected = min(expected.flat) if hasattr(expected, 'flat') else None
             if min_expected is not None and min_expected < 5:
                 result.notes.append(f"最小期望频数为 {min_expected:.1f}（<5），卡方检验结果可能不可靠。")
         return result

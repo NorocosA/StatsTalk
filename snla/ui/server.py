@@ -769,23 +769,31 @@ def export():
 
     try:
         import io
+        import os
+        import tempfile
 
-        from snla.explainer.export import export_word_report
+        from snla.explainer.export import export_to_docx as export_word_report
 
         last = next((m for m in reversed(session.history) if m["role"] == "assistant"), None)
         if not last:
             return jsonify({"error": "No analysis found"}), 400
 
-        buf = io.BytesIO()
+        # export_to_docx writes to a file path — use a temp file
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            tmp_path = tmp.name
+
         export_word_report(
-            buf,
+            output_path=tmp_path,
             user_query=session.history[-2]["content"] if len(session.history) >= 2 else "",
             method=last.get("method", "unknown"),
-            syntax=last.get("syntax", ""),
+            analysis_result=last.get("result"),
             explanation=last.get("content", ""),
-            result=last.get("result"),
+            data_file=session.dataset_meta.get("filename", ""),
         )
-        buf.seek(0)
+
+        with open(tmp_path, "rb") as f:
+            buf = io.BytesIO(f.read())
+        os.unlink(tmp_path)
 
         from flask import send_file
 
