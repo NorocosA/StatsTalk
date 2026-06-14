@@ -34,9 +34,10 @@ def main():
     print("=" * 50)
     print(f"  Starting server on port {port}...")
 
-    # Start Flask in a daemon thread
+    # Start Flask in a daemon thread with waitress (production WSGI)
     def _run_flask():
-        flask_app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+        from waitress import serve
+        serve(flask_app, host="127.0.0.1", port=port, threads=4)
 
     server_thread = threading.Thread(target=_run_flask, daemon=True)
     server_thread.start()

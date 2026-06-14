@@ -120,7 +120,13 @@ def _plan(
                 "- 检验变量(test_variable): 必须是连续变量（无值标签的Numeric）\n"
                 "- 2组→t检验, 3组+→ANOVA\n"
                 "- 非参数检验用于数据不满足正态假设\n"
-                "- 仔细匹配变量名和标签的语义含义\n\n"
+                "- 仔细匹配变量名和标签的语义含义\n"
+                "- IMPORTANT: 变量名必须是单个存在的变量，多个变量用逗号分隔（如 'age, score'），"
+                "绝不能拼接成一个不存在的变量名（如 'age score'）\n\n"
+                "示例:\n"
+                "- '研究A和B的关系' → pearson_correlation, '年龄和收入的相关性' → pearson_correlation\n"
+                "- 'A能预测B吗' → simple_regression\n"
+                "- 'A的平均值是多少' → descriptives, 'A的分布如何' → frequencies\n\n"
                 '返回 JSON: {"method":"...", "plan_explanation":"...", '
                 '"grouping_variable":"变量名或null", "test_variable":"变量名或null"}'
             ),
