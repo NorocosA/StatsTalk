@@ -195,9 +195,10 @@ def _auto_detect_vars(variables: list[dict]) -> tuple[str | None, str | None]:
     Returns (cat_var, num_var) — picks first categorical and first numeric.
     """
     cat_var = num_var = None
+    _skip_vars = {"id", "ID", "Id", "customerid", "customer_id", "row", "ROW", "case", "CASE"}
     for v in variables:
         name = v.get("name")
-        if not name:
+        if not name or name in _skip_vars:
             continue
         if v.get("value_labels") and not cat_var:
             cat_var = name
