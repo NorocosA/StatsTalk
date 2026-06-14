@@ -125,9 +125,12 @@ def export_to_docx(
     # ── Section 5: APA Format (optional) ─────────────────────────────────
     if export_apa:
         doc.add_heading("5. APA 格式摘要", level=1)
-        apa_text = _build_apa(method, method_label, stats)
-        p = doc.add_paragraph(apa_text)
+    apa_text = _build_apa(method, method_label, stats)
+    p = doc.add_paragraph(apa_text or "统计结果摘要（详见正文解读）。")
+    if p.runs:
         p.runs[0].bold = True
+        else:
+            doc.add_paragraph("（暂无足够的统计数据生成 APA 摘要）")
 
     # ── Footer ───────────────────────────────────────────────────────────
     doc.add_paragraph("")
@@ -219,6 +222,14 @@ def _build_apa(method: str, method_label: str, stats: dict[str, Any]) -> str:
         df_chi = stats.get("df")
         df_str = f"({int(df_chi)}, N = ...)" if df_chi is not None else ""
         return f"采用{method_label}，结果χ²{df_str} = {chi2:.2f}，{_apa_p(p)}。"
+
+    # ── Non-parametric style ──
+    u_val = stats.get("u") or stats.get("u_value")
+    if u_val is not None and p is not None:
+        return f"采用{method_label}，结果U = {u_val:.2f}，{_apa_p(p)}。"
+    h_val = stats.get("h") or stats.get("h_value")
+    if h_val is not None and p is not None:
+        return f"采用{method_label}，结果H = {h_val:.2f}，{_apa_p(p)}。"
 
     # ── Generic fallback ──
     if p is not None:
