@@ -521,9 +521,11 @@ def _build_details(stats: dict[str, Any]) -> dict[str, Any]:
         "U_val": "u_value",
         "U-value": "u_value",
         "U": "u_value",
+        "u": "u_value",  # pingouin raw output key
         "rank_biserial": "rank_biserial",
         # Non-parametric (Kruskal-Wallis H)
         "H": "h_value",
+        "h": "h_value",  # pingouin raw output key
         "eps_squared": "eps_squared",
     }
     for source_key, target_key in key_map.items():
