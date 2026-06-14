@@ -30,6 +30,7 @@ a = Analysis(
         'snla.trust', 'snla.mcp_server',
         'snla.rag', 'snla.rag.integration',
         'werkzeug', 'jinja2', 'markupsafe', 'itsdangerous', 'blinker', 'click',
+        'scipy', 'scipy.stats', 'scipy.optimize',
     ],
     hookspath=[],
     hooksconfig={},

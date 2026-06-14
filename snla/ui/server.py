@@ -630,7 +630,7 @@ def _save_env_file():
     else:
         existing = []
 
-    managed = {"SPSS_PYTHON_PATH", "LLM_ENDPOINT", "LLM_API_KEY", "LLM_MODEL", "STATS_BACKEND"}
+    managed = {"SPSS_PYTHON_PATH", "LLM_ENDPOINT", "LLM_API_KEY", "LLM_MODEL", "STATS_BACKEND", "LLM_MOCK"}
     updated = set()
     for line in existing:
         stripped = line.strip()

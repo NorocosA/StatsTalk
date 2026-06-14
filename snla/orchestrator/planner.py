@@ -164,6 +164,36 @@ def _plan(
             "descriptives",
             "crosstabs",
         }
+        # Normalize LLM output: strip underscores, lowercase, common aliases
+        _ALIASES = {
+            "independent_samples_t_test": "independent_t_test",
+            "independentsamplesttest": "independent_t_test",
+            "t_test": "independent_t_test",
+            "ttest": "independent_t_test",
+            "independent": "independent_t_test",
+            "paired_t_test": "paired_t_test",
+            "pairedsamplesttest": "paired_t_test",
+            "paired": "paired_t_test",
+            "one_way_anova": "oneway_anova",
+            "oneway_anova": "oneway_anova",
+            "anova": "oneway_anova",
+            "mannwhitney": "mann_whitney_u",
+            "mann_whitney": "mann_whitney_u",
+            "kruskalwallis": "kruskal_wallis",
+            "kruskal_wallis": "kruskal_wallis",
+            "correlation": "pearson_correlation",
+            "corr": "pearson_correlation",
+            "regression": "simple_regression",
+            "regress": "simple_regression",
+            "chi": "chi_square",
+            "crosstab": "crosstabs",
+            "cross_tab": "crosstabs",
+            "freq": "frequencies",
+            "describe": "descriptives",
+        }
+        method_key = method.lower().replace(" ", "").replace("-", "_")
+        if method_key in _ALIASES:
+            method = _ALIASES[method_key]
         if method not in valid_methods:
             method = "descriptives"
         return _rag(
