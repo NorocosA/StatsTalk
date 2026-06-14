@@ -680,6 +680,21 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         
         // Note: session persistence restores data for backend use,
         // but UI waits for explicit user upload or Demo click.
+
+        // Auto-load Demo data on first launch (no data, no restored session)
+        if (!status.has_data) {
+            try {
+                const demoResp = await fetch("/api/load-demo", { method: "POST" });
+                const demoData = await demoResp.json();
+                if (demoData.ok) {
+                    hasData = true;
+                    userInput.disabled = false;
+                    sendBtn.disabled = false;
+                    renderVariables(demoData.variables, demoData.row_count);
+                    hideWelcome();
+                }
+            } catch(e) { /* Demo unavailable — user can upload manually */ }
+        }
         
         const backendSelect = document.getElementById("s-backend");
         const notice = document.getElementById("backend-notice");
