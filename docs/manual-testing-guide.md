@@ -1,190 +1,192 @@
-# StatsTalk 人工验证指南
+# StatsTalk 真人测试流程 v2.0
 
-> 项目路径: `D:\Projects\StatsTalk` | Python 3.10+
+> 环境: Windows 10+ | Python 3.10+ | 项目: `D:\Projects\StatsTalk`
+> 测试数据: `data/fixtures/test_data.sav` (30行×4列) + `data/fixtures/airline.sav` (25,976行×24列)
 
 ---
 
-## 一、环境准备（5 分钟）
+## 0. 启动
 
 ```powershell
 cd D:\Projects\StatsTalk
-
-# 1. 虚拟环境
-python -m venv venv
 venv\Scripts\activate
 
-# 2. 安装依赖
-pip install -r requirements.txt
+# 方式 A: 桌面应用
+python launcher.py
 
-# 3. 配置文件
-copy .env.example .env
-```
-
-编辑 `.env`，确保以下配置：
-```ini
-LLM_MOCK=true           # 先用 mock 模式，无需 API Key
-STATS_BACKEND=python    # 无需 SPSS
-```
-
----
-
-## 二、快速验证：跑测试（1 分钟）
-
-```powershell
-# 全部 CI-safe 测试（110 tests）
-python -m pytest snla/tests/ -v -m "not slow"
-```
-
-**预期输出**：
-```
-=========== 108 passed, 1 deselected, 2 xfailed in ~2s ===========
-```
-
-如果有失败，检查是否缺少依赖：`pip install flask lxml pingouin matplotlib`
-
----
-
-## 三、Mock 模式启动 Web 界面（5 分钟）
-
-```powershell
-# 启动 Flask 服务器
+# 方式 B: 仅 Web 界面
 python snla/ui/server.py
+# 浏览器 → http://localhost:8501
 ```
 
-浏览器打开 **http://localhost:8501**
+---
 
-### 测试流程：
+## 第一阶段：Demo 快速体验（5 分钟）
 
-| 步骤 | 操作 | 预期结果 |
-|------|------|----------|
-| 1 | 点击 "选择文件"，上传 `data/fixtures/test_data.sav` | 显示 4 个变量：gender, score, class, age |
-| 2 | 输入框键入 "**比较男女成绩差异**"，点分析 | 返回 t 检验结果（Mock 模式下会有分析结果） |
-| 3 | 输入 "**显示成绩的描述统计**"，点分析 | 返回均值、标准差等 |
-| 4 | 输入 "**成绩和年龄的相关性**"，点分析 | 返回相关系数 |
-| 5 | 点击 **取消** 按钮 | 状态恢复 |
-| 6 | 点击 **设置** | 可修改 LLM 配置 |
-| 7 | 分析完成后点击 **导出 Word** | 下载 .docx 报告 |
-
-### 验证灰名单流程：
 | 步骤 | 操作 | 预期 |
 |------|------|------|
-| 1 | 输入 "**计算新变量 z_score = (score - 70) / 10**" | 弹出确认对话框 |
-| 2 | 点击 **取消** | 不执行 |
-| 3 | 重新输入并点击 **确认执行** | 在临时副本执行，原始文件不变 |
+| 1 | 打开页面，看到绿色 "🚀 试用 Demo" 按钮 | 按钮可见 |
+| 2 | 点击 Demo 按钮 | 按钮变 "✅ Demo 就绪！"，左侧出现 4 个变量 (gender/score/class/age) |
+| 3 | 点击快捷示例 "比较男女成绩" | 输入框自动填入 |
+| 4 | 点发送 | 返回 t 检验结果，含白话解读 |
+| 5 | 点击 "描述统计" 快捷示例 | 返回均值、标准差 |
 
 ---
 
-## 四、真实 LLM 验证（需要 API Key）
+## 第二阶段：airline.sav 全场景（30 分钟）
 
-修改 `.env`：
-```ini
-LLM_MOCK=false
-LLM_API_KEY=你的Key
-```
+### 上传数据
 
-```powershell
-# 65 例真实 LLM 验证
-python scripts/verify_combined.py
-```
+1. 点击文件选择 → 选择 `data/fixtures/airline.sav`
+2. 上传成功后左侧显示 24 个变量（FlightDistance, satisfaction, Age, Gender...）
+3. 确认行数显示 "25,976 条记录"
 
-**预期**: 方法匹配率 > 90%，无崩溃。
+### 场景 1: 基本分析
 
-或手动测试：
-```powershell
-python snla/ui/server.py
-# 浏览器访问，输入真实查询如：
-# "比较不同班级的成绩是否有显著差异"
-# "成绩分布是什么样的"
-# "性别和班级是否相关"
-```
+| # | 输入 | 预期方法 | 验证 |
+|---|------|----------|------|
+| 1.1 | `飞行距离的平均值和中位数是多少` | descriptives | 返回 mean/std/min/max |
+| 1.2 | `显示满意度的频率分布` | descriptives | 返回分布数据 |
+| 1.3 | `统计各舱位等级的人数` | frequencies | 返回频数表 |
+
+### 场景 2: 假设检验
+
+| # | 输入 | 预期方法 | 验证 |
+|---|------|----------|------|
+| 2.1 | `比较男性和女性的满意度是否有差异` | independent_t_test | 返回 t 值、p 值、白话结论 |
+| 2.2 | `不同出行类型的飞行距离是否有显著差异` | independent_t_test | 返回 F 值或 t 值 |
+| 2.3 | `舱位等级和满意度之间是否有关联` | crosstabs | 返回卡方统计 |
+
+### 场景 3: 相关与回归
+
+| # | 输入 | 预期方法 | 验证 |
+|---|------|----------|------|
+| 3.1 | `告诉我飞行距离和什么因素有关` | pearson_correlation | 返回相关系数矩阵 |
+| 3.2 | `研究在线值机便利性和满意度的关系` | pearson_correlation | 返回 r、p 值 |
+| 3.3 | `飞行距离能预测满意度吗` | simple_regression | 返回 R²、系数 |
+
+### 场景 4: 非参数检验
+
+| # | 输入 | 预期方法 | 验证 |
+|---|------|----------|------|
+| 4.1 | `不同舱位等级的满意度（用非参数检验）` | kruskal_wallis | 返回 H 值、效应量 |
+| 4.2 | `男性和女性的行李评价是否有差异（非参数）` | mann_whitney_u | 返回 U 值、效应量 |
+
+### 场景 5: 边界条件
+
+| # | 操作 | 预期 |
+|---|------|------|
+| 5.1 | 不输入文字，直接点发送 | 红色错误 "Empty input" |
+| 5.2 | 输入一段 >2000 字的文本 | 红色错误 "输入文本过长（最大 2000 字符）" |
+| 5.3 | 分析执行中点击取消 | 状态恢复，可重新操作 |
+| 5.4 | 1 分钟内连续发送 11 次 | 第 11 次返回 "请求过于频繁" |
+
+### 场景 6: 多轮对话
+
+| # | 操作 | 验证 |
+|---|------|------|
+| 6.1a | 先问 `比较男女满意度` | 返回 t 检验 |
+| 6.1b | 再问 `那不同舱位等级呢？` | 自动切换分组变量 |
+| 6.2a | 先问 `满意度的描述统计` | 返回描述统计 |
+| 6.2b | 再问 `看看飞行距离的` | 自动切换分析变量 |
+
+### 场景 7: 导出与设置
+
+| # | 操作 | 预期 |
+|---|------|------|
+| 7.1 | 分析完成后点击 "📥 导出 Word" | 下载 .docx 文件 |
+| 7.2 | 打开下载的文档 | 含统计表格 + 白话解读 + StatsTalk 页脚 |
+| 7.3 | 修改设置（如 LLM Model），点保存 | 提示保存成功 |
+| 7.4 | 关闭重开 → 检查设置 | 配置已持久化 |
+
+### 场景 8: 变量验证
+
+| # | 操作 | 预期 |
+|---|------|------|
+| 8.1 | 上传 airline.sav 后检查左侧变量列表 | 24 个变量全部显示，含名称和类型 |
+| 8.2 | 随机点 3 个变量名 | 名称中文含义正确 |
+| 8.3 | 确认 value_labels（如 Gender）不泄露到 LLM | 设置里查 LLM 调用日志（如开启的话）|
 
 ---
 
-## 五、MCP Server 验证（2 分钟）
+## 第三阶段：MCP 多渠道（10 分钟）
 
 ```powershell
-# 集成测试
+# 终端测试
 python scripts/mcp_integration_test.py
+# 预期: 7 tests: 7 passed
+
+# 启动 MCP Server
+python snla/mcp_server.py
 ```
 
-**预期输出**：
-```
-[import]         PASS
-[tool_count]     PASS
-[tool_names]     PASS
-[error_format]   PASS
-[engine_busy_format] PASS
-[session_isolation] PASS
-[status_tool]    PASS
-----------------------------------------
-  7 tests: 7 passed, 0 failed
-```
+### MCP 工具验证
+
+| # | 工具 | 预期 |
+|---|------|------|
+| 1 | `snla_status` → 返回服务器状态 | OK, has_data=false |
+| 2 | `snla_upload` → 上传 test_data.sav | 返回变量列表 |
+| 3 | `snla_variables` → 列出变量 | 4 个变量 |
+| 4 | `snla_analyze` → "比较男女成绩" | 返回 t 检验结果 |
+| 5 | `snla_confirm` → 确认灰名单 | 执行成功 |
+| 6 | `snla_cancel` → 取消分析 | 状态恢复 |
+| 7 | `snla_export` → 导出报告 | 返回 base64 DOCX |
 
 ---
 
-## 六、Python 后端验证（无需 SPSS）
+## 第四阶段：回归测试（5 分钟）
 
 ```powershell
-# Python 后端 24 个单元测试
-python -m pytest snla/tests/test_python_backend.py -v
-```
+# 全量测试
+python -m pytest snla/tests/ -v
+# 预期: 117 passed, 0 xfailed
 
-**预期**: 22 passed, 2 xfailed（卡方 expected.values bug，已知问题）。
+# 仅回归测试（airline.sav 真实数据管道）
+python -m pytest snla/tests/test_regression.py -v
+# 预期: 8 passed
 
----
-
-## 七、Flask API 验证
-
-```powershell
-# API 端点 23 个测试
+# 仅 API 测试
 python -m pytest snla/tests/test_server.py -v
-```
-
-**预期**: 23 passed。
-
----
-
-## 八、边界条件测试
-
-| 测试 | 操作 | 预期 |
-|------|------|------|
-| 空输入 | 不输入文字点分析 | 400 "Empty input" |
-| 未上传数据 | 直接输入查询 | 400 "upload first" |
-| 超长输入 | 输入 3000+ 字 | 400 "输入文本过长" |
-| 大文件 | 上传 >500MB | 413 拒绝 |
-| 非法文件 | 上传 .txt | 400 拒绝 |
-| 连续快速请求 | 1 分钟内点 11 次分析 | 第 11 次 429 "请求过于频繁" |
-| 敏感变量 | 上传含 "患者姓名" 的数据 | 自动脱敏为 var_01 |
-| 批量变量 | 输入 "分析 Q1 到 Q5" | 范围自动展开 |
-
----
-
-## 九、代码质量检查
-
-```powershell
-# Lint
-python -m ruff check snla/
-
-# Format
-python -m ruff format snla/ --check
+# 预期: 23 passed
 ```
 
 ---
 
-## 十、常见问题
+## 测试记录表
 
-| 问题 | 解决方案 |
-|------|----------|
-| `ModuleNotFoundError: flask` | `pip install flask` |
-| `ModuleNotFoundError: lxml` | `pip install lxml` |
-| 端口 8501 被占用 | 修改 `server.py` 末尾 `port=8501` |
-| Mock 模式无返回 | 检查 `.env` 中 `LLM_MOCK=true` |
-| 中文乱码 | 确认 `.env` 文件编码为 UTF-8 |
-| PyWebView 窗口不显示 | 安装 Edge WebView2 Runtime |
+| 场景 | # | 输入/操作 | 结果 | 备注 |
+|------|---|-----------|------|------|
+| 1 | 1.1 | 飞行距离的平均值和中位数 | | |
+| 1 | 1.2 | 满意度的频率分布 | | |
+| 1 | 1.3 | 各舱位等级的人数 | | |
+| 2 | 2.1 | 比较男女满意度 | | |
+| 2 | 2.2 | 不同出行类型飞行距离 | | |
+| 2 | 2.3 | 舱位等级和满意度关联 | | |
+| 3 | 3.1 | 飞行距离和什么因素有关 | | |
+| 3 | 3.2 | 值机便利性和满意度 | | |
+| 3 | 3.3 | 飞行距离预测满意度 | | |
+| 4 | 4.1 | 舱位等级满意度(非参数) | | |
+| 4 | 4.2 | 男女行李评价(非参数) | | |
+| 5 | 5.1 | 空输入 | | |
+| 5 | 5.2 | 超长文本 | | |
+| 5 | 5.3 | 取消中分析 | | |
+| 5 | 5.4 | 快速连续 11 次 | | |
+| 6 | 6.1 | 多轮：男女→舱位 | | |
+| 6 | 6.2 | 多轮：满意度→飞行距离 | | |
+| 7 | 7.1 | 导出 Word | | |
+| 7 | 7.2 | 打开文档 | | |
+| 7 | 7.3 | 修改设置 | | |
+| 7 | 7.4 | 设置持久化 | | |
+| 8 | 8.1 | 变量列表显示 | | |
+| 8 | 8.2 | 变量名中文 | | |
+| MCP | — | 7 工具测试 | | |
 
 ---
 
-**快速启动一句话**：
-```powershell
-cd D:\Projects\StatsTalk && venv\Scripts\activate && python -m pytest snla/tests/ -q -m "not slow" && python snla/ui/server.py
-```
+## 已知问题（无需重复报告）
+
+1. 启动时显示旧会话变量 → 已修复（`a0f3148`），UI 不再自动恢复
+2. 变量列表空白 → 已修复（`bf9e65b`），CLOUD_SAFE_FIELDS 字段名更正
+3. 分析方法回退不匹配 → 已修复（`bf9e65b`），保留原始变量
+4. Word 导出 500 → 已修复（`ec0f302`），参数匹配
+5. 卡方 `expected.values()` → 已修复（`ec0f302`），改用 `expected.flat`
