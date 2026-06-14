@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 # Ensure project root on sys.path
@@ -242,6 +243,11 @@ def analyze():
     _active_executor = executor
     _degradation: dict | None = None  # populated on template fallback
 
+    # Watchdog: auto-release _executing after 180s even if thread dies
+    _watchdog = threading.Timer(180, lambda: _release_executing())
+    _watchdog.daemon = True
+    _watchdog.start()
+
     try:
         # ── Phase 1: Analysis Planning (intent + method + vars, 1 LLM call) ──
         plan_result = planner.plan(
@@ -359,9 +365,19 @@ def analyze():
         logger.exception("Analysis failed")
         return jsonify({"error": str(e)}), 500
     finally:
+        _watchdog.cancel()
         _executing = False
         _active_executor = None
         session.reset_cancellation()
+
+
+def _release_executing():
+    """Watchdog callback: force-release _executing if the request thread died."""
+    global _executing, _active_executor
+    if _executing:
+        logger.warning("Watchdog: force-releasing _executing after timeout")
+        _executing = False
+        _active_executor = None
 
 
 # ── Confirm Greylist ──────────────────────────────────────────────────
