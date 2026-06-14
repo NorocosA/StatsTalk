@@ -47,7 +47,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 
 # ========== Token 控制 ==========
 LLM_MAX_INPUT_TOKENS = int(os.getenv("LLM_MAX_INPUT_TOKENS", "4000"))
-LLM_MAX_OUTPUT_TOKENS = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2000"))
+LLM_MAX_OUTPUT_TOKENS = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "10000"))
 LLM_MAX_HISTORY_ROUNDS = int(os.getenv("LLM_MAX_HISTORY_ROUNDS", "3"))
 
 # ========== 执行器配置 ==========
