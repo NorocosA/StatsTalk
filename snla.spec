@@ -9,8 +9,9 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('snla', 'snla'),          # All source modules
-        ('.env.example', '.'),     # Config template
+        ('snla', 'snla'),                          # All source modules
+        ('.env.example', '.'),                     # Config template
+        ('data/fixtures/test_data.sav', 'data/fixtures'),  # Sample data for Demo
     ],
     hiddenimports=[
         'flask', 'pywebview', 'pandas', 'pyreadstat', 'lxml',

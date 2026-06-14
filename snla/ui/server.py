@@ -487,6 +487,12 @@ def variables():
 def load_demo():
     """Load bundled sample data for demo mode (no file upload needed)."""
     demo_path = os.path.join(str(PROJECT_ROOT), "data", "fixtures", "test_data.sav")
+    # In PyInstaller bundle, data is in sys._MEIPASS
+    if not os.path.exists(demo_path):
+        import sys
+        bundle_root = getattr(sys, "_MEIPASS", "")
+        if bundle_root:
+            demo_path = os.path.join(bundle_root, "data", "fixtures", "test_data.sav")
     if not os.path.exists(demo_path):
         return jsonify({"error": "示例数据文件不存在"}), 404
     try:

@@ -6,11 +6,26 @@ SNLA 集中配置中心
 """
 
 import os
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Detect PyInstaller bundle path (sys._MEIPASS) vs development mode
+_BUNDLE_DIR = getattr(sys, "_MEIPASS", str(Path(__file__).resolve().parent.parent))
+
 # 自动加载项目根目录下的 .env 文件
-load_dotenv()
+_ENV_PATH = os.path.join(_BUNDLE_DIR, ".env")
+if os.path.exists(_ENV_PATH):
+    load_dotenv(_ENV_PATH)
+else:
+    # First run from packaged exe — auto-create .env for Demo mode
+    _FIRST_RUN = True
+    with open(_ENV_PATH, "w", encoding="utf-8") as f:
+        f.write("# StatsTalk — auto-generated for Demo mode\n")
+        f.write("LLM_MOCK=true\n")
+        f.write("STATS_BACKEND=python\n")
+    load_dotenv(_ENV_PATH)
 
 
 # ========== SPSS 配置 ==========
