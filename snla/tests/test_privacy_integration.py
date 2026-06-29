@@ -162,7 +162,7 @@ def test_map_to_cloud_no_sensitive(sample_variables):
     )
 
     # All original names preserved
-    for original, mapped in zip(sample_variables, result):
+    for original, mapped in zip(sample_variables, result, strict=False):
         assert mapped["name"] == original["name"], (
             f"Non-sensitive name '{original['name']}' was modified to '{mapped['name']}'"
         )

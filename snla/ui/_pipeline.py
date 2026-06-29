@@ -70,7 +70,9 @@ def _syntax_template(
 
     # Skip metadata/ID variables in auto-detection
     _skip_vars = {"id", "ID", "Id", "customerid", "customer_id", "row", "ROW", "case", "CASE"}
-    _ok_var = lambda v: v.get("type") == "Numeric" and v["name"] not in _skip_vars
+
+    def _ok_var(v):
+        return v.get("type") == "Numeric" and v["name"] not in _skip_vars
 
     # Fall back to auto-detection if Phase 1 didn't provide
     if not cat_var or not num_var:

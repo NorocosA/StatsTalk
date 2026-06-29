@@ -253,10 +253,7 @@ def _format_variables(variables: list[dict[str, Any]]) -> str:
         label_str = label
         if value_labels:
             pairs = " ".join(f"{k}={v}" for k, v in sorted(value_labels.items()))
-            if label_str:
-                label_str = f"{label_str}, {pairs}"
-            else:
-                label_str = pairs
+            label_str = f"{label_str}, {pairs}" if label_str else pairs
 
         if label_str:
             # Append inside the parentheses after type

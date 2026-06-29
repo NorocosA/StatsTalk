@@ -335,7 +335,7 @@ def _is_command_title_page(text: str) -> bool:
     Command title pages typically have a large, centered command name
     followed by "Overview" on the next page.
     """
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
     if not lines:
         return False
     first_line = lines[0].upper()
@@ -378,10 +378,7 @@ def extract_command_chunks(
 
     # 2. Determine which commands to extract
     target_commands: set[str]
-    if commands:
-        target_commands = {c.upper() for c in commands}
-    else:
-        target_commands = {c.upper() for c, _ in toc}
+    target_commands = {c.upper() for c in commands} if commands else {c.upper() for c, _ in toc}
 
     # Build TOC entries for target commands (apply page offset)
     toc_map: dict[str, int] = {}

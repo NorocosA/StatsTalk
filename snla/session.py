@@ -1,11 +1,13 @@
 """
-SNLA Session State Manager
+StatsTalk session state manager.
 
-Maintains in-memory state for multi-turn conversation sessions.
-MVP phase: No persistence to disk. All state is lost on app restart.
+Maintains the in-memory state for the single-user desktop session. The Flask
+server mirrors selected state to SQLite through snla.data.persistence so the
+latest dataset/session can survive a desktop restart.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -13,8 +15,7 @@ class SessionState:
     """
     Tracks all state for a single analysis session.
 
-    MVP phase: In-memory only, no database persistence.
-    Designed for Streamlit's session_state pattern.
+    Single-user session state shared by the Flask API and desktop UI.
     """
 
     # ===== Dataset State =====
@@ -49,7 +50,7 @@ class SessionState:
     active_syntax: str | None = None
     # Currently active SPSS syntax (for user review before execution)
 
-    active_process: "Popen | None" = None  # type: ignore
+    active_process: Any = None
     # Handle to the running SPSS subprocess (for cancellation)
 
     cancellation_token: bool = False

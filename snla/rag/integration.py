@@ -145,9 +145,13 @@ def enhance_validation(
         cat = get_command_category(cmd)
         categories[cmd] = cat
 
-        if not is_valid_spss_command(cmd):
-            if cmd not in ("T-TEST", "ONEWAY", "OMS", "OMSEND"):  # Known special
-                unrecognized.append(cmd)
+        if not is_valid_spss_command(cmd) and cmd not in (
+            "T-TEST",
+            "ONEWAY",
+            "OMS",
+            "OMSEND",
+        ):
+            unrecognized.append(cmd)
 
     if unrecognized:
         result.setdefault("warnings", []).append(

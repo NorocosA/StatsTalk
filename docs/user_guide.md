@@ -1,134 +1,62 @@
-# SPSS Natural Language Assistant — 用户指南
+# StatsTalk 用户指南
 
-## 快速开始
+StatsTalk 是一个桌面统计分析工具。用户上传 `.sav` 或 `.csv` 数据后，可以用自然语言描述分析需求，系统会自动选择统计方法、执行分析并生成白话解释。
 
-### 1. 安装
+## 启动
 
 ```powershell
-# 克隆项目
-git clone <repo-url>
-cd "SPSS Natural Language Assistant(SNLA)"
-
-# 创建虚拟环境
-python -m venv venv
+cd D:\Projects\StatsTalk
 venv\Scripts\activate
-
-# 安装依赖
-pip install -r requirements.txt
+python launcher.py
 ```
 
-### 2. 配置
-
-复制 `.env.example` 为 `.env`，填入你的配置：
-
-```ini
-# SPSS 路径（必须）
-SPSS_PATH=C:\Program Files\IBM\SPSS\Statistics\26\stats.exe
-SPSS_PYTHON_PATH=C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe
-
-# LLM 配置（可选，不配则使用 MOCK 模式）
-LLM_ENDPOINT=https://opencode.ai/zen/go/v1/chat/completions
-LLM_API_KEY=your-api-key-here
-LLM_MODEL=deepseek-v4-flash
-```
-
-### 3. 启动
+只启动 Web API:
 
 ```powershell
-# 桌面窗口（推荐，需安装 pywebview）
-python launcher.py
-
-# 或浏览器模式（无需 pywebview）
 python snla/ui/server.py
-# 打开 http://127.0.0.1:8501
-
-# 命令行 Demo
-python scripts/e2e_demo.py --data-file data/fixtures/test_data.sav
 ```
 
----
+浏览器访问 `http://127.0.0.1:8501`。
 
-## 使用说明
+## 基本流程
 
-### 界面概览
+1. 上传 `.sav` 或 `.csv` 文件。
+2. 确认变量列表和样本量显示正确。
+3. 在输入框里描述需求，例如“比较男女成绩是否有差异”。
+4. 查看系统返回的方法、统计结果和解释。
+5. 需要时导出 Word 报告。
 
-启动后，你会看到一个左右分栏的窗口：
+## 示例问题
 
-- **左侧边栏**：上传数据文件、查看变量列表、配置 LLM 和 SPSS 设置
-- **右侧主区域**：聊天窗口，输入分析需求，查看白话解读结果
+| 问题 | 常见方法 |
+| --- | --- |
+| 计算成绩的平均值和标准差 | 描述性统计 |
+| 统计不同班级的人数 | 频率分析 |
+| 比较男女成绩差异 | 独立样本 t 检验 |
+| 比较训练前后分数 | 配对样本 t 检验 |
+| 不同班级成绩是否有差异 | 单因素 ANOVA |
+| 年龄和成绩是否相关 | Pearson 相关 |
+| 性别和是否通过考试是否有关 | 卡方检验 |
+| 数据不满足正态时比较两组 | Mann-Whitney U |
 
-### 操作步骤
+## 数据要求
 
-1. **上传数据**：点击左侧「上传并分析」按钮，选择 `.sav` 或 `.csv` 文件
-2. **输入问题**：在底部输入框用自然语言描述分析需求
-3. **查看结果**：系统会自动推荐方法、生成语法、执行分析、返回白话解读
-4. **导出报告**：分析完成后点击右上角「📥 导出 Word 报告」按钮
+- `.sav`: 推荐格式，支持 SPSS 变量标签和值标签。
+- `.csv`: 第一行必须是列名，推荐 UTF-8 编码。
+- 变量名尽量简短明确。
+- 不要把姓名、手机号、身份证号等隐私信息作为变量名。
 
-### 支持的分析类型
+## 隐私说明
 
-| 你的问题 | 自动执行 |
-|----------|----------|
-| "计算平均分和标准差" | 描述性统计 (DESCRIPTIVES) |
-| "统计男女各多少人" | 频率分析 (FREQUENCIES) |
-| "比较男女成绩差异" | 独立样本 t 检验 |
-| "不同班级成绩有没有差异" | 单因素方差分析 (ANOVA) |
-| "年龄和成绩有关系吗" | Pearson 相关分析 |
-| "性别和专业选择有关系吗" | 卡方检验 (CROSSTABS) |
-| "培训前后分数有变化吗" | 配对样本 t 检验 |
-| "数据不服从正态分布" | Mann-Whitney U / Kruskal-Wallis |
-
-### 追问功能
-
-在一次分析完成后，可以直接追问：
-
-```
-👤 "比较男女成绩差异"
-🤖 [t 检验结果...]
-
-👤 "那换成班级呢？"
-🤖 [自动切换为班级 × 成绩的 ANOVA]
-```
-
-### Word 报告导出
-
-分析完成后点击 **📥 导出 Word 报告** 按钮，生成包含 APA 格式的完整报告。
-
----
-
-## 数据格式要求
-
-### .sav 文件（推荐）
-IBM SPSS 原生格式，支持变量标签和值标签。
-
-### .csv 文件
-UTF-8 或 GBK 编码。第一行为列名，后续行为数据。
-
-### 变量命名建议
-- 使用有意义的中文或英文变量名（如 "gender", "score", "年龄"）
-- 分类变量应设置值标签（如 gender: 1=男, 2=女）
-- 避免使用姓名、手机号等隐私信息作为变量名
-
----
+StatsTalk 只把变量结构发送给 LLM，例如变量名、类型、标签和行列规模。原始数据行不会发送给云端。`value_labels` 会在云端请求前剥离，敏感变量名会被替换为 `var_01`、`var_02` 这样的占位名。
 
 ## 常见问题
 
-**Q: 系统说"SPSS 不可用"？**
-A: 检查 `.env` 中 `SPSS_PYTHON_PATH` 是否正确指向 SPSS 安装目录下的 `Python3/python.exe`。
+**没有 SPSS 能用吗？**
+可以。设置 `STATS_BACKEND=python` 后会使用 Python 后端。
 
-**Q: 分析结果为空？**
-A: 检查数据文件格式是否正确（.sav 或 .csv），变量名不能包含特殊字符。
+**导出 Word 失败怎么办？**
+先确认依赖已安装：`pip install -r requirements.txt`。导出模块依赖 `python-docx`。
 
-**Q: 隐私安全吗？**
-A: 系统只向云端 LLM 发送变量名、类型、标签——**绝不发送原始数据值**。敏感变量名（如"患者姓名"）会自动脱敏为 var_01、var_02。
-
----
-
-## 测试
-
-```powershell
-# 运行全部测试
-python -m pytest snla/tests/ -v
-
-# 快速检查
-python -m pytest snla/tests/ -q
-```
+**分析时提示已有任务在运行？**
+当前版本是单用户设计，同一时间只允许一个分析任务。等待当前任务完成或点击取消。

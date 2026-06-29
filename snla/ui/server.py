@@ -16,6 +16,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 # Ensure project root on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -73,7 +74,7 @@ UI_DIR = Path(__file__).resolve().parent
 
 # ── Concurrency & state guards ───────────────────────────────────────
 _executing: bool = False  # True while /api/analyze is running
-_active_executor: SPSSExecutor | None = None  # for cancellation
+_active_executor: Any = None  # for cancellation
 _was_cancelled: bool = False  # True when user requested cancellation
 
 # ── Rate limiting ─────────────────────────────────────────────────────
@@ -538,7 +539,7 @@ def load_demo():
 @app.route("/api/startup-warnings", methods=["GET"])
 def startup_warnings():
     """Return config validation warnings for first-launch UI guidance."""
-    from snla.config import LLM_MOCK, STATS_BACKEND, validate
+    from snla.config import STATS_BACKEND, validate
 
     raw = validate()
     guidance = []
@@ -630,7 +631,14 @@ def _save_env_file():
     else:
         existing = []
 
-    managed = {"SPSS_PYTHON_PATH", "LLM_ENDPOINT", "LLM_API_KEY", "LLM_MODEL", "STATS_BACKEND", "LLM_MOCK"}
+    managed = {
+        "SPSS_PYTHON_PATH",
+        "LLM_ENDPOINT",
+        "LLM_API_KEY",
+        "LLM_MODEL",
+        "STATS_BACKEND",
+        "LLM_MOCK",
+    }
     updated = set()
     for line in existing:
         stripped = line.strip()

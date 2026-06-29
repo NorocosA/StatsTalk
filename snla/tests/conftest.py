@@ -151,11 +151,13 @@ def temp_xml_file(mock_spss_output_ttest):
     Yields:
         str: Absolute path to the temporary XML file.
     """
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, encoding="utf-8")
-    tmp.write(mock_spss_output_ttest)
-    tmp.close()
-    yield tmp.name
-    os.unlink(tmp.name)
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".xml", delete=False, encoding="utf-8"
+    ) as tmp:
+        tmp.write(mock_spss_output_ttest)
+        tmp_name = tmp.name
+    yield tmp_name
+    os.unlink(tmp_name)
 
 
 # ── Pre-built AnalysisResult fixtures ────────────────────────────────────────

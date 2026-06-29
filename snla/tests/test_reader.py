@@ -55,12 +55,13 @@ def test_read_and_extract_csv():
     """Verify read_and_extract works with a simple CSV file."""
     csv_content = "name,age,score\nAlice,25,88.5\nBob,30,92.0\nCharlie,22,79.3\n"
 
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8")
-    try:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".csv", delete=False, encoding="utf-8"
+    ) as tmp:
         tmp.write(csv_content)
-        tmp.close()
-
-        result = read_and_extract(tmp.name)
+        tmp_name = tmp.name
+    try:
+        result = read_and_extract(tmp_name)
 
         assert result["format"] == "csv", f"Expected format='csv', got {result['format']}"
         assert result["row_count"] == 3, f"Expected 3 rows, got {result['row_count']}"
@@ -85,7 +86,7 @@ def test_read_and_extract_csv():
         assert name_var["type"] == "String", f"name should be String, got {name_var['type']}"
 
     finally:
-        os.unlink(tmp.name)
+        os.unlink(tmp_name)
 
 
 # =========================================================================

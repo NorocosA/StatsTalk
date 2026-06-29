@@ -119,7 +119,6 @@ def explain_template(
         Chinese explanation string.
     """
     analysis_type = analysis_result.analysis_type
-    stats = analysis_result.statistics
     significance = constraints["significance"]
     forced_phrase = constraints["forced_phrase"]
     effect_size_desc = constraints["effect_size_desc"]

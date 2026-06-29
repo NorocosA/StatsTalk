@@ -13,7 +13,6 @@ import json
 
 import pytest
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 
@@ -151,6 +150,4 @@ class TestAirlinePipeline:
             assert "name" in v, f"filter_for_cloud dropped 'name': {v}"
             assert "type" in v, f"filter_for_cloud dropped 'type': {v}"
             assert "label" in v, f"filter_for_cloud dropped 'label': {v}"
-            assert "value_labels" not in v, (
-                f"filter_for_cloud should strip value_labels for privacy"
-            )
+            assert "value_labels" not in v, "filter_for_cloud should strip value_labels for privacy"

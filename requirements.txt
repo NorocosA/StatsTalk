@@ -12,6 +12,7 @@ requests~=2.34.0           # HTTP client for LLM endpoints
 
 # Frontend — Desktop
 flask~=3.1.0               # Embedded HTTP API server
+waitress~=3.0.2            # Production WSGI server for local desktop/API mode
 python-multipart~=0.0.28   # Flask file upload support
 pywebview~=6.2.0           # Native WebView window (Windows: requires Edge WebView2 runtime)
 pythonnet>=3.1.0rc0        # .NET CLR bridge for pywebview on Windows (rc acceptable)

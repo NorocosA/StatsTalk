@@ -1,192 +1,87 @@
-# StatsTalk 真人测试流程 v2.0
+# Manual Testing Guide
 
-> 环境: Windows 10+ | Python 3.10+ | 项目: `D:\Projects\StatsTalk`
-> 测试数据: `data/fixtures/test_data.sav` (30行×4列) + `data/fixtures/airline.sav` (25,976行×24列)
+Environment: Windows 10 or later, Python 3.10+, project root `D:\Projects\StatsTalk`.
 
----
-
-## 0. 启动
+## Start
 
 ```powershell
 cd D:\Projects\StatsTalk
 venv\Scripts\activate
-
-# 方式 A: 桌面应用
 python launcher.py
+```
 
-# 方式 B: 仅 Web 界面
+API-only alternative:
+
+```powershell
 python snla/ui/server.py
-# 浏览器 → http://localhost:8501
 ```
 
----
+Open `http://127.0.0.1:8501`.
 
-## 第一阶段：Demo 快速体验（5 分钟）
+## Demo Data Flow
 
-| 步骤 | 操作 | 预期 |
-|------|------|------|
-| 1 | 打开页面，看到绿色 "🚀 试用 Demo" 按钮 | 按钮可见 |
-| 2 | 点击 Demo 按钮 | 按钮变 "✅ Demo 就绪！"，左侧出现 4 个变量 (gender/score/class/age) |
-| 3 | 点击快捷示例 "比较男女成绩" | 输入框自动填入 |
-| 4 | 点发送 | 返回 t 检验结果，含白话解读 |
-| 5 | 点击 "描述统计" 快捷示例 | 返回均值、标准差 |
+1. Click the demo data button, or upload `data/fixtures/test_data.sav`.
+2. Confirm variables appear: `gender`, `score`, `class`, `age`.
+3. Ask `比较男女成绩差异`.
+4. Confirm the result includes a method, statistics, and a plain-language explanation.
+5. Ask `显示成绩的描述性统计`.
+6. Export a Word report and open the downloaded file.
 
----
+## Airline Data Flow
 
-## 第二阶段：airline.sav 全场景（30 分钟）
+Dataset: `data/fixtures/airline.sav`.
 
-### 上传数据
+1. Upload the file.
+2. Confirm variables and row count are shown.
+3. Run these scenarios:
 
-1. 点击文件选择 → 选择 `data/fixtures/airline.sav`
-2. 上传成功后左侧显示 24 个变量（FlightDistance, satisfaction, Age, Gender...）
-3. 确认行数显示 "25,976 条记录"
+| Scenario | Input | Expected method family |
+| --- | --- | --- |
+| Descriptives | `飞行距离的平均值和标准差是多少` | descriptives |
+| Frequencies | `统计各舱位等级的人数` | frequencies |
+| Group comparison | `比较男性和女性的满意度是否有差异` | t-test |
+| ANOVA | `不同出行类型的飞行距离是否有差异` | ANOVA |
+| Crosstabs | `舱位等级和满意度之间是否有关联` | chi-square/crosstabs |
+| Correlation | `在线值机便利性和满意度的关系` | correlation |
+| Regression | `飞行距离能预测满意度吗` | regression |
+| Non-parametric | `不同舱位等级的满意度，用非参数检验` | Kruskal-Wallis |
 
-### 场景 1: 基本分析
+## Edge Cases
 
-| # | 输入 | 预期方法 | 验证 |
-|---|------|----------|------|
-| 1.1 | `飞行距离的平均值和中位数是多少` | descriptives | 返回 mean/std/min/max |
-| 1.2 | `显示满意度的频率分布` | descriptives | 返回分布数据 |
-| 1.3 | `统计各舱位等级的人数` | frequencies | 返回频数表 |
+| Check | Expected result |
+| --- | --- |
+| Submit empty input | 400 error |
+| Submit before uploading data | 400 error |
+| Rapidly submit more than 10 analyses in one minute | 429 error |
+| Start two analyses concurrently | 409 error |
+| Upload `.txt` | rejected |
+| Upload file over 500 MB | rejected |
+| Cancel while SPSS is running | process stops and UI recovers |
 
-### 场景 2: 假设检验
-
-| # | 输入 | 预期方法 | 验证 |
-|---|------|----------|------|
-| 2.1 | `比较男性和女性的满意度是否有差异` | independent_t_test | 返回 t 值、p 值、白话结论 |
-| 2.2 | `不同出行类型的飞行距离是否有显著差异` | independent_t_test | 返回 F 值或 t 值 |
-| 2.3 | `舱位等级和满意度之间是否有关联` | crosstabs | 返回卡方统计 |
-
-### 场景 3: 相关与回归
-
-| # | 输入 | 预期方法 | 验证 |
-|---|------|----------|------|
-| 3.1 | `告诉我飞行距离和什么因素有关` | pearson_correlation | 返回相关系数矩阵 |
-| 3.2 | `研究在线值机便利性和满意度的关系` | pearson_correlation | 返回 r、p 值 |
-| 3.3 | `飞行距离能预测满意度吗` | simple_regression | 返回 R²、系数 |
-
-### 场景 4: 非参数检验
-
-| # | 输入 | 预期方法 | 验证 |
-|---|------|----------|------|
-| 4.1 | `不同舱位等级的满意度（用非参数检验）` | kruskal_wallis | 返回 H 值、效应量 |
-| 4.2 | `男性和女性的行李评价是否有差异（非参数）` | mann_whitney_u | 返回 U 值、效应量 |
-
-### 场景 5: 边界条件
-
-| # | 操作 | 预期 |
-|---|------|------|
-| 5.1 | 不输入文字，直接点发送 | 红色错误 "Empty input" |
-| 5.2 | 输入一段 >2000 字的文本 | 红色错误 "输入文本过长（最大 2000 字符）" |
-| 5.3 | 分析执行中点击取消 | 状态恢复，可重新操作 |
-| 5.4 | 1 分钟内连续发送 11 次 | 第 11 次返回 "请求过于频繁" |
-
-### 场景 6: 多轮对话
-
-| # | 操作 | 验证 |
-|---|------|------|
-| 6.1a | 先问 `比较男女满意度` | 返回 t 检验 |
-| 6.1b | 再问 `那不同舱位等级呢？` | 自动切换分组变量 |
-| 6.2a | 先问 `满意度的描述统计` | 返回描述统计 |
-| 6.2b | 再问 `看看飞行距离的` | 自动切换分析变量 |
-
-### 场景 7: 导出与设置
-
-| # | 操作 | 预期 |
-|---|------|------|
-| 7.1 | 分析完成后点击 "📥 导出 Word" | 下载 .docx 文件 |
-| 7.2 | 打开下载的文档 | 含统计表格 + 白话解读 + StatsTalk 页脚 |
-| 7.3 | 修改设置（如 LLM Model），点保存 | 提示保存成功 |
-| 7.4 | 关闭重开 → 检查设置 | 配置已持久化 |
-
-### 场景 8: 变量验证
-
-| # | 操作 | 预期 |
-|---|------|------|
-| 8.1 | 上传 airline.sav 后检查左侧变量列表 | 24 个变量全部显示，含名称和类型 |
-| 8.2 | 随机点 3 个变量名 | 名称中文含义正确 |
-| 8.3 | 确认 value_labels（如 Gender）不泄露到 LLM | 设置里查 LLM 调用日志（如开启的话）|
-
----
-
-## 第三阶段：MCP 多渠道（10 分钟）
+## MCP Smoke Test
 
 ```powershell
-# 终端测试
 python scripts/mcp_integration_test.py
-# 预期: 7 tests: 7 passed
-
-# 启动 MCP Server
-python snla/mcp_server.py
 ```
 
-### MCP 工具验证
+Expected tools:
 
-| # | 工具 | 预期 |
-|---|------|------|
-| 1 | `snla_status` → 返回服务器状态 | OK, has_data=false |
-| 2 | `snla_upload` → 上传 test_data.sav | 返回变量列表 |
-| 3 | `snla_variables` → 列出变量 | 4 个变量 |
-| 4 | `snla_analyze` → "比较男女成绩" | 返回 t 检验结果 |
-| 5 | `snla_confirm` → 确认灰名单 | 执行成功 |
-| 6 | `snla_cancel` → 取消分析 | 状态恢复 |
-| 7 | `snla_export` → 导出报告 | 返回 base64 DOCX |
+- `snla_status`
+- `snla_upload`
+- `snla_variables`
+- `snla_analyze`
+- `snla_confirm`
+- `snla_cancel`
+- `snla_export`
 
----
+## Record
 
-## 第四阶段：回归测试（5 分钟）
+For each run, record:
 
-```powershell
-# 全量测试
-python -m pytest snla/tests/ -v
-# 预期: 117 passed, 0 xfailed
-
-# 仅回归测试（airline.sav 真实数据管道）
-python -m pytest snla/tests/test_regression.py -v
-# 预期: 8 passed
-
-# 仅 API 测试
-python -m pytest snla/tests/test_server.py -v
-# 预期: 23 passed
-```
-
----
-
-## 测试记录表
-
-| 场景 | # | 输入/操作 | 结果 | 备注 |
-|------|---|-----------|------|------|
-| 1 | 1.1 | 飞行距离的平均值和中位数 | | |
-| 1 | 1.2 | 满意度的频率分布 | | |
-| 1 | 1.3 | 各舱位等级的人数 | | |
-| 2 | 2.1 | 比较男女满意度 | | |
-| 2 | 2.2 | 不同出行类型飞行距离 | | |
-| 2 | 2.3 | 舱位等级和满意度关联 | | |
-| 3 | 3.1 | 飞行距离和什么因素有关 | | |
-| 3 | 3.2 | 值机便利性和满意度 | | |
-| 3 | 3.3 | 飞行距离预测满意度 | | |
-| 4 | 4.1 | 舱位等级满意度(非参数) | | |
-| 4 | 4.2 | 男女行李评价(非参数) | | |
-| 5 | 5.1 | 空输入 | | |
-| 5 | 5.2 | 超长文本 | | |
-| 5 | 5.3 | 取消中分析 | | |
-| 5 | 5.4 | 快速连续 11 次 | | |
-| 6 | 6.1 | 多轮：男女→舱位 | | |
-| 6 | 6.2 | 多轮：满意度→飞行距离 | | |
-| 7 | 7.1 | 导出 Word | | |
-| 7 | 7.2 | 打开文档 | | |
-| 7 | 7.3 | 修改设置 | | |
-| 7 | 7.4 | 设置持久化 | | |
-| 8 | 8.1 | 变量列表显示 | | |
-| 8 | 8.2 | 变量名中文 | | |
-| MCP | — | 7 工具测试 | | |
-
----
-
-## 已知问题（无需重复报告）
-
-1. 启动时显示旧会话变量 → 已修复（`a0f3148`），UI 不再自动恢复
-2. 变量列表空白 → 已修复（`bf9e65b`），CLOUD_SAFE_FIELDS 字段名更正
-3. 分析方法回退不匹配 → 已修复（`bf9e65b`），保留原始变量
-4. Word 导出 500 → 已修复（`ec0f302`），参数匹配
-5. 卡方 `expected.values()` → 已修复（`ec0f302`），改用 `expected.flat`
+- Date and commit
+- Backend: `python` or `spss`
+- LLM mode: mock or real
+- Dataset
+- Scenario input
+- Success/failure
+- Error message, if any

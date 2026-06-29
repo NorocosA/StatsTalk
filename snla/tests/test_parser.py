@@ -17,6 +17,13 @@ from snla.parser.schema import (
     dict_to_analysis_result,
 )
 
+
+def _write_temp_xml(content: str) -> str:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as tmp:
+        tmp.write(content)
+        return tmp.name
+
+
 # =========================================================================
 # Test 1: OMS XML — T-TEST
 # =========================================================================
@@ -66,12 +73,9 @@ class TestOmsTtestXml:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             assert result.analysis_type == "T-TEST"
             assert isinstance(result.tables, list)
@@ -90,10 +94,10 @@ class TestOmsTtestXml:
             assert result.parser_used == "oms_xml"
 
             # Verify raw_output_path points to the temp file
-            assert result.raw_output_path == tmp.name
+            assert result.raw_output_path == tmp_name
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -135,12 +139,9 @@ class TestOmsFrequenciesXml:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             assert isinstance(result.tables, list)
             assert len(result.tables) > 0
@@ -161,7 +162,7 @@ class TestOmsFrequenciesXml:
             assert result.parser_used == "oms_xml"
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -294,12 +295,9 @@ class TestMultiDimensionAnova:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             # Even with overlapping dimension axes the parser should
             # gracefully handle them and yield tables
@@ -310,7 +308,7 @@ class TestMultiDimensionAnova:
             assert len(result.tables[0].rows) > 0, "Expected rows from multi-dimension parsing"
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -398,12 +396,9 @@ class TestRegressionOmsXml:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             assert result.analysis_type == "REGRESSION"
             assert result.statistics.get("r_squared") == 0.45
@@ -413,7 +408,7 @@ class TestRegressionOmsXml:
             assert result.statistics.get("beta") == 0.67
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -454,12 +449,9 @@ class TestCorrelationsOmsXml:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             assert result.analysis_type == "CORRELATIONS"
             assert result.statistics.get("r") == 0.156
@@ -467,7 +459,7 @@ class TestCorrelationsOmsXml:
             assert result.statistics.get("n_valid") == 30
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -501,12 +493,9 @@ class TestAnovaOmsXml:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             assert result.analysis_type == "ANOVA"
             assert result.statistics.get("f_value") == 4.52
@@ -514,7 +503,7 @@ class TestAnovaOmsXml:
             assert result.statistics.get("df") == 3
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -546,12 +535,9 @@ class TestCrosstabsOmsXml:
   </command>
 </oms>"""
 
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False)
+        tmp_name = _write_temp_xml(xml_content)
         try:
-            tmp.write(xml_content)
-            tmp.close()
-
-            result = parse_oms_xml(tmp.name)
+            result = parse_oms_xml(tmp_name)
 
             assert result.analysis_type == "CROSSTABS"
             assert result.statistics.get("chi_square") == 4.80
@@ -559,7 +545,7 @@ class TestCrosstabsOmsXml:
             assert result.statistics.get("df") == 1
 
         finally:
-            os.unlink(tmp.name)
+            os.unlink(tmp_name)
 
 
 # =========================================================================
@@ -698,7 +684,7 @@ def test_analysis_result_roundtrip(analysis_result_ttest):
 
     # Tables are reconstructed correctly
     assert len(restored.tables) == len(analysis_result_ttest.tables)
-    for rt, ot in zip(restored.tables, analysis_result_ttest.tables):
+    for rt, ot in zip(restored.tables, analysis_result_ttest.tables, strict=False):
         assert rt.title == ot.title
         assert rt.rows == ot.rows
         assert rt.notes == ot.notes

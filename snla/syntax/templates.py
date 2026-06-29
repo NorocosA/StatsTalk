@@ -510,12 +510,15 @@ def validate_method(
     # Rule 1 — Grouping variable must be categorical
     # Applies to: independent_t_test, oneway_anova
     # ------------------------------------------------------------------
-    if recommended_method in ("independent_t_test", "oneway_anova") and group_info:
-        if not _is_categorical(group_info):
-            errors.append(f"分组变量 {grouping_var} 为连续变量，不适合做分组")
-            # Rule 5 — Collateral correction suggestion
-            if test_info and _is_continuous(test_info):
-                corrected_method = "pearson_correlation"
+    if (
+        recommended_method in ("independent_t_test", "oneway_anova")
+        and group_info
+        and not _is_categorical(group_info)
+    ):
+        errors.append(f"分组变量 {grouping_var} 为连续变量，不适合做分组")
+        # Rule 5 — Collateral correction suggestion
+        if test_info and _is_continuous(test_info):
+            corrected_method = "pearson_correlation"
 
     # ------------------------------------------------------------------
     # Rule 2 — Test / dependent variable must be continuous
@@ -529,9 +532,9 @@ def validate_method(
             "simple_regression",
         )
         and test_info
+        and test_info.get("type") == "String"
     ):
-        if test_info.get("type") == "String":
-            errors.append(f"检验变量 {test_var} 为字符串类型，无法进行数值分析")
+        errors.append(f"检验变量 {test_var} 为字符串类型，无法进行数值分析")
 
     # ------------------------------------------------------------------
     # Rule 3 — Number of groups vs. method

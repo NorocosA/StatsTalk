@@ -287,10 +287,7 @@ def _parse_pivot_table(pivot_elem: Any) -> TableResult:
             if ca_val:
                 col_parts.append(ca_val)
 
-        if not col_parts:
-            col_header = "Value"
-        else:
-            col_header = " | ".join(col_parts)
+        col_header = "Value" if not col_parts else " | ".join(col_parts)
 
         # Prefer non-empty values; don't overwrite with empty
         stripped = val_str.strip()
@@ -366,8 +363,6 @@ def _extract_statistics(tables: list[TableResult]) -> dict[str, Any]:
     stats: dict[str, Any] = {}
 
     for table in tables:
-        title_lower = table.title.lower()
-
         for row in table.rows:
             for key, val in row.items():
                 numeric = _safe_float(val)
@@ -559,7 +554,6 @@ def _extract_descriptives_from_oms(xml_path: str) -> dict[str, float]:
         for cat in pivot.iter("{*}category"):
             if cat.get("variable") != "true":
                 continue
-            var_name = cat.get("varName", "")
             col_dim = cat.find("{*}dimension")
             if col_dim is None:
                 continue
@@ -601,7 +595,6 @@ def _extract_correlations_from_oms(xml_path: str) -> dict[str, float]:
             continue
 
         for cell in pivot.iter("{*}cell"):
-            cell_text = cell.get("text", "")
             cell_num = cell.get("number")
             if cell_num is None:
                 continue
@@ -633,9 +626,8 @@ def _extract_correlations_from_oms(xml_path: str) -> dict[str, float]:
                 stats["r"] = val
             elif stat_name == "Sig. (2-tailed)":
                 stats["p_value"] = val
-            elif stat_name == "N":
-                if "n_valid" not in stats:
-                    stats["n_valid"] = int(val)
+            elif stat_name == "N" and "n_valid" not in stats:
+                stats["n_valid"] = int(val)
 
     return stats
 

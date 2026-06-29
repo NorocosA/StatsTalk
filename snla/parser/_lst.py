@@ -113,10 +113,7 @@ def _extract_table_block(text: str, title_pattern: re.Pattern) -> str | None:
         r"\n\s*\n(?=\S|[\u4e00-\u9fff\u3400-\u4dbf])",
         text[start:],
     )
-    if end_match:
-        end = start + end_match.start()
-    else:
-        end = len(text)
+    end = start + end_match.start() if end_match else len(text)
 
     block = text[start:end].strip()
     return block if block else None

@@ -105,9 +105,8 @@ def validate():
       - "spss"：检查 SPSS 路径，但仅 WARN（不阻止启动）
     """
     warnings = []
-    if STATS_BACKEND == "spss":
-        if not os.path.exists(SPSS_EXECUTABLE):
-            warnings.append(f"SPSS 可执行文件不存在: {SPSS_EXECUTABLE}")
+    if STATS_BACKEND == "spss" and not os.path.exists(SPSS_EXECUTABLE):
+        warnings.append(f"SPSS 可执行文件不存在: {SPSS_EXECUTABLE}")
     # "python" 模式下不检查 SPSS 路径
     if not LLM_API_KEY and not LLM_MOCK:
         warnings.append("LLM_API_KEY 未配置且未启用 LLM_MOCK")
@@ -129,8 +128,18 @@ def reload_config() -> list[str]:
     new_values = dotenv_values(env_path)
     changed = []
 
-    # Only touch string-based config vars (skip computed int/bool conversions)
-    string_keys = {
+    aliases = {"SPSS_PATH": "SPSS_EXECUTABLE"}
+    parsers = {
+        "LLM_MAX_INPUT_TOKENS": int,
+        "LLM_MAX_OUTPUT_TOKENS": int,
+        "LLM_MAX_HISTORY_ROUNDS": int,
+        "SPSS_EXECUTION_TIMEOUT": int,
+        "LLM_CALL_LOG": _parse_bool,
+        "LLM_MOCK": _parse_bool,
+        "DEBUG": _parse_bool,
+    }
+    reloadable_keys = {
+        "SPSS_PATH",
         "SPSS_EXECUTABLE",
         "SPSS_PYTHON_PATH",
         "SPSS_EXEC_MODE",
@@ -148,11 +157,17 @@ def reload_config() -> list[str]:
         "DEBUG",
     }
 
-    for key, value in new_values.items():
-        if key not in string_keys:
+    for env_key, raw_value in new_values.items():
+        if env_key not in reloadable_keys:
+            continue
+        key = aliases.get(env_key, env_key)
+        parser = parsers.get(key, str)
+        try:
+            value = parser(raw_value)
+        except (TypeError, ValueError):
             continue
         current = globals().get(key)
-        if current is None or str(current) != str(value):
+        if current != value:
             globals()[key] = value
             changed.append(key)
 
@@ -162,3 +177,7 @@ def reload_config() -> list[str]:
         logging.getLogger(__name__).info("Config reloaded, changed: %s", changed)
 
     return changed
+
+
+def _parse_bool(value: object) -> bool:
+    return str(value).lower() == "true"

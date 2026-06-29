@@ -13,7 +13,7 @@ server.py and mcp_server.py instantiate or reuse the singleton.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # ── Data classes ─────────────────────────────────────────────────────────
 

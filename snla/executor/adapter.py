@@ -25,6 +25,7 @@ Usage::
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from typing import Any
 
 import pandas as pd
@@ -437,10 +438,8 @@ class BackendAdapter:
     def cleanup(self) -> None:
         """Clean up any SPSS executor temp files."""
         if self._spss is not None:
-            try:
+            with suppress(Exception):
                 self._spss.cleanup()
-            except Exception:
-                pass
 
 
 # ===================================================================

@@ -1,6 +1,6 @@
 # SNLA PyInstaller build script — PyWebView Desktop Edition
 # Run: pyinstaller snla.spec
-# Output: dist/SNLA.exe
+# Output: dist/StatsTalk.exe
 
 # -*- mode: python ; coding: utf-8 -*-
 
