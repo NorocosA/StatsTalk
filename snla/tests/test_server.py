@@ -127,6 +127,27 @@ class TestStatusEndpoint:
         assert data["variable_count"] == len(sample_variables)
         assert data["executing"] is False
 
+    def test_status_exposes_the_public_capability_contract(self, client):
+        resp = client.get("/api/status")
+
+        assert resp.status_code == 200
+        capabilities = resp.get_json()["capabilities"]
+        assert len(capabilities) == 11
+        assert [item["name"] for item in capabilities].count("pearson_correlation") == 1
+
+        pearson = next(item for item in capabilities if item["name"] == "pearson_correlation")
+        assert pearson["aliases"] == ["correlations"]
+        assert pearson["requirements"]["variable_roles"] == [
+            "first_variable",
+            "second_variable",
+        ]
+
+        regression = next(item for item in capabilities if item["name"] == "simple_regression")
+        assert regression["backends"]["python"] == {
+            "supported": True,
+            "validated": False,
+        }
+
 
 # ===========================================================================
 # /api/upload

@@ -24,6 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from flask import Flask, jsonify, request, send_from_directory
 
+from snla.capabilities import get_public_capabilities_payload
 from snla.config import DEBUG, LLM_MOCK  # noqa: F401 — LLM_MOCK imported for test patching
 from snla.data.persistence import load_session, save_session
 from snla.data.reader import read_and_extract
@@ -109,8 +110,9 @@ def status():
             "executing": _executing,
             "spss_available": _spss_available(),
             "current_backend": cfg.STATS_BACKEND,
+            "capabilities": get_public_capabilities_payload(),
             "trusted_methods": list(get_trusted_methods()),
-            "trust_source": trust_loaded_from(),  # "json" or "embedded"
+            "trust_source": trust_loaded_from(),
         }
     )
 
