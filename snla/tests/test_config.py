@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 
@@ -11,6 +12,49 @@ class FakeDPAPIProvider:
         if not ciphertext.startswith(b"protected:"):
             raise ValueError("cannot decrypt")
         return ciphertext.removeprefix(b"protected:")[::-1]
+
+
+def test_packaged_config_path_is_persistent_across_meipass_directories(
+    tmp_path,
+    monkeypatch,
+):
+    import snla.config as cfg
+
+    app_data = tmp_path / "roaming"
+    monkeypatch.setenv("APPDATA", str(app_data))
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle-one"), raising=False)
+    first = cfg.configuration_file_path(packaged=True)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle-two"))
+    second = cfg.configuration_file_path(packaged=True)
+
+    expected = app_data / "StatsTalk" / "config.env"
+    assert first == expected
+    assert second == expected
+    assert Path(sys._MEIPASS) not in first.parents
+
+
+def test_server_save_and_reload_use_the_shared_config_path(tmp_path, monkeypatch):
+    import snla.config as cfg
+    import snla.ui.server as server
+
+    config_path = tmp_path / "app-data" / "config.env"
+    legacy_project_root = tmp_path / "legacy-project-root"
+    legacy_project_root.mkdir()
+    monkeypatch.setattr(cfg, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(server, "PROJECT_ROOT", legacy_project_root)
+    monkeypatch.setattr(cfg, "LLM_MODEL", "saved-model")
+
+    server._save_env_file()
+
+    assert config_path.exists()
+    assert not (legacy_project_root / ".env").exists()
+    assert "LLM_MODEL=saved-model" in config_path.read_text(encoding="utf-8")
+
+    config_path.write_text("LLM_MODEL=reloaded-model\n", encoding="utf-8")
+    changed = cfg.reload_config()
+
+    assert "LLM_MODEL" in changed
+    assert cfg.LLM_MODEL == "reloaded-model"
 
 
 def test_reload_config_maps_spss_path_and_preserves_types():

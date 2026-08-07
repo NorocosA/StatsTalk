@@ -757,7 +757,8 @@ def _save_env_file():
     """Write current config values back to .env file for persistence."""
     import snla.config as cfg
 
-    env_path = os.path.join(str(PROJECT_ROOT), ".env")
+    env_path = cfg.CONFIG_PATH
+    env_path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     # Read existing .env, preserving comments and non-managed keys
     if os.path.isfile(env_path):

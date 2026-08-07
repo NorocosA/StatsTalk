@@ -5,6 +5,10 @@ import sys
 import pytest
 
 
+def _raise_os_error():
+    raise OSError("simulated write failure")
+
+
 class FakeDPAPIProvider:
     def protect(self, plaintext: bytes) -> bytes:
         return b"protected:" + plaintext[::-1]
@@ -41,6 +45,16 @@ def test_secret_store_persists_only_ciphertext_and_round_trips(tmp_path):
     assert secret_path.read_bytes() == b"protected:eulav-etavirp-ks"
     assert b"sk-private-value" not in secret_path.read_bytes()
     assert store.read() == "sk-private-value"
+
+
+def test_secret_resolution_repr_hides_api_key():
+    from snla.secrets import SecretResolution
+
+    secret = "sk-never-in-repr"
+    resolution = SecretResolution(state="configured", api_key=secret, cloud_available=True)
+
+    assert secret not in repr(resolution)
+    assert "api_key=" not in repr(resolution)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI is Windows-only")
@@ -120,6 +134,31 @@ def test_migration_write_failure_preserves_legacy_plaintext(tmp_path):
     assert env_path.read_text(encoding="utf-8") == original_config
 
 
+def test_migration_config_write_failure_restores_previous_ciphertext(
+    tmp_path,
+    monkeypatch,
+):
+    from snla.secrets import ApiKeyService, SecretProtectionError, SecretStore
+
+    legacy_key = "sk-legacy-transaction"
+    env_path = tmp_path / ".env"
+    original_config = f"LLM_API_KEY={legacy_key}\n"
+    env_path.write_text(original_config, encoding="utf-8")
+    store = SecretStore(tmp_path / "app-data" / "secure_key.bin", FakeDPAPIProvider())
+    store.replace("sk-previous-orphan")
+    previous_ciphertext = store.path.read_bytes()
+    service = ApiKeyService(store, env_path)
+    monkeypatch.setattr(service, "_write_config_value", lambda _value: _raise_os_error())
+
+    with pytest.raises(SecretProtectionError) as error:
+        service.migrate_legacy(legacy_key, consent=True)
+
+    assert error.value.code == "config_write_failed"
+    assert env_path.read_text(encoding="utf-8") == original_config
+    assert store.path.read_bytes() == previous_ciphertext
+    assert store.read() == "sk-previous-orphan"
+
+
 def test_corrupt_ciphertext_requires_reentry_without_plaintext_fallback(tmp_path, caplog):
     from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretStore
 
@@ -181,6 +220,27 @@ def test_replacing_api_key_updates_ciphertext_and_keeps_only_marker(tmp_path):
     assert b"sk-new-value" not in secret_path.read_bytes()
 
 
+def test_replacement_config_write_failure_restores_old_key(tmp_path, monkeypatch):
+    from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretProtectionError, SecretStore
+
+    env_path = tmp_path / ".env"
+    original_config = f"LLM_API_KEY_STORAGE={API_KEY_MARKER}\n"
+    env_path.write_text(original_config, encoding="utf-8")
+    store = SecretStore(tmp_path / "app-data" / "secure_key.bin", FakeDPAPIProvider())
+    store.replace("sk-original-key")
+    previous_ciphertext = store.path.read_bytes()
+    service = ApiKeyService(store, env_path)
+    monkeypatch.setattr(service, "_write_config_value", lambda _value: _raise_os_error())
+
+    with pytest.raises(SecretProtectionError) as error:
+        service.replace("sk-new-key")
+
+    assert error.value.code == "config_write_failed"
+    assert env_path.read_text(encoding="utf-8") == original_config
+    assert store.path.read_bytes() == previous_ciphertext
+    assert store.read() == "sk-original-key"
+
+
 def test_deleting_api_key_removes_marker_and_ciphertext(tmp_path):
     from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretStore
 
@@ -201,6 +261,34 @@ def test_deleting_api_key_removes_marker_and_ciphertext(tmp_path):
     assert resolution.cloud_available is False
     assert not secret_path.exists()
     assert env_path.read_text(encoding="utf-8") == ("LLM_ENDPOINT=https://example.test/v1\n")
+
+
+def test_delete_failure_restores_marker_and_ciphertext(tmp_path):
+    from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretProtectionError, SecretStore
+
+    class DeleteThenFailStore(SecretStore):
+        def delete(self) -> None:
+            super().delete()
+            raise OSError("simulated delete failure")
+
+    env_path = tmp_path / ".env"
+    original_config = f"LLM_API_KEY_STORAGE={API_KEY_MARKER}\n"
+    env_path.write_text(original_config, encoding="utf-8")
+    store = DeleteThenFailStore(
+        tmp_path / "app-data" / "secure_key.bin",
+        FakeDPAPIProvider(),
+    )
+    store.replace("sk-restore-after-delete")
+    previous_ciphertext = store.path.read_bytes()
+    service = ApiKeyService(store, env_path)
+
+    with pytest.raises(SecretProtectionError) as error:
+        service.delete()
+
+    assert error.value.code == "secret_delete_failed"
+    assert env_path.read_text(encoding="utf-8") == original_config
+    assert store.path.read_bytes() == previous_ciphertext
+    assert store.read() == "sk-restore-after-delete"
 
 
 def test_default_store_uses_statstalk_application_data_directory(tmp_path, monkeypatch):

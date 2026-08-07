@@ -5,8 +5,9 @@ from __future__ import annotations
 import ctypes
 import os
 import tempfile
+from collections.abc import Callable
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -27,7 +28,7 @@ class SecretResolution:
     """Runtime key plus the non-sensitive state exposed to callers."""
 
     state: str
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     cloud_available: bool = False
     action: str | None = None
     message: str = ""
@@ -47,6 +48,12 @@ class _DataBlob(ctypes.Structure):
         ("cbData", wintypes.DWORD),
         ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
     ]
+
+
+@dataclass(frozen=True)
+class _FileSnapshot:
+    existed: bool
+    contents: bytes = field(default=b"", repr=False)
 
 
 class WindowsDPAPIProvider:
@@ -165,6 +172,23 @@ class _UnavailableProtectionProvider:
         )
 
 
+def _atomic_write_bytes(path: Path, contents: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    try:
+        with os.fdopen(fd, "wb") as temporary_file:
+            temporary_file.write(contents)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        Path(temporary_name).unlink(missing_ok=True)
+
+
 class SecretStore:
     """Persist API-key ciphertext separately from ordinary configuration."""
 
@@ -203,20 +227,7 @@ class SecretStore:
             ) from None
 
     def _write_ciphertext(self, ciphertext: bytes) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary_name = tempfile.mkstemp(
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-            dir=self.path.parent,
-        )
-        try:
-            with os.fdopen(fd, "wb") as temporary_file:
-                temporary_file.write(ciphertext)
-                temporary_file.flush()
-                os.fsync(temporary_file.fileno())
-            os.replace(temporary_name, self.path)
-        finally:
-            Path(temporary_name).unlink(missing_ok=True)
+        _atomic_write_bytes(self.path, ciphertext)
 
     def read(self) -> str:
         plaintext = self.provider.unprotect(self.path.read_bytes())
@@ -280,9 +291,9 @@ class ApiKeyService:
                 "migration_consent_required",
                 "Explicit consent is required before migrating the existing API key.",
             )
-        self._persist_verified(legacy_key)
-        self._persist_config_value(API_KEY_MARKER)
-        return self._configured(legacy_key)
+        return self._transaction(
+            lambda: self._replace_and_mark(legacy_key),
+        )
 
     def replace(self, api_key: str) -> SecretResolution:
         if not api_key:
@@ -290,11 +301,19 @@ class ApiKeyService:
                 "empty_api_key",
                 "Enter a non-empty API key.",
             )
+        return self._transaction(
+            lambda: self._replace_and_mark(api_key),
+        )
+
+    def delete(self) -> SecretResolution:
+        return self._transaction(self._delete)
+
+    def _replace_and_mark(self, api_key: str) -> SecretResolution:
         self._persist_verified(api_key)
         self._persist_config_value(API_KEY_MARKER)
         return self._configured(api_key)
 
-    def delete(self) -> SecretResolution:
+    def _delete(self) -> SecretResolution:
         self._persist_config_value("")
         try:
             self.store.delete()
@@ -308,6 +327,39 @@ class ApiKeyService:
             action="enter_api_key",
             message="Enter an API key to enable cloud features.",
         )
+
+    def _transaction(
+        self,
+        operation: Callable[[], SecretResolution],
+    ) -> SecretResolution:
+        secret_snapshot = self._snapshot_file(self.store.path)
+        config_snapshot = self._snapshot_file(self.env_path)
+        try:
+            return operation()
+        except SecretProtectionError:
+            try:
+                self._restore_file(self.store.path, secret_snapshot)
+                self._restore_file(self.env_path, config_snapshot)
+            except OSError:
+                raise SecretProtectionError(
+                    "secret_rollback_failed",
+                    "API-key storage failed and the previous state could not be restored.",
+                ) from None
+            raise
+
+    @staticmethod
+    def _snapshot_file(path: Path) -> _FileSnapshot:
+        try:
+            return _FileSnapshot(existed=True, contents=path.read_bytes())
+        except FileNotFoundError:
+            return _FileSnapshot(existed=False)
+
+    @staticmethod
+    def _restore_file(path: Path, snapshot: _FileSnapshot) -> None:
+        if snapshot.existed:
+            _atomic_write_bytes(path, snapshot.contents)
+        else:
+            path.unlink(missing_ok=True)
 
     def _persist_verified(self, api_key: str) -> None:
         try:

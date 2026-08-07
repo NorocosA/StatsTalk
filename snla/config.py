@@ -17,19 +17,31 @@ from snla.secrets import (
     ApiKeyService,
     SecretProtectionError,
     SecretResolution,
+    application_data_directory,
     create_api_key_service,
 )
 
-# Detect PyInstaller bundle path (sys._MEIPASS) vs development mode
-_BUNDLE_DIR = getattr(sys, "_MEIPASS", str(Path(__file__).resolve().parent.parent))
+
+def configuration_file_path(*, packaged: bool | None = None) -> Path:
+    """Return a persistent config path for development or packaged execution."""
+
+    if packaged is None:
+        packaged = bool(getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"))
+    if packaged:
+        return application_data_directory() / "config.env"
+    return Path(__file__).resolve().parent.parent / ".env"
+
+
+CONFIG_PATH = configuration_file_path()
+_ENV_PATH = str(CONFIG_PATH)
 
 # 自动加载项目根目录下的 .env 文件
-_ENV_PATH = os.path.join(_BUNDLE_DIR, ".env")
 if os.path.exists(_ENV_PATH):
     load_dotenv(_ENV_PATH)
 else:
     # First run from packaged exe — auto-create .env for Demo mode
     _FIRST_RUN = True
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(_ENV_PATH, "w", encoding="utf-8") as f:
         f.write("# StatsTalk — auto-generated for Demo mode\n")
         f.write("LLM_MOCK=true\n")
@@ -183,7 +195,7 @@ def reload_config() -> list[str]:
 
     from dotenv import dotenv_values
 
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    env_path = CONFIG_PATH
     if not os.path.exists(env_path):
         return []
 
