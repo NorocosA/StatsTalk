@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from snla.capabilities import canonicalize_method, get_capability, get_public_capabilities
 from snla.data.sanitizer import filter_for_cloud
 
 from . import PlanResult
@@ -57,22 +58,8 @@ def _plan(
         return result
 
     if LLM_MOCK or not _has_llm():
-        method = _mock_intent(user_input, last_analysis)
-        valid = {
-            "independent_t_test",
-            "paired_t_test",
-            "oneway_anova",
-            "simple_regression",
-            "pearson_correlation",
-            "spearman_correlation",
-            "chi_square",
-            "crosstabs",
-            "frequencies",
-            "descriptives",
-            "mann_whitney_u",
-            "kruskal_wallis",
-        }
-        if method not in valid:
+        method = canonicalize_method(_mock_intent(user_input, last_analysis))
+        if get_capability(method) is None:
             method = "descriptives"
         cat, num = _auto_detect_vars(variables)
         return _rag(
@@ -105,16 +92,14 @@ def _plan(
         )
     var_catalog = "\n".join(var_lines)
 
+    available_methods = ", ".join(capability.name for capability in get_public_capabilities())
     prompt = [
         {
             "role": "system",
             "content": (
                 "你是 SPSS 统计分析专家。根据用户的自然语言问题，选择最合适的"
                 "统计方法，并确定对应的变量。\n\n"
-                "可用方法: independent_t_test, paired_t_test, oneway_anova, "
-                "mann_whitney_u, kruskal_wallis, pearson_correlation, "
-                "spearman_correlation, simple_regression, chi_square, "
-                "frequencies, descriptives\n\n"
+                f"可用方法: {available_methods}\n\n"
                 "规则:\n"
                 "- 分组变量(grouping_variable): 必须是分类变量（有值标签的Numeric或String）\n"
                 "- 检验变量(test_variable): 必须是连续变量（无值标签的Numeric）\n"
@@ -146,55 +131,11 @@ def _plan(
     try:
         result = client.chat(prompt)
         parsed = json.loads(result.get("content", "{}"))
-        method = parsed.get("method", "descriptives")
+        method = canonicalize_method(parsed.get("method", "descriptives"))
         plan = parsed.get("plan_explanation", "")
         gvar = parsed.get("grouping_variable")
         tvar = parsed.get("test_variable")
-        valid_methods = {
-            "independent_t_test",
-            "paired_t_test",
-            "oneway_anova",
-            "mann_whitney_u",
-            "kruskal_wallis",
-            "pearson_correlation",
-            "spearman_correlation",
-            "simple_regression",
-            "chi_square",
-            "frequencies",
-            "descriptives",
-            "crosstabs",
-        }
-        # Normalize LLM output: strip underscores, lowercase, common aliases
-        _ALIASES = {
-            "independent_samples_t_test": "independent_t_test",
-            "independentsamplesttest": "independent_t_test",
-            "t_test": "independent_t_test",
-            "ttest": "independent_t_test",
-            "independent": "independent_t_test",
-            "paired_t_test": "paired_t_test",
-            "pairedsamplesttest": "paired_t_test",
-            "paired": "paired_t_test",
-            "one_way_anova": "oneway_anova",
-            "oneway_anova": "oneway_anova",
-            "anova": "oneway_anova",
-            "mannwhitney": "mann_whitney_u",
-            "mann_whitney": "mann_whitney_u",
-            "kruskalwallis": "kruskal_wallis",
-            "kruskal_wallis": "kruskal_wallis",
-            "correlation": "pearson_correlation",
-            "corr": "pearson_correlation",
-            "regression": "simple_regression",
-            "regress": "simple_regression",
-            "chi": "chi_square",
-            "crosstab": "crosstabs",
-            "cross_tab": "crosstabs",
-            "freq": "frequencies",
-            "describe": "descriptives",
-        }
-        method_key = method.lower().replace(" ", "").replace("-", "_")
-        if method_key in _ALIASES:
-            method = _ALIASES[method_key]
-        if method not in valid_methods:
+        if get_capability(method) is None:
             method = "descriptives"
         return _rag(
             PlanResult(

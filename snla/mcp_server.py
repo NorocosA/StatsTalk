@@ -45,6 +45,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 os.chdir(PROJECT_ROOT)  # config.py reads .env from CWD
 
 # ── SNLA imports (after path setup) ────────────────────────────────────
+from snla.capabilities import get_public_capabilities_payload
 from snla.config import STATS_BACKEND
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
@@ -202,6 +203,7 @@ async def snla_status(ctx: Context) -> dict:
         "ok": True,
         "backend": STATS_BACKEND,
         "spss_available": check_spss_available(),
+        "capabilities": get_public_capabilities_payload(),
         "trusted_methods": get_trusted_methods(),
         "trust_source": trust_loaded_from(),
         "has_data": bool(state.variables),

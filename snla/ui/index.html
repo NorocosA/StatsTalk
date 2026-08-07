@@ -743,14 +743,20 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         if (!status.spss_available && backendSelect.value === "spss") {
             // SPSS not available but backend is set to SPSS — auto-switch to Python
             backendSelect.value = "python";
-            const trustedCount = status.trusted_methods ? status.trusted_methods.length : 0;
+            const trustedCount = (status.capabilities || []).filter(function(capability) {
+                return capability.backends && capability.backends.python &&
+                    capability.backends.python.validated;
+            }).length;
             notice.innerHTML = '未检测到 SPSS，已自动切换至 <strong>Python 引擎</strong>。' +
                 'Python 引擎可完成 ' + trustedCount + ' 种常用分析的完整解读（含白话结论）。' +
                 ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
             notice.classList.add("show");
         } else if (!status.spss_available) {
             // Already on Python backend — show brief info
-            const trustedCount = status.trusted_methods ? status.trusted_methods.length : 0;
+            const trustedCount = (status.capabilities || []).filter(function(capability) {
+                return capability.backends && capability.backends.python &&
+                    capability.backends.python.validated;
+            }).length;
             notice.innerHTML = '当前使用 <strong>Python 引擎</strong>（' + trustedCount + ' 种方法已通过 SPSS 交叉验证）。' +
                 ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
             notice.classList.add("show");
