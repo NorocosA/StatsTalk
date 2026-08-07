@@ -292,7 +292,10 @@ class LLMClient:
                     json=payload,
                     timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),
                     verify=True,
+                    allow_redirects=False,
                 )
+                if response.is_redirect is True:
+                    raise requests.HTTPError(response=response)
                 response.raise_for_status()
                 break  # success
             except requests.RequestException as exc:
@@ -392,7 +395,10 @@ class LLMClient:
                     json=payload,
                     timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),
                     verify=True,
+                    allow_redirects=False,
                 )
+                if response.is_redirect is True:
+                    raise requests.HTTPError(response=response)
                 response.raise_for_status()
                 break  # success
             except requests.RequestException as exc:

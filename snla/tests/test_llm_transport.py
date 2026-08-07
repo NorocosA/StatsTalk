@@ -117,6 +117,30 @@ def test_llm_client_keeps_certificate_verification_enabled(endpoint):
     assert post.call_args.kwargs["verify"] is True
 
 
+def test_llm_client_rejects_redirects_without_following_them():
+    import requests
+
+    from snla.llm.client import LLMClient, LLMError
+
+    response = requests.Response()
+    response.status_code = 302
+    response.headers["Location"] = "http://api.example.com/insecure"
+
+    with (
+        patch("snla.config.LLM_ENDPOINT", "https://api.example.com/v1/chat"),
+        patch("snla.config.LLM_API_KEY", "sk-secret"),
+        patch("snla.config.LLM_MOCK", False),
+        patch("requests.Session.post", return_value=response) as post,
+        pytest.raises(LLMError) as caught,
+    ):
+        LLMClient().chat([{"role": "user", "content": "hello"}])
+
+    assert post.call_args.kwargs["allow_redirects"] is False
+    assert "redirected" in str(caught.value)
+    assert "final HTTPS URL" in str(caught.value)
+    assert "http://api.example.com/insecure" not in str(caught.value)
+
+
 def test_invalid_certificate_has_actionable_secret_safe_diagnostics(caplog):
     import requests
 

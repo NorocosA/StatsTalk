@@ -30,6 +30,7 @@ from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
 from snla.llm.transport import (
     EndpointPolicyError,
+    NoRedirectHandler,
     diagnose_transport_failure,
     require_secure_llm_endpoint,
 )
@@ -751,11 +752,11 @@ def list_models():
         req = urllib.request.Request(models_url)
         req.add_header("Authorization", f"Bearer {api_key}")
         req.add_header("Content-Type", "application/json")
-        resp = urllib.request.urlopen(
-            req,
-            timeout=10,
-            context=ssl.create_default_context(),
+        opener = urllib.request.build_opener(
+            NoRedirectHandler(),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
         )
+        resp = opener.open(req, timeout=10)
         body = json.loads(resp.read())
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
         diagnostic = diagnose_transport_failure(models_url, exc)

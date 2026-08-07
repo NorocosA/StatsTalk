@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ssl
 import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -35,6 +36,13 @@ class LLMTransportError(RuntimeError):
     def __init__(self, diagnostic: TransportDiagnostic) -> None:
         super().__init__(diagnostic.message)
         self.diagnostic = diagnostic
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevent endpoint redirects before credentials can cross a trust boundary."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
 
 
 def require_secure_llm_endpoint(endpoint: str) -> str:
@@ -120,6 +128,15 @@ def diagnose_transport_failure(endpoint: str, error: BaseException) -> Transport
     elif isinstance(error, urllib.error.HTTPError):
         status_code = error.code
     if status_code is not None:
+        if 300 <= status_code < 400:
+            return TransportDiagnostic(
+                code="endpoint_redirect",
+                message=(
+                    f"LLM endpoint {label} redirected the request (HTTP {status_code}). "
+                    "Configure the final HTTPS URL directly."
+                ),
+                retryable=False,
+            )
         return TransportDiagnostic(
             code="http_error",
             message=f"LLM endpoint {label} returned HTTP {status_code}.",
@@ -145,6 +162,7 @@ def diagnose_transport_failure(endpoint: str, error: BaseException) -> Transport
 __all__ = [
     "EndpointPolicyError",
     "LLMTransportError",
+    "NoRedirectHandler",
     "TransportDiagnostic",
     "diagnose_transport_failure",
     "require_secure_llm_endpoint",
