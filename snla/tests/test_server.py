@@ -366,6 +366,34 @@ class TestSettingsEndpoint:
         assert "LLM_MODEL" in data["changed"]
         assert "STATS_BACKEND" in data["changed"]
 
+    def test_settings_rejects_public_plain_http_endpoint(self, client):
+        import snla.config as cfg
+
+        original_endpoint = cfg.LLM_ENDPOINT
+        resp = client.post(
+            "/api/settings",
+            json={"LLM_ENDPOINT": "http://api.example.com/v1/chat/completions"},
+        )
+
+        assert resp.status_code == 400
+        assert resp.get_json()["code"] == "public_http_forbidden"
+        assert original_endpoint == cfg.LLM_ENDPOINT
+
+    def test_settings_persists_the_validated_endpoint_value(self, client):
+        import snla.config as cfg
+
+        original_endpoint = cfg.LLM_ENDPOINT
+        try:
+            resp = client.post(
+                "/api/settings",
+                json={"LLM_ENDPOINT": "  http://127.0.0.1:11434/v1/chat  "},
+            )
+
+            assert resp.status_code == 200
+            assert cfg.LLM_ENDPOINT == "http://127.0.0.1:11434/v1/chat"
+        finally:
+            cfg.LLM_ENDPOINT = original_endpoint
+
 
 # ===========================================================================
 # /api/export
@@ -507,6 +535,93 @@ class TestModelsEndpoint:
         assert resp.status_code == 400
         data = json.loads(resp.data)
         assert "error" in data
+
+    @patch("urllib.request.build_opener")
+    def test_models_rejects_public_plain_http_before_network(self, build_opener, client):
+        resp = client.post(
+            "/api/models",
+            json={
+                "endpoint": "http://api.example.com/v1/chat/completions",
+                "api_key": "sk-secret",
+            },
+        )
+
+        assert resp.status_code == 400
+        assert resp.get_json()["code"] == "public_http_forbidden"
+        build_opener.assert_not_called()
+
+    @patch("urllib.request.build_opener")
+    def test_models_certificate_failure_returns_secret_safe_diagnostic(self, build_opener, client):
+        import ssl
+        import urllib.error
+
+        build_opener.return_value.open.side_effect = urllib.error.URLError(
+            ssl.SSLCertVerificationError("certificate failed sk-secret workspace=private")
+        )
+        resp = client.post(
+            "/api/models",
+            json={
+                "endpoint": "https://api.example.com/v1/chat?workspace=private",
+                "api_key": "sk-secret",
+            },
+        )
+
+        assert resp.status_code == 502
+        assert resp.get_json()["code"] == "tls_verification_failed"
+        assert "system clock" in resp.get_json()["message"]
+        assert b"sk-secret" not in resp.data
+        assert b"workspace=private" not in resp.data
+
+    @patch("urllib.request.build_opener")
+    def test_models_public_https_uses_the_default_verified_ssl_context(self, build_opener, client):
+        import ssl
+        import urllib.request
+
+        build_opener.return_value.open.return_value.read.return_value = (
+            b'{"data": [{"id": "model-a"}]}'
+        )
+        resp = client.post(
+            "/api/models",
+            json={
+                "endpoint": "https://api.example.com/v1/chat/completions",
+                "api_key": "sk-secret",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.get_json()["models"] == ["model-a"]
+        https_handler = next(
+            handler
+            for handler in build_opener.call_args.args
+            if isinstance(handler, urllib.request.HTTPSHandler)
+        )
+        ssl_context = https_handler._context
+        assert ssl_context.check_hostname is True
+        assert ssl_context.verify_mode == ssl.CERT_REQUIRED
+
+    @patch("urllib.request.build_opener")
+    def test_models_disable_automatic_redirects(self, build_opener, client):
+        import urllib.request
+
+        build_opener.return_value.open.return_value.read.return_value = (
+            b'{"data": [{"id": "model-a"}]}'
+        )
+
+        resp = client.post(
+            "/api/models",
+            json={
+                "endpoint": "https://api.example.com/v1/chat/completions",
+                "api_key": "sk-secret",
+            },
+        )
+
+        assert resp.status_code == 200
+        redirect_handler = next(
+            handler
+            for handler in build_opener.call_args.args
+            if isinstance(handler, urllib.request.HTTPRedirectHandler)
+        )
+        assert redirect_handler.redirect_request(None, None, 302, "", {}, "") is None
 
 
 # ===========================================================================

@@ -38,6 +38,10 @@ SPSS_PYTHON_PATH=...
 LLM_MOCK=true               # useful for local demo/testing
 ```
 
+Public LLM endpoints must use HTTPS with a certificate trusted by the operating
+system. Plain HTTP is accepted only for local services on `localhost` or
+`127.0.0.1`; certificate verification cannot be disabled.
+
 ## Core Flow
 
 ```text

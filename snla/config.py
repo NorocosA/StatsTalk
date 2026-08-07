@@ -11,6 +11,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from snla.llm.transport import EndpointPolicyError, require_secure_llm_endpoint
+
 # Detect PyInstaller bundle path (sys._MEIPASS) vs development mode
 _BUNDLE_DIR = getattr(sys, "_MEIPASS", str(Path(__file__).resolve().parent.parent))
 
@@ -91,6 +93,10 @@ def validate():
     # "python" 模式下不检查 SPSS 路径
     if not LLM_API_KEY and not LLM_MOCK:
         warnings.append("LLM_API_KEY 未配置且未启用 LLM_MOCK")
+    try:
+        require_secure_llm_endpoint(LLM_ENDPOINT)
+    except EndpointPolicyError as exc:
+        warnings.append(f"LLM_ENDPOINT 配置不安全: {exc}")
     return warnings
 
 
@@ -147,6 +153,16 @@ def reload_config() -> list[str]:
             value = parser(raw_value)
         except (TypeError, ValueError):
             continue
+        if key == "LLM_ENDPOINT":
+            try:
+                value = require_secure_llm_endpoint(str(value).strip())
+            except EndpointPolicyError as exc:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Ignored insecure LLM endpoint during reload: %s", exc.code
+                )
+                continue
         current = globals().get(key)
         if current != value:
             globals()[key] = value
