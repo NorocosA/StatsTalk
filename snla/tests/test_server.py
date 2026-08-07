@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -86,7 +87,7 @@ def mock_save_env():
 @pytest.fixture(autouse=True)
 def mock_spss_executor_factory():
     """Keep API tests independent from a locally installed SPSS runtime."""
-    with patch("snla.ui.server._make_executor", return_value=MagicMock()) as factory:
+    with patch("snla.executor.spss.SPSSExecutor", return_value=MagicMock()) as factory:
         yield factory
 
 
@@ -110,8 +111,8 @@ def _setup_session_with_data(sample_variables, dataset_meta=None):
     else:
         srv.session.dataset_meta = {
             "row_count": 200,
-            "filename": "test.sav",
-            "file_path": "/mock/path/test.sav",
+            "filename": "test_data.sav",
+            "file_path": str(Path(__file__).parents[2] / "data" / "fixtures" / "test_data.sav"),
         }
 
 
@@ -220,44 +221,39 @@ class TestAnalyzeEndpoint:
         resp = client.post("/api/analyze", json={"text": "test"})
         assert resp.status_code == 400
         data = json.loads(resp.data)
-        assert "upload" in data["error"].lower() or "data" in data["error"].lower()
+        assert data["error"]["code"] == "NO_DATA"
 
     def test_analyze_empty_input(self, client):
         """Empty text → 400 'Empty input'."""
         resp = client.post("/api/analyze", json={"text": ""})
         assert resp.status_code == 400
         data = json.loads(resp.data)
-        assert "empty" in data["error"].lower()
+        assert data["error"]["code"] == "EMPTY_QUERY"
 
-    def test_analyze_concurrent(self, client, sample_variables):
-        """_executing=True → 409 'already running'."""
-        import snla.ui.server as srv
+    def test_analyze_concurrent(self, client, sample_variables, monkeypatch):
+        """A service-level busy result is mapped to HTTP 409."""
+        from snla.analysis import AnalysisAudit, AnalysisError, AnalysisFailure
+        from snla.ui.server import analysis_service
 
-        srv._executing = True
         _setup_session_with_data(sample_variables)
+        monkeypatch.setattr(
+            analysis_service,
+            "analyze",
+            lambda request: AnalysisFailure(
+                error=AnalysisError("system", "当前已有分析正在执行。", "ENGINE_BUSY"),
+                audit=AnalysisAudit("busy", "start", "end", None, "python", None, None),
+                http_status=409,
+            ),
+        )
 
         resp = client.post("/api/analyze", json={"text": "比较差异"})
         assert resp.status_code == 409
         data = json.loads(resp.data)
-        assert "already running" in data["error"]
+        assert data["error"]["code"] == "ENGINE_BUSY"
 
-    @patch("snla.ui.server._run_python_backend", return_value=None)
-    @patch("snla.ui.server._execute_and_parse")
-    @patch("snla.ui.server._phase2_explain")
-    def test_analyze_success(
-        self, mock_explain, mock_exec_parse, mock_py, client, sample_variables
-    ):
+    def test_analyze_success(self, client, sample_variables):
         """Happy path: plan → prepare syntax → execute → explain → 200."""
         _setup_session_with_data(sample_variables)
-        mock_exec_parse.return_value = (
-            {"success": True, "xml_path": None, "lst_text": "", "error": None},
-            {
-                "analysis_type": "T-TEST",
-                "tables": [],
-                "statistics": {"t_value": 2.34, "p_value": 0.021, "n_valid": 20},
-            },
-        )
-        mock_explain.return_value = "这是一个显著的差异（t=2.34, p=0.021）"
 
         resp = client.post("/api/analyze", json={"text": "比较男女成绩差异"})
         assert resp.status_code == 200
@@ -270,26 +266,13 @@ class TestAnalyzeEndpoint:
         assert "last_analysis" in data
         # Planner in MOCK mode detects "比较" → independent_t_test
         assert data["method"] == "independent_t_test"
-        assert data["explanation"] == mock_explain.return_value
+        assert data["explanation"]
         assert data["last_analysis"]["method"] == "independent_t_test"
+        assert data["audit"]["effective_backend"] == "python"
 
-    @patch("snla.ui.server._run_python_backend", return_value=None)
-    @patch("snla.ui.server._execute_and_parse")
-    @patch("snla.ui.server._phase2_explain")
-    def test_analyze_plan_explanation(
-        self, mock_explain, mock_exec_parse, mock_py, client, sample_variables
-    ):
+    def test_analyze_plan_explanation(self, client, sample_variables):
         """Verify plan_explanation is returned in analyze response."""
         _setup_session_with_data(sample_variables)
-        mock_exec_parse.return_value = (
-            {"success": True, "xml_path": None, "lst_text": "", "error": None},
-            {
-                "analysis_type": "DESCRIPTIVES",
-                "tables": [],
-                "statistics": {"n_valid": 100},
-            },
-        )
-        mock_explain.return_value = "描述统计分析结果"
 
         resp = client.post("/api/analyze", json={"text": "描述统计"})
         assert resp.status_code == 200
@@ -340,7 +323,7 @@ class TestVariablesEndpoint:
         data = json.loads(resp.data)
         assert len(data["variables"]) == len(sample_variables)
         assert data["row_count"] == 200
-        assert data["filename"] == "test.sav"
+        assert data["filename"] == "test_data.sav"
         # value_labels should be stripped by filter_for_cloud
         for var in data["variables"]:
             assert "value_labels" not in var
@@ -433,7 +416,7 @@ class TestConfirmEndpoint:
         assert resp.status_code == 400
         data = json.loads(resp.data)
         assert "error" in data
-        assert "pending" in data["error"].lower() or "待确认" in data["error"]
+        assert data["error"]["code"] == "NO_PENDING"
 
 
 # ===========================================================================
@@ -444,16 +427,23 @@ class TestConfirmEndpoint:
 class TestGreylistFlow:
     """End-to-end greylist state machine: stage → requires_confirmation → confirm."""
 
-    @patch("snla.ui.server._prepare_syntax")
-    @patch("snla.ui.server._run_python_backend", return_value=None)
-    def test_analyze_greylist_triggered(self, mock_py, mock_prep, client, sample_variables):
+    def test_analyze_greylist_triggered(self, client, sample_variables, monkeypatch):
         """Syntax with greylist warnings → requires_confirmation=true."""
+        from snla.analysis import AnalysisAudit, AnalysisConfirmationRequired
+        from snla.ui.server import analysis_service
+
         _setup_session_with_data(sample_variables)
-        mock_prep.return_value = {
-            "_greylist": True,
-            "syntax": "COMPUTE newvar = score * 2.",
-            "greylist_warnings": ["greylist: COMPUTE will modify data"],
-        }
+        monkeypatch.setattr(
+            analysis_service,
+            "analyze",
+            lambda request: AnalysisConfirmationRequired(
+                syntax="COMPUTE newvar = score * 2.",
+                greylist_warnings=("greylist: COMPUTE will modify data",),
+                audit=AnalysisAudit(
+                    "greylist", "start", "end", "descriptives", "spss", "spss", None
+                ),
+            ),
+        )
 
         resp = client.post("/api/analyze", json={"text": "计算一个新变量"})
         assert resp.status_code == 200
@@ -462,54 +452,34 @@ class TestGreylistFlow:
         assert "greylist_warnings" in data
         assert "syntax" in data
 
-    @patch("snla.ui.server._make_executor")
-    @patch("snla.ui.server._execute_and_parse")
-    @patch("snla.ui.server._phase2_explain")
-    def test_greylist_confirm_flow(
-        self, mock_explain, mock_exec_parse, mock_make_exec, client, sample_variables
-    ):
+    def test_greylist_confirm_flow(self, client, sample_variables, monkeypatch):
         """Stage greylist → POST /api/confirm → execution succeeds."""
-        from unittest.mock import MagicMock
+        from snla.analysis import AnalysisAudit, AnalysisSuccess
+        from snla.parser.schema import AnalysisResult
+        from snla.ui.server import analysis_service
 
-        from snla.orchestrator import GreylistPending
-
-        # Mock executor so execute_on_temp_copy doesn't touch filesystem
-        mock_exec = MagicMock()
-        mock_exec.execute_on_temp_copy.return_value = MagicMock(
-            success=True, exit_code=0, xml_path=None, error_message=None
-        )
-        mock_make_exec.return_value = mock_exec
-
-        # Stage a pending greylist directly on the planner singleton
-        planner.stage_greylist(
-            "default",
-            GreylistPending(
-                syntax="COMPUTE newvar = score * 2.",
-                warnings=["greylist: COMPUTE will modify data"],
+        _setup_session_with_data(sample_variables)
+        monkeypatch.setattr(
+            analysis_service,
+            "confirm",
+            lambda request: AnalysisSuccess(
+                user_query="计算新变量后做描述统计",
                 method="descriptives",
-                user_input="计算一个新变量",
+                backend="spss",
+                plan_explanation="",
+                result=AnalysisResult(
+                    analysis_type="DESCRIPTIVES",
+                    statistics={"n_valid": 200},
+                    parser_used="oms_xml",
+                ),
+                explanation="变量计算完成，描述统计结果如下",
+                syntax="COMPUTE newvar = score * 2.",
+                temp_copy=True,
+                audit=AnalysisAudit(
+                    "confirm", "start", "end", "descriptives", "spss", "spss", "oms_xml"
+                ),
             ),
         )
-        _setup_session_with_data(sample_variables)
-        # Provide file_path so confirm endpoint attempts temp-copy execution
-        import snla.ui.server as srv
-
-        srv.session.dataset_meta["file_path"] = "/mock/path/test.sav"
-
-        mock_exec_parse.return_value = (
-            {
-                "success": True,
-                "xml_path": None,
-                "lst_text": "",
-                "error": None,
-            },
-            {
-                "analysis_type": "DESCRIPTIVES",
-                "tables": [{"title": "Descriptive Statistics", "rows": []}],
-                "statistics": {"n_valid": 200},
-            },
-        )
-        mock_explain.return_value = "变量计算完成，描述统计结果如下"
 
         resp = client.post("/api/confirm")
         assert resp.status_code == 200
@@ -519,6 +489,7 @@ class TestGreylistFlow:
         assert "result" in data
         assert "explanation" in data
         assert "last_analysis" in data
+        assert session.history[-2]["content"] == "计算新变量后做描述统计"
 
 
 # ===========================================================================
@@ -639,23 +610,9 @@ class TestModelsEndpoint:
 class TestEdgeCases:
     """Miscellaneous edge cases and robustness checks."""
 
-    @patch("snla.ui.server._run_python_backend", return_value=None)
-    @patch("snla.ui.server._execute_and_parse")
-    @patch("snla.ui.server._phase2_explain")
-    def test_analyze_history_appended(
-        self, mock_explain, mock_exec_parse, mock_py, client, sample_variables
-    ):
+    def test_analyze_history_appended(self, client, sample_variables):
         """Successful analyze appends user + assistant messages to history."""
         _setup_session_with_data(sample_variables)
-        mock_exec_parse.return_value = (
-            {"success": True, "xml_path": None, "lst_text": "", "error": None},
-            {
-                "analysis_type": "T-TEST",
-                "tables": [],
-                "statistics": {"t_value": 1.5, "p_value": 0.15},
-            },
-        )
-        mock_explain.return_value = "无显著差异"
 
         assert len(session.history) == 0
         resp = client.post("/api/analyze", json={"text": "比较两组差异"})
@@ -671,20 +628,16 @@ class TestEdgeCases:
         # Patch planner.plan to return an unknown method
         from snla.orchestrator import PlanResult
 
-        with (
-            patch.object(
-                planner,
-                "plan",
-                return_value=PlanResult(
-                    method="nonexistent_method",
-                    plan_explanation="Test unknown method",
-                    grouping_variable="gender",
-                    test_variable="score",
-                ),
+        with patch.object(
+            planner,
+            "plan",
+            return_value=PlanResult(
+                method="nonexistent_method",
+                plan_explanation="Test unknown method",
+                grouping_variable="gender",
+                test_variable="score",
             ),
-            patch("snla.ui.server._run_python_backend", return_value=None),
         ):
             resp = client.post("/api/analyze", json={"text": "测试未知方法"})
-            # Should fail with 500 since _syntax_template calls get_syntax_by_method
-            # which raises ValueError for unknown methods
-            assert resp.status_code == 500
+            assert resp.status_code == 422
+            assert resp.get_json()["error"]["code"] == "METHOD_UNAVAILABLE"

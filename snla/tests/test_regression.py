@@ -45,7 +45,7 @@ def reset_session():
 @pytest.fixture(autouse=True)
 def mock_spss_executor_factory():
     """The airline regression exercises the Python path without requiring SPSS."""
-    with patch("snla.ui.server._make_executor", return_value=MagicMock()):
+    with patch("snla.executor.spss.SPSSExecutor", return_value=MagicMock()):
         yield
 
 

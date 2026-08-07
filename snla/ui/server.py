@@ -14,9 +14,7 @@ import json
 import logging
 import os
 import sys
-import threading
 from pathlib import Path
-from typing import Any
 
 # Ensure project root on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -24,6 +22,12 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from flask import Flask, jsonify, request, send_from_directory
 
+from snla.analysis import (
+    AnalysisConfirmationRequest,
+    AnalysisRequest,
+    AnalysisSuccess,
+    analysis_service,
+)
 from snla.capabilities import get_public_capabilities_payload
 from snla.config import DEBUG, LLM_MOCK  # noqa: F401 — LLM_MOCK imported for test patching
 from snla.data.persistence import load_session, save_session
@@ -35,7 +39,7 @@ from snla.llm.transport import (
     diagnose_transport_failure,
     require_secure_llm_endpoint,
 )
-from snla.orchestrator import NoPendingError, planner
+from snla.orchestrator import planner as planner
 from snla.secrets import SecretProtectionError
 from snla.session import SessionState
 from snla.trust import get_trusted_methods, trust_loaded_from
@@ -43,14 +47,7 @@ from snla.ui._helpers import (
     RATE_LIMIT_MAX_REQUESTS,
     RATE_LIMIT_WINDOW,
     _check_rate_limit,
-    _make_executor,
     _spss_available,
-)
-from snla.ui._pipeline import (
-    _execute_and_parse,
-    _phase2_explain,
-    _prepare_syntax,
-    _run_python_backend,
 )
 from snla.ui.security import BootstrapError, loopback_security
 
@@ -135,11 +132,6 @@ if _load_ok:
     logger.info("Restored previous session from SQLite")
 UI_DIR = Path(__file__).resolve().parent
 
-# ── Concurrency & state guards ───────────────────────────────────────
-_executing: bool = False  # True while /api/analyze is running
-_active_executor: Any = None  # for cancellation
-_was_cancelled: bool = False  # True when user requested cancellation
-
 # ── Rate limiting ─────────────────────────────────────────────────────
 _rate_limit_store: dict[str, list[float]] = {}
 
@@ -172,7 +164,7 @@ def status():
             "ok": True,
             "has_data": session.dataset_meta is not None,
             "variable_count": len(session.variables),
-            "executing": _executing,
+            "executing": analysis_service.is_active("default"),
             "spss_available": _spss_available(),
             "current_backend": cfg.STATS_BACKEND,
             "api_key_status": cfg.api_key_public_status(),
@@ -247,16 +239,7 @@ def cancel():
     subprocess (if any).  Returns ``{ok: True}`` even if nothing was
     running — the frontend can safely call this at any time.
     """
-    global _executing, _active_executor, _was_cancelled
-    session.cancellation_token = True
-    _was_cancelled = True
-    if _active_executor is not None:
-        try:
-            _active_executor.terminate()
-        except Exception:
-            logger.exception("Failed to terminate executor")
-    _executing = False
-    planner.cancel_pending("default")
+    analysis_service.cancel("default")
     session.reset_cancellation()
     return jsonify({"ok": True})
 
@@ -264,11 +247,6 @@ def cancel():
 # ── Analyze ───────────────────────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
-    global _executing, _active_executor, _was_cancelled
-
-    if _executing:
-        return jsonify({"error": "An analysis is already running"}), 409
-
     if _check_rate_limit():
         return (
             jsonify(
@@ -288,12 +266,6 @@ def analyze():
     if len(user_input) > MAX_QUERY_LENGTH:
         return jsonify({"error": f"输入文本过长（最大 {MAX_QUERY_LENGTH} 字符）"}), 400
 
-    if not user_input:
-        return jsonify({"error": "Empty input"}), 400
-
-    if not session.variables:
-        return jsonify({"error": "Please upload a data file first"}), 400
-
     # ── Range expansion (Q1-Q10 → Q1, Q2, ..., Q10) ────────────────
     try:
         from snla.data.range_expander import expand_query
@@ -306,148 +278,38 @@ def analyze():
     except Exception:
         logger.warning("Range expansion failed, continuing with original input", exc_info=True)
 
-    _executing = True
-    _was_cancelled = False
     session.reset_cancellation()
-    executor = _make_executor()
-    _active_executor = executor
-    _degradation: dict | None = None  # populated on template fallback
-
-    # Watchdog: auto-release _executing after 180s even if thread dies
-    _watchdog = threading.Timer(180, lambda: _release_executing())
-    _watchdog.daemon = True
-    _watchdog.start()
-
     try:
-        # ── Phase 1: Analysis Planning (intent + method + vars, 1 LLM call) ──
-        plan_result = planner.plan(
-            "default",
-            user_input,
-            variables=session.variables,
-            dataset_meta=session.dataset_meta,
-            last_analysis=session.last_analysis,
+        outcome = analysis_service.analyze(
+            AnalysisRequest(
+                session_id="default",
+                query=user_input,
+                variables=session.variables,
+                dataset_meta=session.dataset_meta,
+                last_analysis=session.last_analysis,
+                confirm_greylist=confirm_greylist,
+            )
         )
-        method = plan_result.method
-        plan_explanation = plan_result.plan_explanation
-        gvar = plan_result.grouping_variable
-        tvar = plan_result.test_variable
-
-        # ── Python backend fast path ───────────────────────────────
-        py_response = _run_python_backend(plan_result, user_input)
-        if py_response is not None:
-            save_session(session)
-            return jsonify(py_response)
-
-        # ── Syntax generation + validation + greylist gate ────────
-        prep = _prepare_syntax(method, gvar, tvar, confirm_greylist, user_input)
-        if prep.get("error"):
-            return jsonify(
+        payload = outcome.to_payload()
+        if isinstance(outcome, AnalysisSuccess):
+            session.history.append({"role": "user", "content": outcome.user_query})
+            session.history.append(
                 {
-                    "error": prep["error"],
-                    "syntax": prep["syntax"],
-                    "validation_errors": prep["validation_errors"],
-                }
-            ), 422
-        if prep.get("_greylist"):
-            return jsonify(
-                {
-                    "ok": False,
-                    "requires_confirmation": True,
-                    "greylist_warnings": prep["greylist_warnings"],
-                    "message": (
-                        "此操作将修改数据（如 COMPUTE / RECODE / SELECT IF），"
-                        "需要在临时副本上执行。请确认是否继续。"
-                    ),
-                    "syntax": prep["syntax"],
+                    "role": "assistant",
+                    "content": outcome.explanation,
+                    "method": outcome.method,
+                    "syntax": outcome.syntax,
+                    "result": outcome.result,
                 }
             )
-        syntax = prep["syntax"]
-        greylist_warnings = prep["greylist_warnings"]
-        used_template = prep["used_template"]
-
-        # ── Build degradation info if template was used ────────────
-        if used_template:
-            _degradation = {
-                "method": method,
-                "note": (
-                    "语法自动修正已用尽，已切换至标准模板语法，可能无法完全匹配您的原始意图。"
-                ),
-            }
-
-        # 5+6. Execute + cancel check + parse
-        result = _execute_and_parse(syntax, executor, method)
-        if result is None:
-            _was_cancelled = False
-            session.reset_cancellation()
-            return jsonify({"ok": False, "cancelled": True}), 200
-        exec_result, parsed = result
-
-        if not exec_result.get("success"):
-            return jsonify(
-                {
-                    "error": exec_result.get("error", "SPSS execution failed"),
-                    "syntax": syntax,
-                    "degradation": _degradation,
-                }
-            ), 500
-
-        # ── Phase 2: Report Interpretation (LLM explains SPSS output) ──
-        explanation = _phase2_explain(parsed, method, user_input)
-
-        # Store in history
-        session.history.append(
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        )
-        session.history.append(
-            {
-                "role": "assistant",
-                "content": explanation,
-                "method": method,
-                "syntax": syntax,
-                "result": parsed,
-            }
-        )
-        session.last_analysis = {
-            "method": method,
-            "syntax": syntax,
-        }
-
-        save_session(session)
-
-        return jsonify(
-            {
-                "ok": True,
-                "method": method,
-                "syntax": syntax,
-                "plan_explanation": plan_explanation,
-                "greylist_warnings": greylist_warnings,
-                "result": parsed,
-                "explanation": explanation,
-                "degradation": _degradation,
-                "last_analysis": session.last_analysis,
-            }
-        )
-
-    except Exception as e:
+            session.last_analysis = payload["last_analysis"]
+            save_session(session)
+        return jsonify(payload), getattr(outcome, "http_status", 200)
+    except Exception:
         logger.exception("Analysis failed")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Analysis failed"}), 500
     finally:
-        _watchdog.cancel()
-        _executing = False
-        _active_executor = None
         session.reset_cancellation()
-
-
-def _release_executing():
-    """Watchdog callback: force-release _executing if the request thread died."""
-    global _executing, _active_executor
-    if _executing:
-        logger.warning("Watchdog: force-releasing _executing after timeout")
-        _executing = False
-        _active_executor = None
 
 
 # ── Confirm Greylist ──────────────────────────────────────────────────
@@ -462,93 +324,34 @@ def confirm_greylist():
     Execution happens on a **temporary copy** of the data file so the
     original is never modified.
     """
-    global _executing, _active_executor, _was_cancelled
-
-    if _executing:
-        return jsonify({"error": "An analysis is already running"}), 409
-
-    try:
-        pg = planner.pop_pending("default")
-    except NoPendingError:
-        return jsonify({"error": "No pending greylist operation"}), 400
-
-    _executing = True
-    _was_cancelled = False
     session.reset_cancellation()
-    executor = _make_executor()
-    _active_executor = executor
-
     try:
-        syntax = pg.syntax
-        method = pg.method
-        user_input = pg.user_input
-
-        # Execute on temp copy (normalize ExecutionResult → dict for _execute_and_parse)
-        data_path = session.dataset_meta.get("file_path", "")
-        if data_path:
-            raw = executor.execute_on_temp_copy(
-                syntax=syntax,
-                data_path=data_path,
-                cancellation_token=session.cancellation_token,
+        outcome = analysis_service.confirm(
+            AnalysisConfirmationRequest(
+                session_id="default",
+                variables=session.variables,
+                dataset_meta=session.dataset_meta,
             )
-            exec_result_dict = {
-                "success": raw.success,
-                "exit_code": raw.exit_code,
-                "xml_path": raw.xml_path,
-                "lst_text": "",
-                "error": raw.error_message or None,
-            }
-        else:
-            exec_result_dict = None
-
-        result = _execute_and_parse(syntax, executor, method, exec_result=exec_result_dict)
-        if result is None:
-            _was_cancelled = False
-            return jsonify({"ok": False, "cancelled": True}), 200
-        exec_result, parsed = result
-
-        if not exec_result.get("success"):
-            return jsonify(
+        )
+        payload = outcome.to_payload()
+        if isinstance(outcome, AnalysisSuccess):
+            session.history.append({"role": "user", "content": outcome.user_query})
+            session.history.append(
                 {
-                    "error": exec_result.get("error", "SPSS execution failed"),
-                    "syntax": syntax,
+                    "role": "assistant",
+                    "content": outcome.explanation,
+                    "method": outcome.method,
+                    "syntax": outcome.syntax,
+                    "result": outcome.result,
                 }
-            ), 500
-        explanation = _phase2_explain(parsed, method, user_input)
-
-        session.history.append({"role": "user", "content": user_input})
-        session.history.append(
-            {
-                "role": "assistant",
-                "content": explanation,
-                "method": method,
-                "syntax": syntax,
-                "result": parsed,
-            }
-        )
-        session.last_analysis = {"method": method, "syntax": syntax}
-
-        save_session(session)
-
-        return jsonify(
-            {
-                "ok": True,
-                "method": method,
-                "syntax": syntax,
-                "greylist_warnings": pg.warnings,
-                "result": parsed,
-                "explanation": explanation,
-                "temp_copy_note": ("此操作已在数据的临时副本上执行，您的原始数据文件未被修改。"),
-                "last_analysis": session.last_analysis,
-            }
-        )
-
-    except Exception as e:
+            )
+            session.last_analysis = payload["last_analysis"]
+            save_session(session)
+        return jsonify(payload), getattr(outcome, "http_status", 200)
+    except Exception:
         logger.exception("Greylist confirmation failed")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Greylist confirmation failed"}), 500
     finally:
-        _executing = False
-        _active_executor = None
         session.reset_cancellation()
 
 
@@ -967,6 +770,7 @@ def export():
         last = next((m for m in reversed(session.history) if m["role"] == "assistant"), None)
         if not last:
             return jsonify({"error": "No analysis found"}), 400
+        last_user = next((m for m in reversed(session.history) if m["role"] == "user"), None)
 
         # export_to_docx writes to a file path — use a temp file
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
@@ -974,7 +778,7 @@ def export():
 
         export_word_report(
             output_path=tmp_path,
-            user_query=session.history[-2]["content"] if len(session.history) >= 2 else "",
+            user_query=last_user["content"] if last_user else "",
             method=last.get("method", "unknown"),
             analysis_result=last.get("result"),
             explanation=last.get("content", ""),
