@@ -216,15 +216,17 @@ def test_debug_logging_reports_only_api_key_presence():
         "model": "test-model",
         "usage": {},
     }
+    client = LLMClient()
+    client.primary_endpoint = "https://api.example.com/v1/chat"
+    client.primary_api_key = api_key
+    client.mock_mode = False
+    client.debug = True
+
     with (
-        patch("snla.config.LLM_ENDPOINT", "https://api.example.com/v1/chat"),
-        patch("snla.config.LLM_API_KEY", api_key),
-        patch("snla.config.LLM_MOCK", False),
-        patch("snla.config.DEBUG", True),
-        patch("requests.Session.post", return_value=response),
+        patch.object(client._session, "post", return_value=response),
         patch("snla.llm.client.logger.info") as log_info,
     ):
-        LLMClient().chat([{"role": "user", "content": "hello"}])
+        client.chat([{"role": "user", "content": "hello"}])
 
     log_info.assert_called_once()
     template, *args = log_info.call_args.args
