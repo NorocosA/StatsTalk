@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 
+import pandas as pd
+
 from snla.analysis import (
     AnalysisCancelled,
     AnalysisConfirmationRequest,
@@ -80,6 +82,10 @@ def test_spss_analysis_validates_executes_parses_and_audits(
 ):
     data_path = tmp_path / "scores.sav"
     data_path.write_bytes(b"test fixture placeholder")
+    monkeypatch.setattr(
+        "snla.analysis.service._load_dataframe",
+        lambda _path: pd.DataFrame({"gender": [1, 2], "score": [80, 90]}),
+    )
 
     class FakeExecutor:
         def __init__(self):
@@ -131,6 +137,10 @@ def test_greylist_validation_returns_typed_confirmation_and_stages_context(
 ):
     data_path = tmp_path / "scores.sav"
     data_path.write_bytes(b"test fixture placeholder")
+    monkeypatch.setattr(
+        "snla.analysis.service._load_dataframe",
+        lambda _path: pd.DataFrame({"gender": [1, 2], "score": [80, 90]}),
+    )
     planner.cancel_pending("greylist-contract")
     monkeypatch.setattr(
         "snla.analysis.service._build_syntax", lambda *args: "RECODE gender (1=0)(2=1)."
@@ -208,6 +218,10 @@ def test_cancel_terminates_the_active_executor_and_returns_typed_cancelled(
 ):
     data_path = tmp_path / "scores.sav"
     data_path.write_bytes(b"test fixture placeholder")
+    monkeypatch.setattr(
+        "snla.analysis.service._load_dataframe",
+        lambda _path: pd.DataFrame({"gender": [1, 2], "score": [80, 90]}),
+    )
 
     class BlockingExecutor:
         def __init__(self):
@@ -264,6 +278,10 @@ def test_different_sessions_share_one_global_execution_gate(
 ):
     data_path = tmp_path / "scores.sav"
     data_path.write_bytes(b"test fixture placeholder")
+    monkeypatch.setattr(
+        "snla.analysis.service._load_dataframe",
+        lambda _path: pd.DataFrame({"gender": [1, 2], "score": [80, 90]}),
+    )
 
     class BlockingExecutor:
         def __init__(self):

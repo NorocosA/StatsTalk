@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
@@ -11,8 +11,22 @@ from typing import Any
 from uuid import uuid4
 
 from snla.capabilities import get_capability
-from snla.orchestrator import GreylistPending, NoPendingError, Planner, planner
+from snla.orchestrator import (
+    GreylistPending,
+    NoPendingError,
+    Planner,
+    PlanResult,
+    planner_instance,
+)
 from snla.parser.schema import AnalysisResult, analysis_result_to_dict
+
+from .applicability import (
+    ApplicabilityDecision,
+    ApplicabilityIssue,
+    CorrectionChoice,
+    evaluate_applicability,
+    resolve_role_bindings,
+)
 
 _ANALYSIS_TYPES = {
     "independent_t_test": "T-TEST",
@@ -48,6 +62,8 @@ class AnalysisConfirmationRequest:
     session_id: str
     variables: list[dict[str, Any]]
     dataset_meta: dict[str, Any]
+    decision: str = "accept"
+    correction_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,13 +96,20 @@ class AnalysisFailure:
     error: AnalysisError
     audit: AnalysisAudit
     http_status: int = 500
+    issues: tuple[ApplicabilityIssue, ...] = ()
+    correction_choices: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "ok": False,
             "error": asdict(self.error),
             "audit": asdict(self.audit),
         }
+        if self.issues:
+            payload["issues"] = [asdict(issue) for issue in self.issues]
+        if self.correction_choices:
+            payload["correction_choices"] = list(self.correction_choices)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -106,6 +129,46 @@ class AnalysisConfirmationRequired:
             "syntax": self.syntax,
             "syntax_preview": self.syntax[:200],
             "message": "此操作会修改数据，将仅在临时副本上执行。请确认是否继续。",
+            "audit": asdict(self.audit),
+        }
+
+
+@dataclass(frozen=True)
+class AnalysisCorrectionRequired:
+    """An inapplicable plan waiting for an explicit method correction."""
+
+    original_method: str
+    issues: tuple[ApplicabilityIssue, ...]
+    corrections: tuple[CorrectionChoice, ...]
+    audit: AnalysisAudit
+    requires_confirmation: bool = True
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "requires_confirmation": True,
+            "confirmation_type": "method_correction",
+            "original_method": self.original_method,
+            "issues": [asdict(issue) for issue in self.issues],
+            "correction_options": [asdict(choice) for choice in self.corrections],
+            "message": self.issues[0].message,
+            "audit": asdict(self.audit),
+        }
+
+
+@dataclass(frozen=True)
+class AnalysisCorrectionRejected:
+    """A proposed method change explicitly rejected by the user."""
+
+    original_method: str
+    audit: AnalysisAudit
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "correction_rejected": True,
+            "original_method": self.original_method,
+            "message": "已取消方法修正，原分析计划未执行。",
             "audit": asdict(self.audit),
         }
 
@@ -171,7 +234,12 @@ class AnalysisSuccess:
 
 
 AnalysisOutcome = (
-    AnalysisSuccess | AnalysisFailure | AnalysisConfirmationRequired | AnalysisCancelled
+    AnalysisSuccess
+    | AnalysisFailure
+    | AnalysisConfirmationRequired
+    | AnalysisCorrectionRequired
+    | AnalysisCorrectionRejected
+    | AnalysisCancelled
 )
 
 
@@ -181,13 +249,21 @@ class _ActiveAnalysis:
     executor: Any = None
 
 
+@dataclass(frozen=True)
+class _PendingCorrection:
+    request: AnalysisRequest
+    plan: PlanResult
+    decision: ApplicabilityDecision
+
+
 class AnalysisService:
     """Own the complete analysis policy behind a small typed interface."""
 
-    def __init__(self, *, backend: str | None = None, analysis_planner: Planner = planner):
+    def __init__(self, *, backend: str | None = None, analysis_planner: Planner = planner_instance):
         self._backend = backend
         self._planner = analysis_planner
         self._active: dict[str, _ActiveAnalysis] = {}
+        self._pending_corrections: dict[str, _PendingCorrection] = {}
         self._active_lock = Lock()
 
     def analyze(self, request: AnalysisRequest) -> AnalysisOutcome:
@@ -204,6 +280,7 @@ class AnalysisService:
                     suggestion="请等待当前分析完成后重试。",
                     http_status=409,
                 )
+            self._pending_corrections.pop(request.session_id, None)
             self._active[request.session_id] = active
         try:
             return self._analyze(request, active)
@@ -211,7 +288,13 @@ class AnalysisService:
             with self._active_lock:
                 self._active.pop(request.session_id, None)
 
-    def _analyze(self, request: AnalysisRequest, active: _ActiveAnalysis) -> AnalysisOutcome:
+    def _analyze(
+        self,
+        request: AnalysisRequest,
+        active: _ActiveAnalysis,
+        *,
+        plan_override: PlanResult | None = None,
+    ) -> AnalysisOutcome:
         started_at = _now()
         preferred_backend = self._backend or _configured_backend()
         request_id = uuid4().hex
@@ -237,24 +320,27 @@ class AnalysisService:
                 suggestion="上传 .sav 或 .csv 文件后重试。",
                 http_status=400,
             )
-        try:
-            plan = self._planner.plan(
-                request.session_id,
-                request.query,
-                variables=request.variables,
-                dataset_meta=request.dataset_meta,
-                last_analysis=request.last_analysis,
-            )
-        except Exception:
-            return _failure(
-                request_id=request_id,
-                started_at=started_at,
-                preferred_backend=preferred_backend,
-                category="system",
-                user_message="无法确定分析方法。",
-                code="PLANNING_FAILED",
-                suggestion="请更具体地描述分析目标和变量。",
-            )
+        if plan_override is None:
+            try:
+                plan = self._planner.plan(
+                    request.session_id,
+                    request.query,
+                    variables=request.variables,
+                    dataset_meta=request.dataset_meta,
+                    last_analysis=request.last_analysis,
+                )
+            except Exception:
+                return _failure(
+                    request_id=request_id,
+                    started_at=started_at,
+                    preferred_backend=preferred_backend,
+                    category="system",
+                    user_message="无法确定分析方法。",
+                    code="PLANNING_FAILED",
+                    suggestion="请更具体地描述分析目标和变量。",
+                )
+        else:
+            plan = plan_override
         capability = get_capability(plan.method)
         if capability is None:
             return _failure(
@@ -281,20 +367,94 @@ class AnalysisService:
                 http_status=422,
                 method=capability.name,
             )
+        try:
+            data = _load_dataframe(request.dataset_meta["file_path"])
+        except Exception:
+            return _failure(
+                request_id=request_id,
+                started_at=started_at,
+                preferred_backend=preferred_backend,
+                method=capability.name,
+                category="system",
+                user_message="The dataset could not be loaded for method validation.",
+                code="DATA_LOAD_FAILED",
+                suggestion="Re-import the dataset and try again.",
+            )
+        bindings = resolve_role_bindings(
+            capability.name,
+            grouping_variable=plan.grouping_variable,
+            test_variable=plan.test_variable,
+        )
+        applicability = evaluate_applicability(
+            capability.name,
+            request.variables,
+            data,
+            grouping_variable=plan.grouping_variable,
+            test_variable=plan.test_variable,
+        )
+        if not applicability.valid and applicability.corrections:
+            with self._active_lock:
+                self._pending_corrections[request.session_id] = _PendingCorrection(
+                    request=request,
+                    plan=plan,
+                    decision=applicability,
+                )
+            return AnalysisCorrectionRequired(
+                original_method=capability.name,
+                issues=applicability.issues,
+                corrections=applicability.corrections,
+                audit=AnalysisAudit(
+                    request_id=request_id,
+                    started_at=started_at,
+                    completed_at=_now(),
+                    method=capability.name,
+                    preferred_backend=preferred_backend,
+                    effective_backend=None,
+                    parser_used=None,
+                ),
+            )
+        if not applicability.valid:
+            choices = (
+                "Choose existing variables for the required roles and try again.",
+                "Choose another method compatible with the available variables.",
+            )
+            return AnalysisFailure(
+                error=AnalysisError(
+                    category="user",
+                    user_message=applicability.issues[0].message,
+                    code="METHOD_INAPPLICABLE",
+                    suggestion=choices[0],
+                ),
+                audit=AnalysisAudit(
+                    request_id=request_id,
+                    started_at=started_at,
+                    completed_at=_now(),
+                    method=capability.name,
+                    preferred_backend=preferred_backend,
+                    effective_backend=None,
+                    parser_used=None,
+                ),
+                http_status=422,
+                issues=applicability.issues,
+                correction_choices=choices,
+            )
         syntax = ""
         temp_copy = False
         if preferred_backend == "python":
             try:
-                data = _load_dataframe(request.dataset_meta["file_path"])
                 from snla.executor.python import PythonStatsExecutor
 
                 result = PythonStatsExecutor().execute(
                     plan.method,
                     data,
-                    grouping_var=plan.grouping_variable,
-                    test_var=plan.test_variable,
-                    dep_var=plan.grouping_variable,
-                    indep_var=plan.test_variable,
+                    grouping_var=bindings.get("grouping_variable") or bindings.get("row_variable"),
+                    test_var=bindings.get("test_variable")
+                    or bindings.get("column_variable")
+                    or bindings.get("variable"),
+                    dep_var=bindings.get("dependent_variable"),
+                    indep_var=bindings.get("independent_variable"),
+                    var1=bindings.get("first_variable"),
+                    var2=bindings.get("second_variable"),
                 )
                 if active.cancelled.is_set():
                     return _cancelled(
@@ -316,9 +476,7 @@ class AnalysisService:
             try:
                 syntax = _build_syntax(
                     capability.name,
-                    request.variables,
-                    plan.grouping_variable,
-                    plan.test_variable,
+                    bindings,
                 )
             except (KeyError, TypeError, ValueError):
                 return _failure(
@@ -499,6 +657,7 @@ class AnalysisService:
 
         self._planner.cancel_pending(session_id)
         with self._active_lock:
+            self._pending_corrections.pop(session_id, None)
             active = self._active.get(session_id)
             if active is None:
                 return False
@@ -542,6 +701,59 @@ class AnalysisService:
         started_at = _now()
         request_id = uuid4().hex
         preferred_backend = self._backend or _configured_backend()
+        with self._active_lock:
+            correction = self._pending_corrections.pop(request.session_id, None)
+        if correction is not None:
+            if request.decision == "reject":
+                return AnalysisCorrectionRejected(
+                    original_method=correction.plan.method,
+                    audit=AnalysisAudit(
+                        request_id=request_id,
+                        started_at=started_at,
+                        completed_at=_now(),
+                        method=correction.plan.method,
+                        preferred_backend=preferred_backend,
+                        effective_backend=None,
+                        parser_used=None,
+                    ),
+                )
+            selected = next(
+                (
+                    choice
+                    for choice in correction.decision.corrections
+                    if choice.id == request.correction_id
+                ),
+                None,
+            )
+            if selected is None:
+                return _failure(
+                    request_id=request_id,
+                    started_at=started_at,
+                    preferred_backend=preferred_backend,
+                    method=correction.plan.method,
+                    category="user",
+                    user_message="请选择一个有效的分析方法修正方案。",
+                    code="INVALID_CORRECTION",
+                    suggestion="重新提交分析请求并选择列出的修正方案。",
+                    http_status=400,
+                )
+            corrected_plan = replace(
+                correction.plan,
+                method=selected.method,
+                plan_explanation=(
+                    f"{correction.plan.plan_explanation} Confirmed correction: {selected.label}."
+                ),
+            )
+            corrected_request = replace(
+                correction.request,
+                variables=request.variables,
+                dataset_meta=request.dataset_meta,
+            )
+            return self._analyze(
+                corrected_request,
+                active,
+                plan_override=corrected_plan,
+            )
         try:
             pending = self._planner.pop_pending(request.session_id)
         except NoPendingError:
@@ -677,39 +889,51 @@ def _load_dataframe(file_path: str):
 
 def _build_syntax(
     method: str,
-    variables: list[dict[str, Any]],
-    grouping_variable: str | None,
-    test_variable: str | None,
+    bindings: dict[str, str | None],
 ) -> str:
     from snla.syntax.templates import get_syntax_by_method
 
-    names = {item.get("name") for item in variables}
-    grouping = grouping_variable if grouping_variable in names else None
-    tested = test_variable if test_variable in names else None
-    skip = {"id", "ID", "Id", "customerid", "customer_id", "row", "ROW", "case", "CASE"}
-    numeric = [
-        item["name"]
-        for item in variables
-        if item.get("type") == "Numeric"
-        and not item.get("value_labels")
-        and item.get("name") not in skip
-    ]
-    categorical = [item["name"] for item in variables if item.get("value_labels")]
-    grouping = grouping or (categorical[0] if categorical else variables[0]["name"])
-    tested = tested or (numeric[0] if numeric else variables[0]["name"])
-    second = next((name for name in numeric if name != tested), tested)
     arguments = {
-        "independent_t_test": {"group_var": grouping, "test_var": tested, "groups": (1, 2)},
-        "paired_t_test": {"var1": tested, "var2": second},
-        "oneway_anova": {"group_var": grouping, "test_var": tested},
-        "simple_regression": {"dep_var": tested, "indep_var": second},
-        "pearson_correlation": {"var1": tested, "var2": second},
-        "spearman_correlation": {"var1": tested, "var2": second},
-        "chi_square": {"row_var": grouping, "col_var": tested},
-        "frequencies": {"var": grouping},
-        "descriptives": {"var": tested},
-        "mann_whitney_u": {"group_var": grouping, "test_var": tested, "groups": (1, 2)},
-        "kruskal_wallis": {"group_var": grouping, "test_var": tested},
+        "independent_t_test": {
+            "group_var": bindings.get("grouping_variable"),
+            "test_var": bindings.get("test_variable"),
+            "groups": (1, 2),
+        },
+        "paired_t_test": {
+            "var1": bindings.get("first_variable"),
+            "var2": bindings.get("second_variable"),
+        },
+        "oneway_anova": {
+            "group_var": bindings.get("grouping_variable"),
+            "test_var": bindings.get("test_variable"),
+        },
+        "simple_regression": {
+            "dep_var": bindings.get("dependent_variable"),
+            "indep_var": bindings.get("independent_variable"),
+        },
+        "pearson_correlation": {
+            "var1": bindings.get("first_variable"),
+            "var2": bindings.get("second_variable"),
+        },
+        "spearman_correlation": {
+            "var1": bindings.get("first_variable"),
+            "var2": bindings.get("second_variable"),
+        },
+        "chi_square": {
+            "row_var": bindings.get("row_variable"),
+            "col_var": bindings.get("column_variable"),
+        },
+        "frequencies": {"var": bindings.get("variable")},
+        "descriptives": {"var": bindings.get("variable")},
+        "mann_whitney_u": {
+            "group_var": bindings.get("grouping_variable"),
+            "test_var": bindings.get("test_variable"),
+            "groups": (1, 2),
+        },
+        "kruskal_wallis": {
+            "group_var": bindings.get("grouping_variable"),
+            "test_var": bindings.get("test_variable"),
+        },
     }
     return get_syntax_by_method(method, **arguments[method])
 

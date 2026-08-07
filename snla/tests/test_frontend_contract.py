@@ -28,3 +28,14 @@ def test_analyze_and_confirm_render_structured_error_user_message():
     assert rendered == "请重新上传数据"
     assert html.count("esc(errorMessage(data.error))") == 2
     assert "esc(data.error)" not in html
+
+
+def test_method_correction_modal_requires_an_explicit_accept_or_reject():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'data.confirmation_type === "method_correction"' in html
+    assert "data.correction_options" in html
+    assert 'name = "method-correction"' in html
+    assert 'decision: "accept"' in html
+    assert 'decision: "reject"' in html
+    assert "correction_id" in html

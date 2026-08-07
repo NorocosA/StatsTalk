@@ -39,7 +39,7 @@ from snla.llm.transport import (
     diagnose_transport_failure,
     require_secure_llm_endpoint,
 )
-from snla.orchestrator import planner as planner
+from snla.orchestrator import planner_instance
 from snla.secrets import SecretProtectionError
 from snla.session import SessionState
 from snla.trust import get_trusted_methods, trust_loaded_from
@@ -51,6 +51,7 @@ from snla.ui._helpers import (
 )
 from snla.ui.security import BootstrapError, loopback_security
 
+planner = planner_instance
 logger = logging.getLogger(__name__)
 
 # Ensure root logger has a basic config when running standalone
@@ -315,7 +316,7 @@ def analyze():
 # ── Confirm Greylist ──────────────────────────────────────────────────
 @app.route("/api/confirm", methods=["POST"])
 def confirm_greylist():
-    """Execute a previously-pending greylist operation after user confirmation.
+    """Resolve a pending greylist operation or method correction.
 
     The frontend calls this after the user clicks "Yes, execute" on the
     greylist confirmation dialog.  The pending greylist details are
@@ -326,11 +327,14 @@ def confirm_greylist():
     """
     session.reset_cancellation()
     try:
+        data = request.get_json(silent=True) or {}
         outcome = analysis_service.confirm(
             AnalysisConfirmationRequest(
                 session_id="default",
                 variables=session.variables,
                 dataset_meta=session.dataset_meta,
+                decision=str(data.get("decision", "accept")),
+                correction_id=data.get("correction_id"),
             )
         )
         payload = outcome.to_payload()
@@ -349,8 +353,8 @@ def confirm_greylist():
             save_session(session)
         return jsonify(payload), getattr(outcome, "http_status", 200)
     except Exception:
-        logger.exception("Greylist confirmation failed")
-        return jsonify({"error": "Greylist confirmation failed"}), 500
+        logger.exception("Analysis confirmation failed")
+        return jsonify({"error": "Analysis confirmation failed"}), 500
     finally:
         session.reset_cancellation()
 

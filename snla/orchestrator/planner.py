@@ -61,13 +61,13 @@ def _plan(
         method = canonicalize_method(_mock_intent(user_input, last_analysis))
         if get_capability(method) is None:
             method = "descriptives"
-        cat, num = _auto_detect_vars(variables)
+        first, second = _auto_detect_roles(method, variables)
         return _rag(
             PlanResult(
                 method=method,
                 plan_explanation=f"（MOCK 模式）{method}",
-                grouping_variable=cat,
-                test_variable=num,
+                grouping_variable=first,
+                test_variable=second,
             )
         )
 
@@ -179,11 +179,53 @@ def _auto_detect_vars(variables: list[dict]) -> tuple[str | None, str | None]:
             continue
         if v.get("value_labels") and not cat_var:
             cat_var = name
-        elif v.get("type") == "Numeric" and not num_var:
+        elif v.get("type") == "Numeric" and not v.get("value_labels") and not num_var:
             num_var = name
         if cat_var and num_var:
             break
     return cat_var, num_var
+
+
+def _auto_detect_roles(method: str, variables: list[dict]) -> tuple[str | None, str | None]:
+    """Choose deterministic local variables that match the method roles."""
+
+    skip = {"id", "ID", "Id", "customerid", "customer_id", "row", "ROW", "case", "CASE"}
+    usable = [item for item in variables if item.get("name") and item.get("name") not in skip]
+    categorical = [
+        item["name"]
+        for item in usable
+        if item.get("type") == "String" or bool(item.get("value_labels"))
+    ]
+    continuous = [
+        item["name"]
+        for item in usable
+        if item.get("type") == "Numeric" and not item.get("value_labels")
+    ]
+
+    if method in {
+        "paired_t_test",
+        "pearson_correlation",
+        "spearman_correlation",
+        "simple_regression",
+    }:
+        return (
+            continuous[0] if continuous else None,
+            continuous[1] if len(continuous) > 1 else None,
+        )
+    if method == "chi_square":
+        return (
+            categorical[0] if categorical else None,
+            categorical[1] if len(categorical) > 1 else None,
+        )
+    if method == "descriptives":
+        return None, continuous[0] if continuous else None
+    if method == "frequencies":
+        fallback = usable[0]["name"] if usable else None
+        return categorical[0] if categorical else fallback, None
+    return (
+        categorical[0] if categorical else None,
+        continuous[0] if continuous else None,
+    )
 
 
 def _has_llm() -> bool:

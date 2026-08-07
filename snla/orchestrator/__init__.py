@@ -127,3 +127,4 @@ class Planner:
 # ── Module-level singleton ───────────────────────────────────────────────
 
 planner = Planner()
+planner_instance = planner

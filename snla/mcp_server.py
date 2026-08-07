@@ -348,8 +348,12 @@ async def snla_analyze(
 
 
 @mcp.tool()
-async def snla_confirm(ctx: Context) -> dict:
-    """Confirm and execute a pending greylist operation.
+async def snla_confirm(
+    ctx: Context,
+    decision: str = "accept",
+    correction_id: str | None = None,
+) -> dict:
+    """Resolve a pending greylist operation or method correction.
 
     Call after snla_analyze returns requires_confirmation=true.
     Execution happens on a TEMPORARY COPY of the data — the original
@@ -366,6 +370,8 @@ async def snla_confirm(ctx: Context) -> dict:
             session_id=sid,
             variables=state.variables,
             dataset_meta=dataset_meta,
+            decision=decision,
+            correction_id=correction_id,
         )
     )
     payload = outcome.to_payload()
