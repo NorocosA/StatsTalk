@@ -201,3 +201,33 @@ def test_connection_failure_retries_with_actionable_secret_safe_diagnostics(capl
     assert api_key not in caplog.text
     assert "workspace=private" not in caplog.text
     assert post.call_count == LLM_MAX_RETRIES + 1
+
+
+def test_debug_logging_reports_only_api_key_presence(caplog):
+    import logging
+    from unittest.mock import Mock
+
+    from snla.llm.client import LLMClient
+
+    api_key = "sk-secret-TAIL"
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "choices": [{"message": {"content": "ok"}}],
+        "model": "test-model",
+        "usage": {},
+    }
+    caplog.set_level(logging.INFO, logger="snla.llm.client")
+
+    with (
+        patch("snla.config.LLM_ENDPOINT", "https://api.example.com/v1/chat"),
+        patch("snla.config.LLM_API_KEY", api_key),
+        patch("snla.config.LLM_MOCK", False),
+        patch("snla.config.DEBUG", True),
+        patch("requests.Session.post", return_value=response),
+    ):
+        LLMClient().chat([{"role": "user", "content": "hello"}])
+
+    assert "api_key_configured=True" in caplog.text
+    assert api_key not in caplog.text
+    assert "TAIL" not in caplog.text

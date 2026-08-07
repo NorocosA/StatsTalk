@@ -129,15 +129,13 @@ class LLMClient:
     # ------------------------------------------------------------------
 
     def masked_api_key(self) -> str:
-        """Return the primary API key with all but the last 4 characters masked.
+        """Return a non-identifying API-key state label.
 
         Returns ``"<not-set>"`` when no key is configured.
         """
         if not self.primary_api_key:
             return "<not-set>"
-        if len(self.primary_api_key) <= 4:
-            return "*" * len(self.primary_api_key)
-        return "*" * (len(self.primary_api_key) - 4) + self.primary_api_key[-4:]
+        return "<configured>"
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -176,10 +174,11 @@ class LLMClient:
         try:
             if self.debug:
                 logger.info(
-                    "LLM primary call | endpoint=%s | model=%s | api_key=***%s | messages=%d",
+                    "LLM primary call | endpoint=%s | model=%s | "
+                    "api_key_configured=%s | messages=%d",
                     self.primary_endpoint,
                     self.primary_model,
-                    self.masked_api_key(),
+                    bool(self.primary_api_key),
                     len(messages),
                 )
             return self._call_openai_compatible(
@@ -200,8 +199,8 @@ class LLMClient:
             msg = f"Primary backend failed: {diagnostic.message}"
             logger.warning(msg)
             errors.append(msg)
-        except Exception as exc:
-            msg = f"Primary backend unexpected error: {exc}"
+        except Exception:
+            msg = "Primary backend failed with an unexpected internal error."
             logger.warning(msg)
             errors.append(msg)
 
@@ -233,8 +232,8 @@ class LLMClient:
                 msg = f"Fallback backend failed: {diagnostic.message}"
                 logger.warning(msg)
                 errors.append(msg)
-            except Exception as exc:
-                msg = f"Fallback backend unexpected error: {exc}"
+            except Exception:
+                msg = "Fallback backend failed with an unexpected internal error."
                 logger.warning(msg)
                 errors.append(msg)
 

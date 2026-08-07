@@ -222,7 +222,18 @@ def test_settings_never_return_the_complete_api_key():
     app.config["TESTING"] = True
     bootstrap_token = _start_test_launch()
 
-    with app.test_client() as client, patch("snla.config.LLM_API_KEY", "sk-test-secret-value"):
+    public_status = {
+        "state": "configured",
+        "configured": True,
+        "cloud_available": True,
+        "action": None,
+        "message": "API key is protected for the current Windows user.",
+    }
+    with (
+        app.test_client() as client,
+        patch("snla.config.LLM_API_KEY", "sk-test-secret-value"),
+        patch("snla.config.api_key_public_status", return_value=public_status),
+    ):
         bootstrap = client.post(
             "/api/bootstrap",
             json={"bootstrap_token": bootstrap_token},

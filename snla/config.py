@@ -12,6 +12,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from snla.llm.transport import EndpointPolicyError, require_secure_llm_endpoint
+from snla.secrets import (
+    API_KEY_MARKER,
+    ApiKeyService,
+    SecretProtectionError,
+    SecretResolution,
+    create_api_key_service,
+)
 
 # Detect PyInstaller bundle path (sys._MEIPASS) vs development mode
 _BUNDLE_DIR = getattr(sys, "_MEIPASS", str(Path(__file__).resolve().parent.parent))
@@ -45,7 +52,17 @@ SPSS_EXEC_MODE = os.getenv("SPSS_EXEC_MODE", "python")
 
 # ========== LLM 配置 ==========
 LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "https://opencode.ai/zen/go/v1/chat/completions")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+_CONFIGURED_API_KEY_STORAGE = os.getenv("LLM_API_KEY_STORAGE", "")
+_LEGACY_CONFIGURED_API_KEY = os.getenv("LLM_API_KEY", "")
+_CONFIGURED_API_KEY = (
+    API_KEY_MARKER if _CONFIGURED_API_KEY_STORAGE == API_KEY_MARKER else _LEGACY_CONFIGURED_API_KEY
+)
+_API_KEY_SERVICE: ApiKeyService = create_api_key_service(Path(_ENV_PATH))
+_API_KEY_RESOLUTION = _API_KEY_SERVICE.resolve(_CONFIGURED_API_KEY)
+_LEGACY_LLM_API_KEY = (
+    _LEGACY_CONFIGURED_API_KEY if _API_KEY_RESOLUTION.state == "migration_required" else ""
+)
+LLM_API_KEY = _API_KEY_RESOLUTION.api_key
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 
 # ========== Token 控制 ==========
@@ -67,6 +84,60 @@ STATS_BACKEND = os.getenv("STATS_BACKEND", "spss")  # "spss" | "python"
 LLM_CALL_LOG = os.getenv("LLM_CALL_LOG", "false").lower() == "true"
 LLM_MOCK = os.getenv("LLM_MOCK", "false").lower() == "true"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+
+def api_key_public_status() -> dict[str, object]:
+    """Return API-key state without key or ciphertext material."""
+
+    return _API_KEY_RESOLUTION.public_status()
+
+
+def _apply_api_key_resolution(resolution: SecretResolution) -> None:
+    global LLM_API_KEY, _API_KEY_RESOLUTION
+
+    _API_KEY_RESOLUTION = resolution
+    LLM_API_KEY = resolution.api_key
+
+
+def replace_api_key(api_key: str) -> dict[str, object]:
+    """Encrypt and persist a new API key for the current Windows user."""
+
+    global _LEGACY_LLM_API_KEY
+
+    resolution = _API_KEY_SERVICE.replace(api_key)
+    _LEGACY_LLM_API_KEY = ""
+    _apply_api_key_resolution(resolution)
+    return resolution.public_status()
+
+
+def migrate_legacy_api_key(*, consent: bool) -> dict[str, object]:
+    """Migrate the pending plaintext key only after explicit consent."""
+
+    global _LEGACY_LLM_API_KEY
+
+    if not _LEGACY_LLM_API_KEY:
+        raise SecretProtectionError(
+            "no_legacy_api_key",
+            "There is no legacy API key waiting for migration.",
+        )
+    resolution = _API_KEY_SERVICE.migrate_legacy(
+        _LEGACY_LLM_API_KEY,
+        consent=consent,
+    )
+    _LEGACY_LLM_API_KEY = ""
+    _apply_api_key_resolution(resolution)
+    return resolution.public_status()
+
+
+def delete_api_key() -> dict[str, object]:
+    """Remove the API-key marker, ciphertext, and runtime value."""
+
+    global _LEGACY_LLM_API_KEY
+
+    resolution = _API_KEY_SERVICE.delete()
+    _LEGACY_LLM_API_KEY = ""
+    _apply_api_key_resolution(resolution)
+    return resolution.public_status()
 
 
 def check_spss_available() -> bool:
@@ -91,7 +162,9 @@ def validate():
     if STATS_BACKEND == "spss" and not os.path.exists(SPSS_EXECUTABLE):
         warnings.append(f"SPSS 可执行文件不存在: {SPSS_EXECUTABLE}")
     # "python" 模式下不检查 SPSS 路径
-    if not LLM_API_KEY and not LLM_MOCK:
+    if not LLM_API_KEY and not LLM_MOCK and _API_KEY_RESOLUTION.state != "missing":
+        warnings.append(_API_KEY_RESOLUTION.message)
+    if not LLM_API_KEY and not LLM_MOCK and _API_KEY_RESOLUTION.state == "missing":
         warnings.append("LLM_API_KEY 未配置且未启用 LLM_MOCK")
     try:
         require_secure_llm_endpoint(LLM_ENDPOINT)
@@ -106,6 +179,8 @@ def reload_config() -> list[str]:
     Only updates string-based config values (LLM_ENDPOINT, LLM_MODEL, SPSS_PYTHON_PATH, etc.).
     Computed values (int/bool conversions like LLM_MAX_INPUT_TOKENS) are skipped — restart required.
     """
+    global _LEGACY_LLM_API_KEY
+
     from dotenv import dotenv_values
 
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
@@ -114,6 +189,14 @@ def reload_config() -> list[str]:
 
     new_values = dotenv_values(env_path)
     changed = []
+    configured_storage = str(new_values.get("LLM_API_KEY_STORAGE") or "")
+    legacy_key = str(new_values.get("LLM_API_KEY") or "")
+    configured_key = API_KEY_MARKER if configured_storage == API_KEY_MARKER else legacy_key
+    resolution = _API_KEY_SERVICE.resolve(configured_key)
+    _LEGACY_LLM_API_KEY = legacy_key if resolution.state == "migration_required" else ""
+    if resolution != _API_KEY_RESOLUTION:
+        _apply_api_key_resolution(resolution)
+        changed.append("LLM_API_KEY_STORAGE" if configured_storage else "LLM_API_KEY")
 
     aliases = {"SPSS_PATH": "SPSS_EXECUTABLE"}
     parsers = {
@@ -132,6 +215,7 @@ def reload_config() -> list[str]:
         "SPSS_EXEC_MODE",
         "LLM_ENDPOINT",
         "LLM_API_KEY",
+        "LLM_API_KEY_STORAGE",
         "LLM_MODEL",
         "LLM_MAX_INPUT_TOKENS",
         "LLM_MAX_OUTPUT_TOKENS",
@@ -146,6 +230,8 @@ def reload_config() -> list[str]:
 
     for env_key, raw_value in new_values.items():
         if env_key not in reloadable_keys:
+            continue
+        if env_key in {"LLM_API_KEY", "LLM_API_KEY_STORAGE"}:
             continue
         key = aliases.get(env_key, env_key)
         parser = parsers.get(key, str)
