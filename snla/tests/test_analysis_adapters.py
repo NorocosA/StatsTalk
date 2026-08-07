@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from snla.analysis import AnalysisAudit, AnalysisSuccess
+from snla.analysis import AnalysisAudit, AnalysisCorrectionRejected, AnalysisSuccess
 from snla.orchestrator import planner
 from snla.parser.schema import AnalysisResult
 from snla.ui.security import loopback_security
@@ -207,3 +207,58 @@ def test_mcp_confirm_preserves_original_query_for_word_export(tmp_path, monkeypa
     assert export_payload["ok"] is True
     assert exported["user_query"] == query
     assert state.last_query == query
+
+
+def test_http_and_mcp_forward_method_correction_decisions(monkeypatch):
+    from snla import mcp_server
+    from snla.ui import server
+
+    captured = []
+
+    def fake_confirm(request):
+        captured.append(request)
+        return AnalysisCorrectionRejected(
+            original_method="independent_t_test",
+            audit=AnalysisAudit(
+                request_id="correction-adapter",
+                started_at="2026-08-07T00:00:00+00:00",
+                completed_at="2026-08-07T00:00:00+00:00",
+                method="independent_t_test",
+                preferred_backend="python",
+                effective_backend=None,
+                parser_used=None,
+            ),
+        )
+
+    monkeypatch.setattr(server.analysis_service, "confirm", fake_confirm)
+    monkeypatch.setattr(mcp_server.analysis_service, "confirm", fake_confirm)
+    server.session.reset()
+    mcp_server._session_states.clear()
+
+    server.app.config["TESTING"] = True
+    with server.app.test_client() as client:
+        bootstrap_token = loopback_security.begin_launch("http://127.0.0.1:43125")
+        bootstrap = client.post("/api/bootstrap", json={"bootstrap_token": bootstrap_token})
+        client.environ_base["HTTP_AUTHORIZATION"] = (
+            f"Bearer {bootstrap.get_json()['session_token']}"
+        )
+        response = client.post(
+            "/api/confirm",
+            json={"decision": "reject", "correction_id": "use_oneway_anova"},
+        )
+
+    mcp_payload = asyncio.run(
+        mcp_server.snla_confirm(
+            _MCPContext(),
+            decision="reject",
+            correction_id="use_oneway_anova",
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["correction_rejected"] is True
+    assert mcp_payload["correction_rejected"] is True
+    assert [(item.decision, item.correction_id) for item in captured] == [
+        ("reject", "use_oneway_anova"),
+        ("reject", "use_oneway_anova"),
+    ]

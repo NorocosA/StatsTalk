@@ -129,6 +129,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .greylist-card .gl-warnings li { padding: 6px 0; font-size: 13px; color: #e6a23c; border-bottom: 1px solid #f0f0f0; }
 .greylist-card .gl-warnings li:last-child { border-bottom: none; }
 .greylist-card .gl-warnings li::before { content: "(!) "; }
+.greylist-card .gl-options { list-style: none; margin-bottom: 20px; }
+.greylist-card .gl-options li { padding: 7px 0; font-size: 13px; color: #303133; }
+.greylist-card .gl-options label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .greylist-card .gl-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .greylist-card .gl-btn { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .gl-btn-cancel { background: #f5f7fa; color: #606266; }
@@ -229,10 +232,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="greylist-card">
         <div class="gl-header">
             <span class="gl-icon">(!)</span>
-            <span class="gl-title">操作确认</span>
+            <span class="gl-title" id="gl-title">操作确认</span>
         </div>
         <p class="gl-message" id="gl-message"></p>
         <ul class="gl-warnings" id="gl-warnings"></ul>
+        <ul class="gl-options" id="gl-options"></ul>
         <div class="gl-actions">
             <button class="gl-btn gl-btn-cancel" id="gl-cancel">取消</button>
             <button class="gl-btn gl-btn-confirm" id="gl-confirm">确认执行</button>
@@ -247,6 +251,7 @@ let hasAnalysis = false;
 let isExecuting = false;
 let lastUserInput = "";
 let lastAnalysis = null;
+let pendingConfirmation = null;
 
 // ── DOM ──────────────────────────────────────────────────
 const fileInput = document.getElementById("file-input");
@@ -264,8 +269,10 @@ const settingsToggle = document.getElementById("settings-toggle");
 const settingsPanel = document.getElementById("settings-panel");
 const contextHint = document.getElementById("context-hint");
 const greylistModal = document.getElementById("greylist-modal");
+const glTitle = document.getElementById("gl-title");
 const glMessage = document.getElementById("gl-message");
 const glWarnings = document.getElementById("gl-warnings");
+const glOptions = document.getElementById("gl-options");
 const glCancel = document.getElementById("gl-cancel");
 const glConfirm = document.getElementById("gl-confirm");
 const welcomeSection = document.getElementById("welcome-section");
@@ -439,15 +446,35 @@ async function sendMessage() {
 
 // ── Greylist Modal ───────────────────────────────────────
 function showGreylistModal(data) {
+    pendingConfirmation = data;
+    const isCorrection = data.confirmation_type === "method_correction";
+    glTitle.textContent = isCorrection ? "选择分析方法" : "操作确认";
     glMessage.textContent = data.message || "此操作可能需要确认。";
     glWarnings.innerHTML = "";
-    if (data.greylist_warnings && data.greylist_warnings.length) {
-        data.greylist_warnings.forEach(w => {
+    const warnings = isCorrection
+        ? (data.issues || []).map(issue => issue.message)
+        : (data.greylist_warnings || []);
+    warnings.forEach(w => {
+        const li = document.createElement("li");
+        li.textContent = w;
+        glWarnings.appendChild(li);
+    });
+    glOptions.innerHTML = "";
+    if (isCorrection && data.correction_options) {
+        data.correction_options.forEach((option, index) => {
             const li = document.createElement("li");
-            li.textContent = w;
-            glWarnings.appendChild(li);
+            const label = document.createElement("label");
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = "method-correction";
+            input.value = option.id;
+            input.checked = index === 0;
+            label.append(input, document.createTextNode(option.label));
+            li.appendChild(label);
+            glOptions.appendChild(li);
         });
     }
+    glConfirm.textContent = isCorrection ? "使用所选方法" : "确认执行";
     greylistModal.classList.add("open");
 }
 
@@ -455,13 +482,31 @@ function hideGreylistModal() {
     greylistModal.classList.remove("open");
 }
 
-glCancel.addEventListener("click", () => {
+glCancel.addEventListener("click", async () => {
+    const confirmation = pendingConfirmation;
     hideGreylistModal();
+    if (confirmation && confirmation.confirmation_type === "method_correction") {
+        try {
+            const resp = await apiFetch("/api/confirm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ decision: "reject" }),
+            });
+            const data = await resp.json();
+            if (data.message) addMessage("assistant", esc(data.message));
+        } catch (e) {
+            addMessage("assistant", `<span class="error-msg">${esc(e.message)}</span>`);
+        }
+    }
+    pendingConfirmation = null;
     setExecuting(false);
     userInput.focus();
 });
 
 glConfirm.addEventListener("click", async () => {
+    const confirmation = pendingConfirmation;
+    const isCorrection = confirmation && confirmation.confirmation_type === "method_correction";
+    const selected = glOptions.querySelector('input[name="method-correction"]:checked');
     hideGreylistModal();
     // Show loading in chat
     const loadingId = addMessage("assistant", '<span class="loading"></span><span class="loading"></span><span class="loading"></span> 确认中...');
@@ -470,12 +515,17 @@ glConfirm.addEventListener("click", async () => {
         const resp = await apiFetch("/api/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: lastUserInput, confirm_greylist: true }),
+            body: JSON.stringify(isCorrection
+                ? { decision: "accept", correction_id: selected ? selected.value : null }
+                : { text: lastUserInput, confirm_greylist: true }),
         });
         const data = await resp.json();
         removeMessage(loadingId);
 
-        if (data.ok) {
+        if (data.requires_confirmation) {
+            showGreylistModal(data);
+            return;
+        } else if (data.ok) {
             hasAnalysis = true;
             exportBtn.disabled = false;
             addAnalysisResult(data);
@@ -490,6 +540,7 @@ glConfirm.addEventListener("click", async () => {
         addMessage("assistant", `<span class="error-msg">确认请求失败: ${esc(e.message)}</span>`);
     }
 
+    pendingConfirmation = null;
     setExecuting(false);
     userInput.focus();
 });
