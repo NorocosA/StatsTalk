@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -10,7 +11,7 @@ from threading import Event, Lock
 from typing import Any
 from uuid import uuid4
 
-from snla.capabilities import get_capability
+from snla.capabilities import can_fallback_to_python, get_capability
 from snla.orchestrator import (
     GreylistPending,
     NoPendingError,
@@ -82,6 +83,7 @@ class AnalysisAudit:
     preferred_backend: str
     effective_backend: str | None
     parser_used: str | None
+    fallback_reason: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,9 @@ class AnalysisFailure:
         payload = {
             "ok": False,
             "error": asdict(self.error),
+            "preferred_backend": self.audit.preferred_backend,
+            "effective_backend": self.audit.effective_backend,
+            "fallback_reason": self.audit.fallback_reason,
             "audit": asdict(self.audit),
         }
         if self.issues:
@@ -211,6 +216,8 @@ class AnalysisSuccess:
     temp_copy: bool = False
     parameters: dict[str, Any] | None = None
     selection_source: str = "planner"
+    fallback_reason: dict[str, Any] | None = None
+    backend_restored: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         result = analysis_result_to_dict(self.result)
@@ -218,6 +225,8 @@ class AnalysisSuccess:
             "ok": True,
             "method": self.method,
             "backend": self.backend,
+            "preferred_backend": self.audit.preferred_backend,
+            "effective_backend": self.audit.effective_backend,
             "syntax": self.syntax,
             "syntax_used": self.syntax,
             "plan_explanation": self.plan_explanation,
@@ -229,6 +238,8 @@ class AnalysisSuccess:
             "parameters": self.parameters or {},
             "selection_source": self.selection_source,
             "degradation": self.degradation,
+            "fallback_reason": self.fallback_reason,
+            "backend_restored": self.backend_restored,
             "last_analysis": {
                 "method": self.method,
                 **({"syntax": self.syntax} if self.syntax else {}),
@@ -268,11 +279,20 @@ class _PendingCorrection:
 class AnalysisService:
     """Own the complete analysis policy behind a small typed interface."""
 
-    def __init__(self, *, backend: str | None = None, analysis_planner: Planner = planner_instance):
+    def __init__(
+        self,
+        *,
+        backend: str | None = None,
+        analysis_planner: Planner = planner_instance,
+        spss_available: Callable[[], bool] | None = None,
+    ):
         self._backend = backend
         self._planner = analysis_planner
+        self._spss_available = spss_available or _configured_spss_available
         self._active: dict[str, _ActiveAnalysis] = {}
         self._pending_corrections: dict[str, _PendingCorrection] = {}
+        self._fallback_notified_sessions: set[str] = set()
+        self._fallback_sessions: set[str] = set()
         self._active_lock = Lock()
 
     def analyze(self, request: AnalysisRequest) -> AnalysisOutcome:
@@ -388,7 +408,40 @@ class AnalysisService:
                 http_status=422,
                 method=plan.method,
             )
-        backend_capability = capability.backend(preferred_backend)
+        effective_backend = preferred_backend
+        fallback_reason = None
+        if preferred_backend == "spss" and not self._spss_available():
+            if not can_fallback_to_python(capability.name):
+                choices = (
+                    "检查 SPSS 可执行文件路径后重试。",
+                    "选择已通过 Python 验证的其他统计方法。",
+                )
+                return _failure(
+                    request_id=request_id,
+                    started_at=started_at,
+                    preferred_backend=preferred_backend,
+                    category="configuration",
+                    user_message=(
+                        "当前未检测到 SPSS，且该方法尚未通过 Python 回退验证。"
+                    ),
+                    code="SPSS_FALLBACK_UNAVAILABLE",
+                    suggestion=choices[0],
+                    http_status=422,
+                    method=capability.name,
+                    correction_choices=choices,
+                    fallback_reason={
+                        "code": "SPSS_EXECUTABLE_NOT_FOUND",
+                        "method": capability.name,
+                    },
+                )
+            effective_backend = "python"
+            fallback_reason = {
+                "code": "SPSS_EXECUTABLE_NOT_FOUND",
+                "message": "未检测到 SPSS，已自动使用 Python 引擎完成本次分析。",
+                "method": capability.name,
+                "announce": request.session_id not in self._fallback_notified_sessions,
+            }
+        backend_capability = capability.backend(effective_backend)
         if backend_capability is None or not backend_capability.supported:
             return _failure(
                 request_id=request_id,
@@ -474,7 +527,7 @@ class AnalysisService:
             )
         syntax = ""
         temp_copy = False
-        if preferred_backend == "python":
+        if effective_backend == "python":
             try:
                 from snla.executor.python import PythonStatsExecutor
 
@@ -492,7 +545,12 @@ class AnalysisService:
                 )
                 if active.cancelled.is_set():
                     return _cancelled(
-                        request_id, started_at, capability.name, preferred_backend, "python"
+                        request_id,
+                        started_at,
+                        capability.name,
+                        preferred_backend,
+                        "python",
+                        fallback_reason,
                     )
             except Exception:
                 return _failure(
@@ -505,8 +563,9 @@ class AnalysisService:
                     user_message="Python 分析执行失败。",
                     code="EXECUTION_FAILED",
                     suggestion="请检查数据文件和变量后重试。",
+                    fallback_reason=fallback_reason,
                 )
-        elif preferred_backend == "spss":
+        elif effective_backend == "spss":
             try:
                 syntax = _build_syntax(
                     capability.name,
@@ -641,7 +700,7 @@ class AnalysisService:
                 http_status=400,
             )
 
-        limited_mode = preferred_backend == "python" and not backend_capability.validated
+        limited_mode = effective_backend == "python" and not backend_capability.validated
         warning = None
         explanation = None
         if limited_mode:
@@ -657,17 +716,26 @@ class AnalysisService:
                     request_id=request_id,
                     started_at=started_at,
                     preferred_backend=preferred_backend,
-                    effective_backend=preferred_backend,
+                    effective_backend=effective_backend,
                     method=capability.name,
                     category="system",
                     user_message="统计结果已生成，但解释失败。",
                     code="EXPLANATION_FAILED",
                     suggestion="请重试，或直接查看统计结果表。",
+                    fallback_reason=fallback_reason,
                 )
+        backend_restored = False
+        with self._active_lock:
+            if fallback_reason is not None:
+                self._fallback_notified_sessions.add(request.session_id)
+                self._fallback_sessions.add(request.session_id)
+            elif preferred_backend == "spss" and request.session_id in self._fallback_sessions:
+                self._fallback_sessions.remove(request.session_id)
+                backend_restored = True
         return AnalysisSuccess(
             user_query=request.query,
             method=capability.name,
-            backend=preferred_backend,
+            backend=effective_backend,
             plan_explanation=plan.plan_explanation,
             result=result,
             explanation=explanation,
@@ -677,14 +745,17 @@ class AnalysisService:
             temp_copy=temp_copy,
             parameters={"alpha": request.alpha},
             selection_source=selection_source,
+            fallback_reason=fallback_reason,
+            backend_restored=backend_restored,
             audit=AnalysisAudit(
                 request_id=request_id,
                 started_at=started_at,
                 completed_at=_now(),
                 method=capability.name,
                 preferred_backend=preferred_backend,
-                effective_backend=preferred_backend,
+                effective_backend=effective_backend,
                 parser_used=result.parser_used,
+                fallback_reason=fallback_reason,
             ),
         )
 
@@ -803,6 +874,29 @@ class AnalysisService:
                 suggestion="请先提交需要确认的分析请求。",
                 http_status=400,
             )
+        if preferred_backend == "spss" and not self._spss_available():
+            choices = (
+                "检查 SPSS 可执行文件路径后重新提交操作。",
+                "取消本次数据修改操作。",
+            )
+            return _failure(
+                request_id=request_id,
+                started_at=started_at,
+                preferred_backend=preferred_backend,
+                category="configuration",
+                user_message=(
+                    "确认操作执行前 SPSS 已不可用，数据修改语法不能自动转换为 Python。"
+                ),
+                code="SPSS_FALLBACK_UNAVAILABLE",
+                suggestion=choices[0],
+                http_status=422,
+                method=pending.method,
+                correction_choices=choices,
+                fallback_reason={
+                    "code": "SPSS_EXECUTABLE_NOT_FOUND",
+                    "method": pending.method,
+                },
+            )
         data_path = request.dataset_meta.get("file_path", "")
         if not request.variables or not data_path:
             return _failure(
@@ -908,6 +1002,12 @@ def _configured_backend() -> str:
     from snla import config
 
     return config.STATS_BACKEND
+
+
+def _configured_spss_available() -> bool:
+    from snla import config
+
+    return config.check_spss_available()
 
 
 def _load_dataframe(file_path: str):
@@ -1025,6 +1125,8 @@ def _failure(
     http_status: int = 500,
     method: str | None = None,
     effective_backend: str | None = None,
+    correction_choices: tuple[str, ...] = (),
+    fallback_reason: dict[str, Any] | None = None,
 ) -> AnalysisFailure:
     return AnalysisFailure(
         error=AnalysisError(
@@ -1041,8 +1143,10 @@ def _failure(
             preferred_backend=preferred_backend,
             effective_backend=effective_backend,
             parser_used=None,
+            fallback_reason=fallback_reason,
         ),
         http_status=http_status,
+        correction_choices=correction_choices,
     )
 
 
@@ -1052,6 +1156,7 @@ def _cancelled(
     method: str | None,
     preferred_backend: str,
     effective_backend: str | None,
+    fallback_reason: dict[str, Any] | None = None,
 ) -> AnalysisCancelled:
     return AnalysisCancelled(
         audit=AnalysisAudit(
@@ -1062,6 +1167,7 @@ def _cancelled(
             preferred_backend=preferred_backend,
             effective_backend=effective_backend,
             parser_used=None,
+            fallback_reason=fallback_reason,
         )
     )
 

@@ -114,7 +114,7 @@ def test_spss_analysis_validates_executes_parses_and_audits(
     monkeypatch.setattr("snla.executor.spss.SPSSExecutor", lambda: executor)
     monkeypatch.setattr("snla.parser.output.parse", lambda **kwargs: parsed)
 
-    outcome = AnalysisService(backend="spss").analyze(
+    outcome = AnalysisService(backend="spss", spss_available=lambda: True).analyze(
         AnalysisRequest(
             session_id="contract",
             query="描述统计",
@@ -146,7 +146,7 @@ def test_greylist_validation_returns_typed_confirmation_and_stages_context(
         "snla.analysis.service._build_syntax", lambda *args: "RECODE gender (1=0)(2=1)."
     )
 
-    outcome = AnalysisService(backend="spss").analyze(
+    outcome = AnalysisService(backend="spss", spss_available=lambda: True).analyze(
         AnalysisRequest(
             session_id="greylist-contract",
             query="描述统计",
@@ -197,7 +197,7 @@ def test_confirm_executes_pending_greylist_on_a_temporary_copy(
     monkeypatch.setattr("snla.executor.spss.SPSSExecutor", lambda: executor)
     monkeypatch.setattr("snla.parser.output.parse", lambda **kwargs: parsed)
 
-    outcome = AnalysisService(backend="spss").confirm(
+    outcome = AnalysisService(backend="spss", spss_available=lambda: True).confirm(
         AnalysisConfirmationRequest(
             session_id="confirm-contract",
             variables=sample_variables,
@@ -246,7 +246,7 @@ def test_cancel_terminates_the_active_executor_and_returns_typed_cancelled(
 
     executor = BlockingExecutor()
     monkeypatch.setattr("snla.executor.spss.SPSSExecutor", lambda: executor)
-    service = AnalysisService(backend="spss")
+    service = AnalysisService(backend="spss", spss_available=lambda: True)
     captured = []
 
     thread = threading.Thread(
@@ -319,7 +319,7 @@ def test_different_sessions_share_one_global_execution_gate(
     first_executor = BlockingExecutor()
     executors = iter((first_executor, FailingExecutor()))
     monkeypatch.setattr("snla.executor.spss.SPSSExecutor", lambda: next(executors))
-    service = AnalysisService(backend="spss")
+    service = AnalysisService(backend="spss", spss_available=lambda: True)
     monkeypatch.setattr(
         service._planner,
         "plan",

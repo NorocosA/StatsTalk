@@ -342,7 +342,7 @@ class TestSettingsEndpoint:
         resp = client.get("/api/settings")
         assert resp.status_code == 200
         data = json.loads(resp.data)
-        for key in ("LLM_ENDPOINT", "LLM_MODEL", "STATS_BACKEND"):
+        for key in ("LLM_ENDPOINT", "LLM_MODEL", "SPSS_PATH", "STATS_BACKEND"):
             assert key in data
 
     def test_settings_post(self, client):
@@ -355,6 +355,21 @@ class TestSettingsEndpoint:
         assert data["ok"] is True
         assert "LLM_MODEL" in data["changed"]
         assert "STATS_BACKEND" in data["changed"]
+
+    def test_settings_updates_spss_executable_without_changing_backend(self, client):
+        import snla.config as cfg
+
+        original_path = cfg.SPSS_EXECUTABLE
+        original_backend = cfg.STATS_BACKEND
+        try:
+            resp = client.post("/api/settings", json={"SPSS_PATH": r"C:\Stats\stats.com"})
+
+            assert resp.status_code == 200
+            assert cfg.SPSS_EXECUTABLE == r"C:\Stats\stats.com"
+            assert original_backend == cfg.STATS_BACKEND
+            assert "SPSS_PATH" in resp.get_json()["changed"]
+        finally:
+            cfg.SPSS_EXECUTABLE = original_path
 
     def test_settings_rejects_public_plain_http_endpoint(self, client):
         import snla.config as cfg
@@ -400,6 +415,30 @@ class TestExportEndpoint:
         data = json.loads(resp.data)
         assert "error" in data
         assert "analysis" in data["error"].lower() or "export" in data["error"].lower()
+
+
+def test_spss_detection_only_reports_stats_executables(tmp_path):
+    from snla.ui.server import _find_spss_candidates
+
+    version_dir = tmp_path / "Statistics" / "26"
+    version_dir.mkdir(parents=True)
+    executable = version_dir / "stats.com"
+    executable.write_text("", encoding="ascii")
+    python_dir = version_dir / "Python3"
+    python_dir.mkdir()
+    python_executable = python_dir / "python.exe"
+    python_executable.write_text("", encoding="ascii")
+
+    candidates = _find_spss_candidates([tmp_path / "Statistics"])
+
+    assert candidates == [
+        {
+            "version": "26",
+            "path": str(executable.resolve()),
+            "python_path": str(python_executable.resolve()),
+        }
+    ]
+    assert all("license" not in key.lower() for key in candidates[0])
 
 
 # ===========================================================================

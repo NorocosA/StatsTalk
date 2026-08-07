@@ -58,7 +58,10 @@ StatsTalk 只把变量结构发送给 LLM，例如变量名、类型、标签、
 ## 常见问题
 
 **没有 SPSS 能用吗？**
-可以。设置 `STATS_BACKEND=python` 后会使用 Python 后端。
+可以。偏好设置为 SPSS 但未检测到 `stats.com` 时，已通过 Python 验证的方法会仅在本次
+分析中自动使用 Python，原 SPSS 偏好不会改变，结果和 Word 报告会记录实际后端。同一
+会话只提示一次；点击提示中的“改用 Python 引擎”才会永久修改偏好。尚未通过 Python
+验证的方法会停止并提示检查 SPSS 路径或选择其他方法。
 
 **导出 Word 失败怎么办？**
 先确认依赖已安装：`pip install -r requirements.txt`。导出模块依赖 `python-docx`。

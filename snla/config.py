@@ -51,7 +51,7 @@ else:
 
 
 # ========== SPSS 配置 ==========
-SPSS_EXECUTABLE = os.getenv("SPSS_PATH", r"C:\Program Files\IBM\SPSS\Statistics\29\stats.exe")
+SPSS_EXECUTABLE = os.getenv("SPSS_PATH", r"C:\Program Files\IBM\SPSS\Statistics\29\stats.com")
 
 # SPSS 自带的 Python 3 解释器（用于 spss.Submit() 语法执行）
 # SPSS 26+: Python3/python.exe 在安装目录下
@@ -153,14 +153,9 @@ def delete_api_key() -> dict[str, object]:
 
 
 def check_spss_available() -> bool:
-    """检查本机是否实际可用 SPSS 可执行文件。
+    """Return whether the configured SPSS command executable exists."""
 
-    当 STATS_BACKEND == "python" 时返回 False（用户已选择 Python 后端）。
-    否则检查 SPSS_EXECUTABLE 是否存在。
-    """
-    if STATS_BACKEND == "python":
-        return False  # 用户主动选择 Python，不检查 SPSS
-    return os.path.exists(SPSS_EXECUTABLE)
+    return os.path.isfile(SPSS_EXECUTABLE)
 
 
 def validate():

@@ -61,12 +61,12 @@ def test_spss_availability_respects_backend_and_executable(monkeypatch):
     import snla.config as cfg
 
     monkeypatch.setattr(cfg, "STATS_BACKEND", "spss")
-    monkeypatch.setattr(cfg.os.path, "exists", lambda path: path == cfg.SPSS_EXECUTABLE)
+    monkeypatch.setattr(cfg.os.path, "isfile", lambda path: path == cfg.SPSS_EXECUTABLE)
 
     assert cfg.check_spss_available() is True
 
     monkeypatch.setattr(cfg, "STATS_BACKEND", "python")
-    assert cfg.check_spss_available() is False
+    assert cfg.check_spss_available() is True
 
 
 def test_validate_reports_missing_spss_key_and_insecure_endpoint(monkeypatch):

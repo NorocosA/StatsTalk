@@ -56,3 +56,14 @@ def test_local_analysis_controls_submit_method_roles_and_alpha():
     assert "selection_source: selectionSource" in html
     assert "grouping_variable:" in html
     assert "test_variable:" in html
+
+
+def test_spss_fallback_notice_preserves_preference_and_offers_explicit_switch():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'backendSelect.value = "python"' not in html
+    assert "data.fallback_reason && data.fallback_reason.announce" in html
+    assert "switchBackendToPython" in html
+    assert 'JSON.stringify({STATS_BACKEND: "python"})' in html
+    assert "data.backend_restored" in html
+    assert html.count("showCorrectionChoices(data.correction_choices)") == 2

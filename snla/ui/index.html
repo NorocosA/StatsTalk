@@ -183,8 +183,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
             <input id="s-model" placeholder="deepseek-v4-flash">
             <button id="fetch-models-btn">获取模型列表</button>
             <select id="s-model-select"></select>
+            <label>SPSS 可执行文件</label>
+            <input id="s-spss" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\stats.com">
             <label>SPSS Python 路径</label>
-            <input id="s-spss" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe">
+            <input id="s-spss-python" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe">
             <button id="detect-spss-btn">自动检测</button>
             <select id="s-spss-select"></select>
             <label>统计后端</label>
@@ -287,6 +289,7 @@ let pendingConfirmation = null;
 let availableCapabilities = [];
 let localVariables = [];
 let selectionSource = "user_selection";
+let spssAvailable = false;
 
 // ── DOM ──────────────────────────────────────────────────
 const fileInput = document.getElementById("file-input");
@@ -597,6 +600,7 @@ async function sendMessage() {
                 addMessage("assistant", `<span class="error-msg">分析已取消</span>`);
             } else {
                 addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
+                showCorrectionChoices(data.correction_choices);
             }
             if (data.syntax) {
                 addMessage("assistant", `<span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`);
@@ -698,6 +702,7 @@ glConfirm.addEventListener("click", async () => {
             addAnalysisResult(data);
         } else {
             addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
+            showCorrectionChoices(data.correction_choices);
             if (data.syntax) {
                 addMessage("assistant", `<span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`);
             }
@@ -730,6 +735,7 @@ function removeMessage(id) {
 }
 
 function addAnalysisResult(data) {
+    showBackendOutcome(data);
     let html = "";
 
     // Degradation card (Feature 3)
@@ -799,6 +805,41 @@ function addAnalysisResult(data) {
         lastAnalysis = data.last_analysis;
         updateContextHint();
     }
+}
+
+function showBackendOutcome(data) {
+    const notice = document.getElementById("backend-notice");
+    if (data.fallback_reason && data.fallback_reason.announce) {
+        notice.innerHTML = `${esc(data.fallback_reason.message)} ` +
+            '<span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">检查 SPSS 设置</span> ' +
+            '<span class="notice-link" onclick="switchBackendToPython()">改用 Python 引擎</span>';
+        notice.classList.add("show");
+    } else if (data.backend_restored) {
+        notice.textContent = "已检测到 SPSS，本次分析使用 SPSS 引擎完成。";
+        notice.classList.add("show");
+    }
+}
+
+function showCorrectionChoices(choices) {
+    if (!choices || choices.length === 0) return;
+    const items = choices.map(choice => `<li>${esc(choice)}</li>`).join("");
+    addMessage("assistant", `<ul>${items}</ul>`);
+}
+
+async function switchBackendToPython() {
+    const resp = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({STATS_BACKEND: "python"}),
+    });
+    if (!resp.ok) {
+        const data = await resp.json();
+        return alert(data.message || data.error || "后端设置保存失败");
+    }
+    document.getElementById("s-backend").value = "python";
+    const notice = document.getElementById("backend-notice");
+    notice.textContent = "已将统计后端设置为 Python。";
+    notice.classList.add("show");
 }
 
 function formatExplanation(text) {
@@ -873,9 +914,13 @@ document.getElementById("save-settings").addEventListener("click", async () => {
         LLM_ENDPOINT: document.getElementById("s-endpoint").value,
         LLM_API_KEY: document.getElementById("s-key").value,
         LLM_MODEL: document.getElementById("s-model").value,
-        SPSS_PYTHON_PATH: document.getElementById("s-spss").value,
+        SPSS_PATH: document.getElementById("s-spss").value,
+        SPSS_PYTHON_PATH: document.getElementById("s-spss-python").value,
         STATS_BACKEND: document.getElementById("s-backend").value,
     };
+    if (data.STATS_BACKEND === "spss" && !spssAvailable && !confirm(
+        "当前未检测到 SPSS。若已安装，请确认路径设置正确。仍要保留 SPSS 偏好吗？"
+    )) return;
     try {
         const resp = await apiFetch("/api/settings", {
             method: "POST",
@@ -971,13 +1016,18 @@ document.getElementById("detect-spss-btn").addEventListener("click", async () =>
                 const opt = document.createElement("option");
                 opt.value = c.path;
                 opt.textContent = `SPSS ${c.version} — ${c.path}`;
+                opt.dataset.pythonPath = c.python_path || "";
                 select.appendChild(opt);
             });
             select.style.display = "block";
             if (data.candidates.length === 1) {
                 select.value = data.candidates[0].path;
                 document.getElementById("s-spss").value = data.candidates[0].path;
+                if (data.candidates[0].python_path) {
+                    document.getElementById("s-spss-python").value = data.candidates[0].python_path;
+                }
             }
+            spssAvailable = true;
         } else {
             alert("未检测到 SPSS 安装，请手动输入路径");
         }
@@ -985,7 +1035,12 @@ document.getElementById("detect-spss-btn").addEventListener("click", async () =>
     btn.disabled = false; btn.textContent = "自动检测";
 });
 document.getElementById("s-spss-select").addEventListener("change", (e) => {
-    if (e.target.value) document.getElementById("s-spss").value = e.target.value;
+    if (!e.target.value) return;
+    document.getElementById("s-spss").value = e.target.value;
+    const option = Array.from(e.target.options).find(item => item.value === e.target.value);
+    if (option && option.dataset.pythonPath) {
+        document.getElementById("s-spss-python").value = option.dataset.pythonPath;
+    }
 });
 
 // ── Load saved settings + auto-detect SPSS on startup ────
@@ -1001,7 +1056,8 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
             alert("您的 API Key 已丢失（可能因为系统重装或账户变更）。请重新输入 API Key。");
         }
         if (data.LLM_MODEL) document.getElementById("s-model").value = data.LLM_MODEL;
-        if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss").value = data.SPSS_PYTHON_PATH;
+        if (data.SPSS_PATH) document.getElementById("s-spss").value = data.SPSS_PATH;
+        if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss-python").value = data.SPSS_PYTHON_PATH;
         if (data.STATS_BACKEND) document.getElementById("s-backend").value = data.STATS_BACKEND;
     } catch(e) { /* ignore */ }
 
@@ -1009,6 +1065,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
     try {
         const statusResp = await apiFetch("/api/status");
         const status = await statusResp.json();
+        spssAvailable = Boolean(status.spss_available);
         availableCapabilities = status.capabilities || [];
         populateMethodOptions();
         
@@ -1034,16 +1091,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         const notice = document.getElementById("backend-notice");
         
         if (!status.spss_available && backendSelect.value === "spss") {
-            // SPSS not available but backend is set to SPSS — auto-switch to Python
-            backendSelect.value = "python";
-            const trustedCount = (status.capabilities || []).filter(function(capability) {
-                return capability.backends && capability.backends.python &&
-                    capability.backends.python.validated;
-            }).length;
-            notice.innerHTML = '未检测到 SPSS，已自动切换至 <strong>Python 引擎</strong>。' +
-                'Python 引擎可完成 ' + trustedCount + ' 种常用分析的完整解读（含白话结论）。' +
-                ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
-            notice.classList.add("show");
+            notice.classList.remove("show");
         } else if (!status.spss_available) {
             // Already on Python backend — show brief info
             const trustedCount = (status.capabilities || []).filter(function(capability) {

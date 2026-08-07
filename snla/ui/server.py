@@ -530,6 +530,7 @@ def settings():
                 "LLM_API_KEY_ACTION": api_key_status["action"],
                 "LLM_API_KEY_MESSAGE": api_key_status["message"],
                 "LLM_MODEL": cfg.LLM_MODEL,
+                "SPSS_PATH": cfg.SPSS_EXECUTABLE,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
             }
@@ -601,6 +602,9 @@ def settings():
         if key in data and data[key]:
             setattr(cfg, key, data[key])
             changed.append(key)
+    if data.get("SPSS_PATH"):
+        cfg.SPSS_EXECUTABLE = str(data["SPSS_PATH"])
+        changed.append("SPSS_PATH")
 
     # ── Persist to local .env file (never uploaded) ────────
     if changed:
@@ -630,11 +634,12 @@ def _save_env_file():
         existing = []
 
     managed = {
-        "SPSS_PYTHON_PATH",
-        "LLM_ENDPOINT",
-        "LLM_MODEL",
-        "STATS_BACKEND",
-        "LLM_MOCK",
+        "SPSS_PATH": "SPSS_EXECUTABLE",
+        "SPSS_PYTHON_PATH": "SPSS_PYTHON_PATH",
+        "LLM_ENDPOINT": "LLM_ENDPOINT",
+        "LLM_MODEL": "LLM_MODEL",
+        "STATS_BACKEND": "STATS_BACKEND",
+        "LLM_MOCK": "LLM_MOCK",
     }
     updated = set()
     for line in existing:
@@ -645,7 +650,7 @@ def _save_env_file():
         if "=" in stripped:
             k = stripped.split("=", 1)[0].strip()
             if k in managed:
-                v = getattr(cfg, k, "")
+                v = getattr(cfg, managed[k], "")
                 # Mask sensitive values
                 lines.append(f"{k}={v}")
                 updated.add(k)
@@ -655,8 +660,8 @@ def _save_env_file():
             lines.append(line)
 
     # Append any managed keys not found in existing file
-    for k in managed - updated:
-        v = getattr(cfg, k, "")
+    for k in set(managed) - updated:
+        v = getattr(cfg, managed[k], "")
         if v:
             lines.append(f"{k}={v}")
 
@@ -783,33 +788,46 @@ def list_models():
 # ── SPSS Auto-detect ───────────────────────────────────────────────────
 @app.route("/api/detect-spss")
 def detect_spss():
-    """Auto-detect SPSS Python path by scanning common install locations."""
+    """Detect SPSS executables without inspecting license state."""
 
-    candidates = []
-    # Common SPSS install roots
-    search_roots = [
+    return jsonify({"ok": True, "candidates": _find_spss_candidates()})
+
+
+def _find_spss_candidates(search_roots=None):
+    """Return installed ``stats.com`` commands and optional Python runtimes."""
+
+    roots = search_roots or [
         r"C:\Program Files\IBM\SPSS\Statistics",
         r"C:\Program Files (x86)\IBM\SPSS\Statistics",
     ]
-
-    for root in search_roots:
-        if os.path.isdir(root):
-            try:
-                for entry in os.scandir(root):
-                    if entry.is_dir():
-                        py_path = os.path.join(entry.path, "Python3", "python.exe")
-                        if os.path.isfile(py_path):
-                            candidates.append(
-                                {
-                                    "version": entry.name,
-                                    "path": os.path.abspath(py_path),
-                                }
-                            )
-            except PermissionError:
-                pass
-
+    candidates = []
+    seen = set()
+    for root in roots:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            continue
+        try:
+            version_dirs = [entry for entry in root_path.iterdir() if entry.is_dir()]
+        except PermissionError:
+            continue
+        for version_dir in version_dirs:
+            executable = version_dir / "stats.com"
+            if not executable.is_file():
+                continue
+            normalized = str(executable.resolve()).casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            candidate = {
+                "version": version_dir.name,
+                "path": str(executable.resolve()),
+            }
+            python_path = version_dir / "Python3" / "python.exe"
+            if python_path.is_file():
+                candidate["python_path"] = str(python_path.resolve())
+            candidates.append(candidate)
     candidates.sort(key=lambda c: c["version"], reverse=True)
-    return jsonify({"ok": True, "candidates": candidates})
+    return candidates
 
 
 # ── Export ────────────────────────────────────────────────────────────
@@ -843,6 +861,7 @@ def export():
             explanation=last.get("content", ""),
             data_file=session.dataset_meta.get("filename", ""),
             parameters=last.get("parameters", {}),
+            backend=last.get("backend", ""),
         )
 
         with open(tmp_path, "rb") as f:
