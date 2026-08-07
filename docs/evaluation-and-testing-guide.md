@@ -34,9 +34,12 @@ Use this only when a valid API key is configured:
 
 ```ini
 LLM_MOCK=false
-LLM_API_KEY=...
+LLM_API_KEY_STORAGE=dpapi
 STATS_BACKEND=python
 ```
+
+Enter the API key through the StatsTalk settings panel before running this
+check. Do not place plaintext API keys in `.env`.
 
 Then run:
 
