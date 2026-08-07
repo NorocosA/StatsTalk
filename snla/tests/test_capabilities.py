@@ -50,6 +50,17 @@ def test_backend_support_is_distinct_from_validation_and_fallback_eligibility():
     assert can_fallback_to_python("descriptives") is True
 
 
+def test_capability_backend_lookup_covers_both_engines_and_unknown_names():
+    from snla.capabilities import get_capability
+
+    capability = get_capability("descriptives")
+
+    assert capability is not None
+    assert capability.backend("python") is capability.python
+    assert capability.backend("spss") is capability.spss
+    assert capability.backend("unknown") is None
+
+
 def test_each_public_capability_carries_the_release_decision_contract():
     from snla.capabilities import get_capability, get_public_capabilities
 

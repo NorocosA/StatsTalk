@@ -1,0 +1,31 @@
+# Runtime dependencies. Compile with Python 3.12 for all supported platforms:
+# uv pip compile --python-version 3.12 --universal --generate-hashes requirements.in -o requirements.lock
+
+# Data I/O and statistical engine
+numpy>=1.26,<3
+pandas>=2.2,<3.1
+pingouin>=0.5.5,<0.7
+pyreadstat>=1.2.7,<2
+
+# HTTP API, LLM transport, and configuration
+flask>=3.1,<4
+python-dotenv>=1.0,<2
+requests>=2.32,<3
+waitress>=3.0,<4
+
+# Parsing, export, and MCP
+lxml>=5.3,<7
+mcp>=1.20,<2
+python-docx>=1.1,<2
+pyyaml>=6,<7
+
+# Windows desktop runtime
+clr-loader>=0.2,<1; sys_platform == "win32"
+pythonnet>=3.0,<4; sys_platform == "win32"
+pywebview>=5,<7; sys_platform == "win32"
+
+# Development, CI, and release tooling. Every environment syncs the same lock.
+pyinstaller>=6.12,<7; sys_platform == "win32"
+pytest>=8.3,<10
+pytest-cov>=6,<8
+ruff>=0.11,<0.16

@@ -8,11 +8,11 @@ echo    StatsTalk - Setup
 echo ========================================
 echo.
 
-:: ---- Step 1: Check Python ----
-echo [1/4] Checking Python...
-python --version >nul 2>&1
+:: ---- Step 1: Check Python 3.12 ----
+echo [1/4] Checking Python 3.12...
+python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found. Please install Python 3.10+
+    echo [ERROR] Python 3.12 x64 not found. Please install Python 3.12 x64.
     echo          Download: https://www.python.org/downloads/
     pause
     exit /b 1
@@ -20,23 +20,21 @@ if errorlevel 1 (
 python --version
 echo        OK
 
-:: ---- Step 2: Create venv ----
+:: ---- Step 2: Install uv and create venv ----
 echo.
-echo [2/4] Creating virtual environment...
-if exist "venv\" (
-    echo        venv already exists, skipping
-) else (
-    python -m venv venv
-    echo        venv created
-)
+echo [2/4] Preparing reproducible environment...
+python -m pip install uv==0.10.10 -q
+if errorlevel 1 exit /b 1
+uv venv --python 3.12 .venv
+if errorlevel 1 exit /b 1
 
 :: ---- Step 3: Install dependencies ----
 echo.
 echo [3/4] Installing dependencies...
-call venv\Scripts\activate.bat
-pip install -r requirements.txt -q
+uv pip sync --python .venv\Scripts\python.exe --require-hashes requirements.lock
 if errorlevel 1 (
-    echo [WARNING] Some packages failed to install
+    echo [ERROR] Locked dependency installation failed
+    exit /b 1
 ) else (
     echo        Dependencies installed
 )
@@ -68,7 +66,7 @@ echo   Setup complete! Starting StatsTalk...
 echo ========================================
 echo.
 
-start "" venv\Scripts\python.exe launcher.py
+start "" .venv\Scripts\python.exe launcher.py
 
 echo   StatsTalk will open on a secure random local port.
 echo.

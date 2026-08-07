@@ -251,9 +251,6 @@ class TestPearsonCorrelation:
 
 
 class TestChiSquare:
-    @pytest.mark.xfail(
-        reason="python.py:517 — expected.values().flat TypeError (values is property, not method)"
-    )
     def test_execute_chi_square(self, executor, sample_df):
         """Chi-square test between 'group' and 'category' returns chi2 and p_value."""
         result = executor.execute(
@@ -273,9 +270,6 @@ class TestChiSquare:
         assert "Crosstabulation" in titles
         assert "Chi-Square Tests" in titles
 
-    @pytest.mark.xfail(
-        reason="python.py:517 — expected.values().flat TypeError (values is property, not method)"
-    )
     def test_crosstabs_alias(self, executor, sample_df):
         """'crosstabs' method alias maps to chi_square handler."""
         result = executor.execute("crosstabs", sample_df, grouping_var="group", test_var="category")

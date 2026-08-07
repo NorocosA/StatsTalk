@@ -15,6 +15,15 @@ def _start_test_launch() -> str:
     return loopback_security.begin_launch(TEST_ORIGIN)
 
 
+def test_bootstrap_exchange_before_launch_is_rejected():
+    security = LoopbackSecurity()
+
+    with pytest.raises(BootstrapError) as caught:
+        security.exchange_bootstrap("never-issued")
+
+    assert caught.value.reason == "invalid_bootstrap_token"
+
+
 @pytest.mark.parametrize(
     ("method", "path"),
     (
