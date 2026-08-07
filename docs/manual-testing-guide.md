@@ -16,7 +16,9 @@ API-only alternative:
 python snla/ui/server.py
 ```
 
-Open `http://127.0.0.1:8501`.
+The desktop launcher opens the secure local page automatically on a random loopback
+port. API-only mode prints a one-use bootstrap URL for that launch; do not reuse a URL
+from an earlier process.
 
 ## Demo Data Flow
 

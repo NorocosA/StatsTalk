@@ -3,13 +3,14 @@
 Starts an embedded Flask server, then opens a native desktop window
 via the system WebView (Edge WebView2 on Windows). No browser needed.
 """
-import os
+
+import socket
 import sys
 import threading
 import time
-import socket
 import webbrowser
 
+from snla.ui.launch import prepare_loopback_server
 from snla.ui.server import app as flask_app
 
 
@@ -20,44 +21,45 @@ def _wait_for_port(port: int, timeout: int = 30) -> bool:
             s = socket.create_connection(("127.0.0.1", port), timeout=1)
             s.close()
             return True
-        except (ConnectionRefusedError, socket.timeout, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             time.sleep(0.3)
     return False
 
 
 def main():
-    port = 8501
-    url = f"http://127.0.0.1:{port}"
+    waitress_server, launch = prepare_loopback_server(flask_app)
+    port = int(waitress_server.effective_port)
 
     print("=" * 50)
     print("  StatsTalk")
     print("=" * 50)
-    print(f"  Starting server on port {port}...")
+    print("  Starting secure local server...")
 
     # Start Flask in a daemon thread with waitress (production WSGI)
     def _run_flask():
-        from waitress import serve
-        serve(flask_app, host="127.0.0.1", port=port, threads=4)
+        waitress_server.run()
 
     server_thread = threading.Thread(target=_run_flask, daemon=True)
     server_thread.start()
 
     print("  Waiting for server...")
     if not _wait_for_port(port):
+        waitress_server.close()
         print("  ERROR: Server failed to start within 30 seconds.")
         input("Press Enter to exit...")
         sys.exit(1)
 
-    print(f"  Server ready at {url}")
+    print(f"  Server ready at {launch.origin}")
     print("=" * 50)
 
     # ── PyWebView native window ──────────────────────────────────────
     try:
         import webview
+
         print("  Opening desktop window...")
         webview.create_window(
             "StatsTalk",
-            url,
+            launch.bootstrap_url,
             width=1100,
             height=800,
             min_size=(800, 600),
@@ -67,13 +69,15 @@ def main():
         webview.start()
     except ImportError:
         print("  pywebview not installed. Opening in browser instead...")
-        webbrowser.open(url)
+        webbrowser.open(launch.bootstrap_url)
         print("  Press Ctrl+C to stop.")
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+    finally:
+        waitress_server.close()
 
     print("Goodbye.")
 
