@@ -53,6 +53,11 @@ class AnalysisRequest:
     dataset_meta: dict[str, Any]
     last_analysis: dict[str, Any] | None = None
     confirm_greylist: bool = False
+    method: str | None = None
+    grouping_variable: str | None = None
+    test_variable: str | None = None
+    alpha: float = 0.05
+    selection_source: str = "planner"
 
 
 @dataclass(frozen=True)
@@ -204,6 +209,8 @@ class AnalysisSuccess:
     warning: str | None = None
     degradation: dict[str, Any] | None = None
     temp_copy: bool = False
+    parameters: dict[str, Any] | None = None
+    selection_source: str = "planner"
 
     def to_payload(self) -> dict[str, Any]:
         result = analysis_result_to_dict(self.result)
@@ -219,6 +226,8 @@ class AnalysisSuccess:
             "explanation": self.explanation,
             "markdown": _render_markdown(self.method, result, self.explanation),
             "limited_mode": self.limited_mode,
+            "parameters": self.parameters or {},
+            "selection_source": self.selection_source,
             "degradation": self.degradation,
             "last_analysis": {
                 "method": self.method,
@@ -309,6 +318,17 @@ class AnalysisService:
                 suggestion="例如：比较男女成绩差异，或对成绩做描述统计。",
                 http_status=400,
             )
+        if not 0 < request.alpha < 1:
+            return _failure(
+                request_id=request_id,
+                started_at=started_at,
+                preferred_backend=preferred_backend,
+                category="user",
+                user_message="显著性水平必须大于 0 且小于 1。",
+                code="INVALID_ALPHA",
+                suggestion="常用值为 0.05 或 0.01。",
+                http_status=400,
+            )
         if not request.variables or not request.dataset_meta.get("file_path"):
             return _failure(
                 request_id=request_id,
@@ -320,7 +340,20 @@ class AnalysisService:
                 suggestion="上传 .sav 或 .csv 文件后重试。",
                 http_status=400,
             )
-        if plan_override is None:
+        if plan_override is not None:
+            plan = plan_override
+        elif request.method:
+            plan = PlanResult(
+                method=request.method,
+                plan_explanation=(
+                    "本地建议，已由用户确认。"
+                    if request.selection_source == "local_suggestion"
+                    else "用户通过结构化控件选择。"
+                ),
+                grouping_variable=request.grouping_variable,
+                test_variable=request.test_variable,
+            )
+        else:
             try:
                 plan = self._planner.plan(
                     request.session_id,
@@ -339,8 +372,9 @@ class AnalysisService:
                     code="PLANNING_FAILED",
                     suggestion="请更具体地描述分析目标和变量。",
                 )
-        else:
-            plan = plan_override
+        selection_source = request.selection_source
+        if selection_source == "planner" and plan.plan_explanation.startswith("本地建议："):
+            selection_source = "local_suggestion"
         capability = get_capability(plan.method)
         if capability is None:
             return _failure(
@@ -617,7 +651,7 @@ class AnalysisService:
             )
         else:
             try:
-                explanation = _explain_result(result)
+                explanation = _explain_result(result, request.alpha)
             except Exception:
                 return _failure(
                     request_id=request_id,
@@ -641,6 +675,8 @@ class AnalysisService:
             limited_mode=limited_mode,
             warning=warning,
             temp_copy=temp_copy,
+            parameters={"alpha": request.alpha},
+            selection_source=selection_source,
             audit=AnalysisAudit(
                 request_id=request_id,
                 started_at=started_at,
@@ -961,7 +997,7 @@ def _parse_execution(execution: Any, method: str) -> AnalysisResult:
     )
 
 
-def _explain_result(result: AnalysisResult) -> str:
+def _explain_result(result: AnalysisResult, alpha: float = 0.05) -> str:
     from snla import config
     from snla.explainer.naturalize import explain
 
@@ -969,8 +1005,8 @@ def _explain_result(result: AnalysisResult) -> str:
     if use_llm:
         from snla.llm.client import LLMClient
 
-        return explain(result, use_llm_polish=True, llm_client=LLMClient())
-    return explain(result, use_llm_polish=False)
+        return explain(result, use_llm_polish=True, llm_client=LLMClient(), alpha=alpha)
+    return explain(result, use_llm_polish=False, alpha=alpha)
 
 
 def _now() -> str:

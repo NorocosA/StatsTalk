@@ -17,6 +17,7 @@ def export_to_docx(
     explanation: str,
     data_file: str = "",
     export_apa: bool = True,
+    parameters: dict[str, Any] | None = None,
 ) -> str:
     """Generate a Word report and return the absolute output path."""
     from docx import Document
@@ -43,6 +44,8 @@ def export_to_docx(
 
     doc.add_heading("2. 统计方法", level=1)
     doc.add_paragraph(f"推荐方法: {_method_label(method)}")
+    if parameters and parameters.get("alpha") is not None:
+        doc.add_paragraph(f"显著性水平: α = {parameters['alpha']:g}")
     if result.n_valid:
         doc.add_paragraph(f"有效样本量: N = {result.n_valid}")
 

@@ -28,6 +28,31 @@ def test_filter_cloud_safe():
     )
 
 
+def test_filter_cloud_derives_role_type_without_exposing_value_labels():
+    metadata = {
+        "variables": [
+            {
+                "name": "group",
+                "type": "Numeric",
+                "label": "Group",
+                "value_labels": {1: "Control", 2: "Treatment"},
+            },
+            {
+                "name": "score",
+                "type": "Numeric",
+                "label": "Score",
+                "value_labels": None,
+            },
+        ]
+    }
+
+    variables = filter_for_cloud(metadata)["variables"]
+
+    assert variables[0]["role_type"] == "categorical"
+    assert variables[1]["role_type"] == "continuous"
+    assert all("value_labels" not in variable for variable in variables)
+
+
 # ── Sensitive variable desensitization ──────────────────────────────────────
 
 

@@ -84,6 +84,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #context-hint { display: none; padding: 8px 24px; background: #ecf5ff; border-top: 1px solid #d9ecff; border-bottom: 1px solid #d9ecff; font-size: 13px; color: #409eff; }
 
 /* Input area */
+#analysis-controls { display: none; padding: 10px 24px; background: #fff; border-top: 1px solid #e4e7ed; gap: 10px; align-items: end; grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 1fr) minmax(130px, 1fr) 92px auto; }
+#analysis-controls.show { display: grid; }
+.analysis-control { min-width: 0; }
+.analysis-control label { display: block; color: #606266; font-size: 12px; margin-bottom: 4px; }
+.analysis-control select, .analysis-control input { width: 100%; height: 34px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; padding: 0 8px; font-size: 13px; }
+#local-suggest-btn { height: 34px; padding: 0 14px; border: 1px solid #409eff; border-radius: 4px; background: #fff; color: #337ecc; cursor: pointer; }
+#local-suggest-btn:disabled { border-color: #c0c4cc; color: #909399; cursor: not-allowed; }
+#suggestion-source { min-height: 18px; padding: 0 24px 6px; background: #fff; color: #39751e; font-size: 12px; }
 #input-area { padding: 16px 24px; background: #fff; border-top: 1px solid #e4e7ed; display: flex; gap: 10px; }
 #user-input { flex: 1; padding: 10px 16px; border: 1px solid #dcdfe6; border-radius: 20px; font-size: 14px; outline: none; }
 #user-input:focus { border-color: #409eff; }
@@ -91,6 +99,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #send-btn { width: 44px; height: 44px; background: #409eff; color: #fff; border: none; border-radius: 50%; cursor: pointer; font-size: 18px; flex-shrink: 0; }
 #send-btn:hover { background: #337ecc; }
 #send-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+@media (max-width: 900px) {
+    #analysis-controls { grid-template-columns: 1fr 1fr; }
+    #local-suggest-btn { width: 100%; }
+}
 
 .status { text-align: center; color: #909399; font-size: 13px; padding: 10px; }
 
@@ -221,6 +233,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     </div>
     <div id="context-hint"></div>
     <div id="backend-notice"></div>
+    <div id="analysis-controls">
+        <div class="analysis-control">
+            <label for="method-select">分析方法</label>
+            <select id="method-select"></select>
+        </div>
+        <div class="analysis-control" id="first-role-control">
+            <label for="first-variable-select" id="first-role-label">变量 1</label>
+            <select id="first-variable-select"></select>
+        </div>
+        <div class="analysis-control" id="second-role-control">
+            <label for="second-variable-select" id="second-role-label">变量 2</label>
+            <select id="second-variable-select"></select>
+        </div>
+        <div class="analysis-control">
+            <label for="alpha-input">显著性水平</label>
+            <input id="alpha-input" type="number" value="0.05" min="0.001" max="0.2" step="0.01">
+        </div>
+        <button id="local-suggest-btn" type="button">本地建议</button>
+    </div>
+    <div id="suggestion-source" role="status"></div>
     <div id="input-area">
         <input id="user-input" type="text" placeholder="输入你的分析需求，例如：比较男女成绩差异" disabled>
         <button id="send-btn">→</button>
@@ -252,6 +284,9 @@ let isExecuting = false;
 let lastUserInput = "";
 let lastAnalysis = null;
 let pendingConfirmation = null;
+let availableCapabilities = [];
+let localVariables = [];
+let selectionSource = "user_selection";
 
 // ── DOM ──────────────────────────────────────────────────
 const fileInput = document.getElementById("file-input");
@@ -276,6 +311,17 @@ const glOptions = document.getElementById("gl-options");
 const glCancel = document.getElementById("gl-cancel");
 const glConfirm = document.getElementById("gl-confirm");
 const welcomeSection = document.getElementById("welcome-section");
+const analysisControls = document.getElementById("analysis-controls");
+const methodSelect = document.getElementById("method-select");
+const firstRoleControl = document.getElementById("first-role-control");
+const secondRoleControl = document.getElementById("second-role-control");
+const firstRoleLabel = document.getElementById("first-role-label");
+const secondRoleLabel = document.getElementById("second-role-label");
+const firstVariableSelect = document.getElementById("first-variable-select");
+const secondVariableSelect = document.getElementById("second-variable-select");
+const alphaInput = document.getElementById("alpha-input");
+const localSuggestBtn = document.getElementById("local-suggest-btn");
+const suggestionSource = document.getElementById("suggestion-source");
 
 // ── Per-launch authentication ───────────────────────────
 const SESSION_TOKEN_KEY = "statstalk.session-token";
@@ -361,6 +407,9 @@ async function uploadFile() {
 
 // ── Variables ─────────────────────────────────────────────
 function renderVariables(vars, rows) {
+    localVariables = vars;
+    selectionSource = "user_selection";
+    suggestionSource.textContent = "";
     varSection.style.display = "block";
     rowCount.textContent = `(${rows} 条记录)`;
     varList.innerHTML = vars.map(v => `
@@ -369,7 +418,110 @@ function renderVariables(vars, rows) {
             <span class="var-type">${esc(v.type)}</span>
         </div>
     `).join("");
+    analysisControls.classList.add("show");
+    populateMethodOptions();
 }
+
+const roleLabels = {
+    grouping_variable: "分组变量",
+    test_variable: "检验变量",
+    first_variable: "变量 1",
+    second_variable: "变量 2",
+    dependent_variable: "因变量",
+    independent_variable: "自变量",
+    row_variable: "行变量",
+    column_variable: "列变量",
+    variable: "分析变量",
+};
+
+function selectedCapability() {
+    return availableCapabilities.find(item => item.name === methodSelect.value) || null;
+}
+
+function populateMethodOptions() {
+    if (!availableCapabilities.length || !localVariables.length) return;
+    const previous = methodSelect.value;
+    methodSelect.innerHTML = availableCapabilities.map(item => {
+        const label = item.display_name && item.display_name.zh ? item.display_name.zh : item.name;
+        return `<option value="${esc(item.name)}">${esc(label)}</option>`;
+    }).join("");
+    methodSelect.value = availableCapabilities.some(item => item.name === previous)
+        ? previous
+        : "descriptives";
+    updateRoleControls();
+}
+
+function roleAcceptsVariable(role, variable, method) {
+    const categorical = variable.role_type === "categorical";
+    const continuous = variable.role_type === "continuous";
+    if (["grouping_variable", "row_variable", "column_variable"].includes(role)) return categorical;
+    if (["test_variable", "first_variable", "second_variable", "dependent_variable", "independent_variable"].includes(role)) return continuous;
+    if (role === "variable" && method === "descriptives") return continuous;
+    return true;
+}
+
+function fillVariableSelect(select, role, preferred, method) {
+    const compatible = localVariables.filter(variable => roleAcceptsVariable(role, variable, method));
+    select.innerHTML = compatible.map(variable => (
+        `<option value="${esc(variable.name)}">${esc(variable.label || variable.name)}</option>`
+    )).join("");
+    if (preferred && compatible.some(variable => variable.name === preferred)) {
+        select.value = preferred;
+    }
+}
+
+function updateRoleControls(firstPreferred = null, secondPreferred = null) {
+    const capability = selectedCapability();
+    if (!capability) return;
+    const roles = capability.requirements.variable_roles || [];
+    const firstRole = roles[0];
+    const secondRole = roles[1];
+    firstRoleControl.style.display = firstRole ? "block" : "none";
+    secondRoleControl.style.display = secondRole ? "block" : "none";
+    if (firstRole) {
+        firstRoleLabel.textContent = roleLabels[firstRole] || firstRole;
+        fillVariableSelect(firstVariableSelect, firstRole, firstPreferred, capability.name);
+    }
+    if (secondRole) {
+        secondRoleLabel.textContent = roleLabels[secondRole] || secondRole;
+        fillVariableSelect(secondVariableSelect, secondRole, secondPreferred, capability.name);
+    }
+}
+
+function markUserSelection() {
+    selectionSource = "user_selection";
+    suggestionSource.textContent = "";
+}
+
+methodSelect.addEventListener("change", () => {
+    updateRoleControls();
+    markUserSelection();
+});
+firstVariableSelect.addEventListener("change", markUserSelection);
+secondVariableSelect.addEventListener("change", markUserSelection);
+alphaInput.addEventListener("change", markUserSelection);
+
+localSuggestBtn.addEventListener("click", async () => {
+    if (!hasData) return;
+    localSuggestBtn.disabled = true;
+    try {
+        const resp = await apiFetch("/api/suggest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: userInput.value.trim() }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "无法生成本地建议");
+        methodSelect.value = data.method;
+        updateRoleControls(data.grouping_variable, data.test_variable);
+        selectionSource = "local_suggestion";
+        suggestionSource.textContent = data.label;
+    } catch (e) {
+        suggestionSource.textContent = e.message;
+    } finally {
+        localSuggestBtn.disabled = false;
+    }
+});
 
 // ── Stop ─────────────────────────────────────────────────
 stopBtn.addEventListener("click", stopExecution);
@@ -389,6 +541,11 @@ function setExecuting(executing) {
     stopBtn.style.display = executing ? "inline-block" : "none";
     userInput.disabled = executing;
     sendBtn.disabled = executing;
+    methodSelect.disabled = executing;
+    firstVariableSelect.disabled = executing;
+    secondVariableSelect.disabled = executing;
+    alphaInput.disabled = executing;
+    localSuggestBtn.disabled = executing;
 }
 
 // ── Send ─────────────────────────────────────────────────
@@ -396,8 +553,18 @@ sendBtn.addEventListener("click", sendMessage);
 userInput.addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
 
 async function sendMessage() {
-    const text = userInput.value.trim();
-    if (!text || !hasData) return;
+    if (!hasData) return;
+    const capability = selectedCapability();
+    if (!capability) return;
+    const text = userInput.value.trim() || `运行 ${capability.name}`;
+    const roles = capability.requirements.variable_roles || [];
+    const structuredSelection = {
+        method: capability.name,
+        grouping_variable: roles.length > 1 ? firstVariableSelect.value : null,
+        test_variable: roles.length > 1 ? secondVariableSelect.value : firstVariableSelect.value,
+        alpha: Number(alphaInput.value),
+        selection_source: selectionSource,
+    };
 
     lastUserInput = text;
     addMessage("user", text);
@@ -410,7 +577,7 @@ async function sendMessage() {
         const resp = await apiFetch("/api/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({ text, ...structuredSelection }),
         });
         const data = await resp.json();
         removeMessage(loadingId);
@@ -842,6 +1009,8 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
     try {
         const statusResp = await apiFetch("/api/status");
         const status = await statusResp.json();
+        availableCapabilities = status.capabilities || [];
+        populateMethodOptions();
         
         // Note: session persistence restores data for backend use,
         // but UI waits for explicit user upload or Demo click.

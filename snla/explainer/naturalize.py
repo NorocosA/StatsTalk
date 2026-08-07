@@ -36,7 +36,7 @@ from snla.parser.schema import AnalysisResult
 # ===========================================================================
 
 
-def apply_constraints(analysis_result: AnalysisResult) -> dict[str, Any]:
+def apply_constraints(analysis_result: AnalysisResult, alpha: float = 0.05) -> dict[str, Any]:
     """Apply statistical constraint rules to parsed analysis results.
 
     THIS RUNS BEFORE ANY LLM POLISH. The rules are non-negotiable.
@@ -70,7 +70,7 @@ def apply_constraints(analysis_result: AnalysisResult) -> dict[str, Any]:
     if p_value is None and analysis_type in ("DESCRIPTIVES", "FREQUENCIES"):
         significance, forced_phrase = "DESCRIPTIVE", _build_descriptive_phrase(stats)
     else:
-        significance, forced_phrase = _interpret_p_value(p_value)
+        significance, forced_phrase = _interpret_p_value(p_value, alpha=alpha)
 
     # 2. Effect size (Cohen's d)
     effect_size_desc = _interpret_effect_size(d_value)
@@ -95,6 +95,7 @@ def apply_constraints(analysis_result: AnalysisResult) -> dict[str, Any]:
         "effect_size_desc": effect_size_desc,
         "details": details,
         "forbidden_phrases": forbidden_phrases,
+        "alpha": alpha,
     }
 
 
@@ -123,6 +124,7 @@ def explain_template(
     forced_phrase = constraints["forced_phrase"]
     effect_size_desc = constraints["effect_size_desc"]
     details = constraints["details"]
+    alpha = constraints.get("alpha", 0.05)
 
     type_label = _analysis_type_label(analysis_type)
 
@@ -171,9 +173,9 @@ def explain_template(
     # p-value in its natural-language message.
     if p_value is not None and significance != "EDGE_SIGNIFICANT":
         if significance == "SIGNIFICANT":
-            stat_items.append((f"p={p_value:.3f}<0.05", ""))
+            stat_items.append((f"p={p_value:.3f}≤{alpha:g}", ""))
         elif significance == "NOT_SIG":
-            stat_items.append((f"p={p_value:.3f}>0.05", ""))
+            stat_items.append((f"p={p_value:.3f}>{alpha:g}", ""))
         else:
             stat_items.append((f"p={p_value:.3f}", ""))
 
@@ -231,6 +233,19 @@ def explain_template(
             )
         else:
             sentences.append("但该差异未达统计学显著水平。")
+
+    if significance == "DESCRIPTIVE":
+        sentences.append("描述统计只概括当前样本，不能单独用于推断总体或因果关系。")
+    elif analysis_type.upper() in {
+        "CORRELATION",
+        "CORRELATIONS",
+        "NONPAR CORR",
+        "REGRESSION",
+        "LINEAR REGRESSION",
+    }:
+        sentences.append("统计关联不等于因果关系，解读时还需考虑样本与方法假设。")
+    else:
+        sentences.append("解读时还需结合样本代表性、异常值和方法假设。")
 
     return "".join(sentences)
 
@@ -333,6 +348,7 @@ def explain(
     analysis_result: AnalysisResult,
     use_llm_polish: bool = False,
     llm_client: LLMClient | None = None,
+    alpha: float = 0.05,
 ) -> str:
     """Generate a natural-language explanation for analysis results.
 
@@ -353,7 +369,7 @@ def explain(
         Chinese explanation string.
     """
     # Step 1: Always apply constraints first (NON-NEGOTIABLE)
-    constraints = apply_constraints(analysis_result)
+    constraints = apply_constraints(analysis_result, alpha=alpha)
 
     # Step 2: Optional LLM polish
     if use_llm_polish and llm_client is not None:
@@ -396,7 +412,7 @@ def _build_descriptive_phrase(stats: dict[str, Any]) -> str:
     return "已完成描述性统计"
 
 
-def _interpret_p_value(p_value: float | None) -> tuple[str, str]:
+def _interpret_p_value(p_value: float | None, alpha: float = 0.05) -> tuple[str, str]:
     """Return ``(significance_level, forced_phrase)`` based on *p_value*.
 
     Boundary rules (Plan.md §3.10):
@@ -421,9 +437,9 @@ def _interpret_p_value(p_value: float | None) -> tuple[str, str]:
     """
     if p_value is None:
         return ("UNKNOWN", "无法判断显著性（p值缺失）")
-    if p_value <= 0.05:
+    if p_value <= alpha:
         return ("SIGNIFICANT", "存在统计学上的显著差异/关系")
-    if p_value < 0.10:
+    if p_value < min(alpha * 2, 1):
         return (
             "EDGE_SIGNIFICANT",
             f"未达统计学显著水平，但接近边缘显著（p={p_value:.3f}），建议增加样本量后再次检验",

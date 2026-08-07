@@ -186,6 +186,7 @@ def test_cloud_safe_fields_definition():
     assert "name" in CLOUD_SAFE_FIELDS
     assert "type" in CLOUD_SAFE_FIELDS
     assert "label" in CLOUD_SAFE_FIELDS
+    assert "role_type" in CLOUD_SAFE_FIELDS
     # value_labels intentionally excluded — contains actual value mappings
     # like {1:"Male"} that could leak private information to cloud LLM
     assert "value_labels" not in CLOUD_SAFE_FIELDS

@@ -39,3 +39,20 @@ def test_method_correction_modal_requires_an_explicit_accept_or_reject():
     assert 'decision: "accept"' in html
     assert 'decision: "reject"' in html
     assert "correction_id" in html
+
+
+def test_local_analysis_controls_submit_method_roles_and_alpha():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    for control_id in (
+        "method-select",
+        "first-variable-select",
+        "second-variable-select",
+        "alpha-input",
+        "local-suggest-btn",
+    ):
+        assert f'id="{control_id}"' in html
+    assert 'apiFetch("/api/suggest"' in html
+    assert "selection_source: selectionSource" in html
+    assert "grouping_variable:" in html
+    assert "test_variable:" in html
