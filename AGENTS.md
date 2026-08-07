@@ -109,3 +109,19 @@ LLM_MOCK=true
 4. Only variable structure should be sent to LLMs; raw data stays local.
 5. Greylisted mutating operations must require confirmation and run on a temporary copy.
 6. Keep the package name `snla`; StatsTalk is the user-facing brand.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `NorocosA/StatsTalk`.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical triage labels defined in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+StatsTalk uses a single domain context rooted at `CONTEXT.md`, with
+architectural decisions under `docs/adr/`. See `docs/agents/domain.md`.
