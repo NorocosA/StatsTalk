@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 import pytest
 
+from snla.ui.security import loopback_security
 from snla.ui.server import app, planner, session
 
 # ===========================================================================
@@ -35,6 +36,12 @@ def client():
     """Flask test client configured for testing."""
     app.config["TESTING"] = True
     with app.test_client() as c:
+        bootstrap_token = loopback_security.begin_launch("http://127.0.0.1:43125")
+        bootstrap = c.post(
+            "/api/bootstrap",
+            json={"bootstrap_token": bootstrap_token},
+        )
+        c.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {bootstrap.get_json()['session_token']}"
         yield c
 
 

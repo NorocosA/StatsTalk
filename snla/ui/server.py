@@ -44,6 +44,7 @@ from snla.ui._pipeline import (
     _prepare_syntax,
     _run_python_backend,
 )
+from snla.ui.security import BootstrapError, loopback_security
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,60 @@ if not logging.getLogger().hasHandlers():
     )
 
 app = Flask(__name__, static_folder=None)
+
+
+@app.before_request
+def _require_api_authentication():
+    """Reject unauthenticated control-plane requests by default."""
+
+    if not request.path.startswith("/api/"):
+        return None
+
+    if not loopback_security.is_origin_allowed(request.headers.get("Origin")):
+        return jsonify(
+            {
+                "error": "cross_origin_request",
+                "reason": "origin_not_allowed",
+            }
+        ), 403
+
+    if request.method == "OPTIONS":
+        return "", 204
+
+    if request.path == "/api/bootstrap":
+        return None
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return jsonify(
+            {
+                "error": "authentication_required",
+                "reason": "missing_token",
+            }
+        ), 401
+
+    failure_reason = loopback_security.validate_session(authorization.removeprefix("Bearer "))
+    if failure_reason is not None:
+        return jsonify(
+            {
+                "error": "authentication_required",
+                "reason": failure_reason,
+            }
+        ), 401
+
+    return None
+
+
+@app.after_request
+def _add_exact_origin_cors(response):
+    origin = request.headers.get("Origin")
+    if origin is not None and loopback_security.is_origin_allowed(origin):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers.add("Vary", "Origin")
+    return response
+
 
 # ── Upload limits ────────────────────────────────────────────────────
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB
@@ -81,19 +136,22 @@ _was_cancelled: bool = False  # True when user requested cancellation
 _rate_limit_store: dict[str, list[float]] = {}
 
 
-# ── CORS for local WebView ────────────────────────────────────────────
-@app.after_request
-def _cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    return response
-
-
 # ── Static frontend ───────────────────────────────────────────────────
 @app.route("/")
 def index():
     return send_from_directory(str(UI_DIR), "index.html")
+
+
+@app.route("/api/bootstrap", methods=["POST"])
+def bootstrap():
+    """Exchange the one-time launch credential for a session token."""
+
+    data = request.get_json(silent=True) or {}
+    try:
+        session_token = loopback_security.exchange_bootstrap(str(data.get("bootstrap_token", "")))
+    except BootstrapError as exc:
+        return jsonify({"error": "bootstrap_failed", "reason": exc.reason}), 401
+    return jsonify({"ok": True, "session_token": session_token})
 
 
 # ── Health ────────────────────────────────────────────────────────────
@@ -592,7 +650,8 @@ def settings():
         return jsonify(
             {
                 "LLM_ENDPOINT": cfg.LLM_ENDPOINT,
-                "LLM_API_KEY": cfg.LLM_API_KEY,
+                "LLM_API_KEY": "",
+                "LLM_API_KEY_CONFIGURED": bool(cfg.LLM_API_KEY),
                 "LLM_MODEL": cfg.LLM_MODEL,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
@@ -849,6 +908,8 @@ def export():
 
 # ── Main ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    from waitress import serve
+    from snla.ui.launch import prepare_loopback_server
 
-    serve(app, host="127.0.0.1", port=8501, threads=4)
+    waitress_server, launch = prepare_loopback_server(app)
+    print(f"StatsTalk API bootstrap URL (one use only): {launch.bootstrap_url}")
+    waitress_server.run()

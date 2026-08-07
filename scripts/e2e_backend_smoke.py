@@ -15,12 +15,12 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 
@@ -64,31 +64,46 @@ SMOKE_CASES = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-BASE_URL = "http://127.0.0.1:8501"
+BASE_URL = ""
+HTTP_SESSION = requests.Session()
 TEST_DATA = PROJECT_ROOT / "data" / "fixtures" / "test_data.sav"
 
 
 def start_server():
     """Start the Flask server in a background thread."""
-    _original_cwd = os.getcwd()
+    global BASE_URL
+
     os.chdir(PROJECT_ROOT)
     os.environ["LLM_MOCK"] = "true"
 
+    from snla.ui.launch import prepare_loopback_server
     from snla.ui.server import app
 
+    waitress_server, launch = prepare_loopback_server(app)
+    BASE_URL = launch.origin
+
     def _run():
-        app.run(host="127.0.0.1", port=8501, debug=False, use_reloader=False)
+        waitress_server.run()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    time.sleep(2.0)  # Wait for server to start
-    return t
+    time.sleep(1.0)
+
+    bootstrap_token = parse_qs(urlsplit(launch.bootstrap_url).query)["bootstrap_token"][0]
+    bootstrap = HTTP_SESSION.post(
+        f"{BASE_URL}/api/bootstrap",
+        json={"bootstrap_token": bootstrap_token},
+        timeout=10,
+    )
+    bootstrap.raise_for_status()
+    HTTP_SESSION.headers["Authorization"] = f"Bearer {bootstrap.json()['session_token']}"
+    return t, waitress_server
 
 
 def upload_file() -> bool:
     """Upload test_data.sav to the server."""
     with open(TEST_DATA, "rb") as f:
-        resp = requests.post(
+        resp = HTTP_SESSION.post(
             f"{BASE_URL}/api/upload",
             files={"file": ("test_data.sav", f, "application/octet-stream")},
         )
@@ -113,7 +128,7 @@ def run_analysis(text: str, backend: str) -> dict | None:
     try:
         # Directly monkey-patch to test both paths
         cfg.STATS_BACKEND = backend
-        resp = requests.post(
+        resp = HTTP_SESSION.post(
             f"{BASE_URL}/api/analyze",
             json={"text": text},
             timeout=120,
@@ -125,7 +140,7 @@ def run_analysis(text: str, backend: str) -> dict | None:
 
 def check_status() -> dict:
     """Check /api/status endpoint."""
-    resp = requests.get(f"{BASE_URL}/api/status")
+    resp = HTTP_SESSION.get(f"{BASE_URL}/api/status")
     return resp.json()
 
 
@@ -149,7 +164,7 @@ def compare_results(spss_result: dict, py_result: dict, case_id: str) -> None:
         status = "CONFLICT" if conflict else "OK"
         print(f"  [{status}] {case_id}: SPSS p={spss_p:.4f}, Python p={py_p:.4f} (diff={diff:.4f})")
         if diff > 0.01:
-            print(f"         WARNING: p-value difference exceeds 0.01 threshold")
+            print("         WARNING: p-value difference exceeds 0.01 threshold")
     else:
         spss_str = f"p={spss_p:.4f}" if spss_p is not None else "N/A"
         py_str = f"p={py_p:.4f}" if py_p is not None else "N/A"
@@ -178,7 +193,7 @@ def main():
 
     # 1. Start server
     print("\n[1/4] Starting Flask server...")
-    server_thread = start_server()
+    server_thread, waitress_server = start_server()
 
     try:
         # 2. Check status
@@ -205,7 +220,7 @@ def main():
             print(f'\n  --- {cid}: "{text}" ---')
 
             if args.backend in ("spss", "both"):
-                print(f"  [SPSS backend]")
+                print("  [SPSS backend]")
                 spss_result = run_analysis(text, "spss")
                 if spss_result and spss_result.get("ok"):
                     method = spss_result.get("method", "?")
@@ -223,7 +238,7 @@ def main():
                 time.sleep(1.0)
 
             if args.backend in ("python", "both"):
-                print(f"  [Python backend]")
+                print("  [Python backend]")
                 py_result = run_analysis(text, "python")
                 if py_result and py_result.get("ok"):
                     method = py_result.get("method", "?")
@@ -242,13 +257,17 @@ def main():
                     failed += 1
 
             # Compare if both backends ran
-            if args.backend == "both" and spss_result and py_result:
-                if spss_result.get("ok") and py_result.get("ok"):
-                    compare_results(spss_result, py_result, cid)
+            if (
+                args.backend == "both"
+                and spss_result
+                and py_result
+                and spss_result.get("ok")
+                and py_result.get("ok")
+            ):
+                compare_results(spss_result, py_result, cid)
 
     finally:
-        # Cleanup — server thread is daemon, will exit with process
-        pass
+        waitress_server.close()
 
     print("\n" + "=" * 60)
     print(f"Results: {passed} passed, {failed} failed")
