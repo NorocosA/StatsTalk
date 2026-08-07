@@ -6,6 +6,7 @@ import ctypes
 import os
 import tempfile
 from collections.abc import Callable
+from contextlib import suppress
 from ctypes import wintypes
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -351,7 +352,7 @@ class ApiKeyService:
     def _snapshot_file(path: Path) -> _FileSnapshot:
         try:
             return _FileSnapshot(existed=True, contents=path.read_bytes())
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             return _FileSnapshot(existed=False)
 
     @staticmethod
@@ -359,7 +360,8 @@ class ApiKeyService:
         if snapshot.existed:
             _atomic_write_bytes(path, snapshot.contents)
         else:
-            path.unlink(missing_ok=True)
+            with suppress(FileNotFoundError, NotADirectoryError):
+                path.unlink(missing_ok=True)
 
     def _persist_verified(self, api_key: str) -> None:
         try:

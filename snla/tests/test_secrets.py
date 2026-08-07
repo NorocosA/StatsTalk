@@ -134,6 +134,21 @@ def test_migration_write_failure_preserves_legacy_plaintext(tmp_path):
     assert env_path.read_text(encoding="utf-8") == original_config
 
 
+def test_transaction_helpers_treat_invalid_parent_as_missing():
+    from unittest.mock import Mock
+
+    from snla.secrets import ApiKeyService
+
+    invalid_path = Mock()
+    invalid_path.read_bytes.side_effect = NotADirectoryError
+    snapshot = ApiKeyService._snapshot_file(invalid_path)
+
+    assert snapshot.existed is False
+
+    invalid_path.unlink.side_effect = NotADirectoryError
+    ApiKeyService._restore_file(invalid_path, snapshot)
+
+
 def test_migration_config_write_failure_restores_previous_ciphertext(
     tmp_path,
     monkeypatch,
