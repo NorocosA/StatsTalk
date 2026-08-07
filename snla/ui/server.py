@@ -40,6 +40,7 @@ from snla.llm.transport import (
     require_secure_llm_endpoint,
 )
 from snla.orchestrator import planner as planner
+from snla.secrets import SecretProtectionError
 from snla.session import SessionState
 from snla.trust import get_trusted_methods, trust_loaded_from
 from snla.ui._helpers import (
@@ -166,6 +167,7 @@ def status():
             "executing": analysis_service.is_active("default"),
             "spss_available": _spss_available(),
             "current_backend": cfg.STATS_BACKEND,
+            "api_key_status": cfg.api_key_public_status(),
             "capabilities": get_public_capabilities_payload(),
             "trusted_methods": list(get_trusted_methods()),
             "trust_source": trust_loaded_from(),
@@ -421,7 +423,7 @@ def startup_warnings():
                     "action": None,
                 }
             )
-        elif "LLM_API_KEY" in w:
+        elif "LLM_API_KEY" in w or "API key" in w or "API Key" in w:
             guidance.append(
                 {
                     "level": "warning",
@@ -454,15 +456,20 @@ def startup_warnings():
 # ── Settings ──────────────────────────────────────────────────────────
 @app.route("/api/settings", methods=["GET", "POST"])
 def settings():
-    """GET: return current settings.  POST: update + persist to .env."""
+    """Read settings or update them without exposing API-key material."""
     if request.method == "GET":
         import snla.config as cfg
 
+        api_key_status = cfg.api_key_public_status()
         return jsonify(
             {
                 "LLM_ENDPOINT": cfg.LLM_ENDPOINT,
                 "LLM_API_KEY": "",
-                "LLM_API_KEY_CONFIGURED": bool(cfg.LLM_API_KEY),
+                "LLM_API_KEY_CONFIGURED": api_key_status["configured"],
+                "LLM_API_KEY_STATE": api_key_status["state"],
+                "LLM_CLOUD_AVAILABLE": api_key_status["cloud_available"],
+                "LLM_API_KEY_ACTION": api_key_status["action"],
+                "LLM_API_KEY_MESSAGE": api_key_status["message"],
                 "LLM_MODEL": cfg.LLM_MODEL,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
@@ -487,9 +494,51 @@ def settings():
             ), 400
 
     changed = []
+    if data.get("DELETE_LLM_API_KEY") is True:
+        try:
+            cfg.delete_api_key()
+        except (OSError, SecretProtectionError):
+            return jsonify(
+                {
+                    "error": "api_key_delete_failed",
+                    "code": "secret_delete_failed",
+                    "message": "The encrypted API key could not be deleted.",
+                    "api_key_status": cfg.api_key_public_status(),
+                }
+            ), 500
+        changed.append("LLM_API_KEY")
+
+    if data.get("MIGRATE_LLM_API_KEY") is True:
+        try:
+            cfg.migrate_legacy_api_key(consent=True)
+        except SecretProtectionError as exc:
+            return jsonify(
+                {
+                    "error": "api_key_migration_failed",
+                    "code": exc.code,
+                    "message": str(exc),
+                    "api_key_status": cfg.api_key_public_status(),
+                }
+            ), 409
+        changed.append("LLM_API_KEY")
+
+    api_key = data.get("LLM_API_KEY")
+    if api_key:
+        try:
+            cfg.replace_api_key(str(api_key))
+        except SecretProtectionError as exc:
+            return jsonify(
+                {
+                    "error": "api_key_storage_failed",
+                    "code": exc.code,
+                    "message": str(exc),
+                    "api_key_status": cfg.api_key_public_status(),
+                }
+            ), 500
+        changed.append("LLM_API_KEY")
 
     # ── Update in-memory config ────────────────────────────
-    for key in ("LLM_ENDPOINT", "LLM_API_KEY", "LLM_MODEL", "SPSS_PYTHON_PATH", "STATS_BACKEND"):
+    for key in ("LLM_ENDPOINT", "LLM_MODEL", "SPSS_PYTHON_PATH", "STATS_BACKEND"):
         if key in data and data[key]:
             setattr(cfg, key, data[key])
             changed.append(key)
@@ -498,14 +547,21 @@ def settings():
     if changed:
         _save_env_file()
 
-    return jsonify({"ok": True, "changed": changed})
+    return jsonify(
+        {
+            "ok": True,
+            "changed": changed,
+            "api_key_status": cfg.api_key_public_status(),
+        }
+    )
 
 
 def _save_env_file():
     """Write current config values back to .env file for persistence."""
     import snla.config as cfg
 
-    env_path = os.path.join(str(PROJECT_ROOT), ".env")
+    env_path = cfg.CONFIG_PATH
+    env_path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     # Read existing .env, preserving comments and non-managed keys
     if os.path.isfile(env_path):
@@ -517,7 +573,6 @@ def _save_env_file():
     managed = {
         "SPSS_PYTHON_PATH",
         "LLM_ENDPOINT",
-        "LLM_API_KEY",
         "LLM_MODEL",
         "STATS_BACKEND",
         "LLM_MOCK",
@@ -585,7 +640,21 @@ def list_models():
     if not endpoint:
         return jsonify({"error": "LLM endpoint is required"}), 400
     if not api_key:
-        return jsonify({"error": "API key is required"}), 400
+        import snla.config as cfg
+
+        api_key_status = cfg.api_key_public_status()
+        if api_key_status["state"] == "reenter_required":
+            return jsonify(
+                {
+                    "error": "cloud_features_disabled",
+                    "code": "api_key_reentry_required",
+                    "message": api_key_status["message"],
+                    "api_key_status": api_key_status,
+                }
+            ), 409
+        api_key = cfg.LLM_API_KEY
+        if not api_key:
+            return jsonify({"error": "API key is required"}), 400
     try:
         endpoint = require_secure_llm_endpoint(endpoint)
     except EndpointPolicyError as exc:

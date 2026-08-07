@@ -35,6 +35,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #fetch-models-btn, #detect-spss-btn { width: 100%; padding: 6px; background: #409eff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 8px; }
 #fetch-models-btn:hover, #detect-spss-btn:hover { background: #337ecc; }
 #fetch-models-btn:disabled, #detect-spss-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+#api-key-status { display: none; padding: 6px 8px; margin: 0 0 8px; border-left: 3px solid #909399; background: #f5f7fa; color: #606266; font-size: 12px; line-height: 1.5; }
+#api-key-status.warning { display: block; border-left-color: #e6a23c; background: #fdf6ec; color: #8a5a00; }
+#api-key-status.success { display: block; border-left-color: #67c23a; background: #f0f9eb; color: #39751e; }
+#api-key-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+#api-key-actions button { flex: 1; padding: 6px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; cursor: pointer; font-size: 12px; }
+#api-key-actions button[hidden] { display: none; }
 
 /* Main chat */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -153,6 +159,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
             <input id="s-endpoint" placeholder="https://opencode.ai/zen/go/v1/chat/completions">
             <label>API Key</label>
             <input id="s-key" type="password" placeholder="sk-...">
+            <div id="api-key-status" role="status"></div>
+            <div id="api-key-actions">
+                <button id="migrate-api-key" type="button" hidden>安全迁移现有密钥</button>
+                <button id="delete-api-key" type="button" hidden>删除密钥</button>
+            </div>
             <label>模型</label>
             <input id="s-model" placeholder="deepseek-v4-flash">
             <button id="fetch-models-btn">获取模型列表</button>
@@ -614,6 +625,31 @@ exportBtn.addEventListener("click", async () => {
 
 // ── Settings ──────────────────────────────────────────────
 settingsToggle.addEventListener("click", () => settingsPanel.classList.toggle("open"));
+function updateApiKeyStatus(data) {
+    const status = data.api_key_status || {
+        state: data.LLM_API_KEY_STATE,
+        configured: data.LLM_API_KEY_CONFIGURED,
+        cloud_available: data.LLM_CLOUD_AVAILABLE,
+        action: data.LLM_API_KEY_ACTION,
+        message: data.LLM_API_KEY_MESSAGE,
+    };
+    const box = document.getElementById("api-key-status");
+    const migrate = document.getElementById("migrate-api-key");
+    const remove = document.getElementById("delete-api-key");
+    const keyInput = document.getElementById("s-key");
+    const labels = {
+        configured: "API Key 已使用 Windows 账户安全存储。",
+        migration_required: "检测到旧版明文 API Key，请确认安全迁移。",
+        reenter_required: "加密密钥无法解密，请重新输入 API Key。",
+        missing: "尚未配置 API Key。",
+    };
+    box.textContent = labels[status.state] || status.message || "";
+    box.className = status.state === "configured" ? "success" : "warning";
+    migrate.hidden = status.state !== "migration_required";
+    remove.hidden = !["configured", "reenter_required"].includes(status.state);
+    keyInput.placeholder = status.state === "configured" ? "已安全配置" : "输入新的 API Key";
+}
+
 document.getElementById("save-settings").addEventListener("click", async () => {
     const data = {
         LLM_ENDPOINT: document.getElementById("s-endpoint").value,
@@ -629,6 +665,10 @@ document.getElementById("save-settings").addEventListener("click", async () => {
             body: JSON.stringify(data),
         });
         const result = await resp.json();
+        if (resp.ok) {
+            document.getElementById("s-key").value = "";
+            updateApiKeyStatus(result);
+        }
         if (!resp.ok) {
             throw new Error(result.message || result.error || "服务器拒绝了设置");
         }
@@ -639,12 +679,36 @@ document.getElementById("save-settings").addEventListener("click", async () => {
 });
 
 // ── Model Fetch ───────────────────────────────────────────
+document.getElementById("migrate-api-key").addEventListener("click", async () => {
+    if (!confirm("将旧版明文 API Key 迁移到 Windows 安全存储？")) return;
+    const resp = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({MIGRATE_LLM_API_KEY: true}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return alert(data.message || "API Key 迁移失败");
+    updateApiKeyStatus(data);
+});
+
+document.getElementById("delete-api-key").addEventListener("click", async () => {
+    if (!confirm("删除已保存的 API Key？")) return;
+    const resp = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({DELETE_LLM_API_KEY: true}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return alert(data.message || "API Key 删除失败");
+    updateApiKeyStatus(data);
+});
+
 document.getElementById("fetch-models-btn").addEventListener("click", async () => {
     const btn = document.getElementById("fetch-models-btn");
     const endpoint = document.getElementById("s-endpoint").value.trim();
     const apiKey = document.getElementById("s-key").value.trim();
-    if (!endpoint || !apiKey) {
-        alert("请先输入 API 端点和 Key");
+    if (!endpoint) {
+        alert("请先输入 API 端点");
         return;
     }
     btn.disabled = true; btn.textContent = "获取中...";
@@ -713,6 +777,11 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         const data = await resp.json();
         if (data.LLM_ENDPOINT) document.getElementById("s-endpoint").value = data.LLM_ENDPOINT;
         if (data.LLM_API_KEY_CONFIGURED) document.getElementById("s-key").placeholder = "已配置";
+        updateApiKeyStatus(data);
+        if (data.LLM_API_KEY_STATE === "reenter_required") {
+            settingsPanel.classList.add("open");
+            alert("您的 API Key 已丢失（可能因为系统重装或账户变更）。请重新输入 API Key。");
+        }
         if (data.LLM_MODEL) document.getElementById("s-model").value = data.LLM_MODEL;
         if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss").value = data.SPSS_PYTHON_PATH;
         if (data.STATS_BACKEND) document.getElementById("s-backend").value = data.STATS_BACKEND;

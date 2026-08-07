@@ -203,6 +203,39 @@ def test_connection_failure_retries_with_actionable_secret_safe_diagnostics(capl
     assert post.call_count == LLM_MAX_RETRIES + 1
 
 
+def test_debug_logging_reports_only_api_key_presence():
+    from unittest.mock import Mock
+
+    from snla.llm.client import LLMClient
+
+    api_key = "sk-secret-TAIL"
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "choices": [{"message": {"content": "ok"}}],
+        "model": "test-model",
+        "usage": {},
+    }
+    client = LLMClient()
+    client.primary_endpoint = "https://api.example.com/v1/chat"
+    client.primary_api_key = api_key
+    client.mock_mode = False
+    client.debug = True
+
+    with (
+        patch.object(client._session, "post", return_value=response),
+        patch("snla.llm.client.logger.info") as log_info,
+    ):
+        client.chat([{"role": "user", "content": "hello"}])
+
+    log_info.assert_called_once()
+    template, *args = log_info.call_args.args
+    rendered = template % tuple(args)
+    assert "api_key_configured=True" in rendered
+    assert api_key not in rendered
+    assert "TAIL" not in rendered
+
+
 def test_transport_error_exposes_only_its_safe_diagnostic():
     from snla.llm.transport import LLMTransportError, TransportDiagnostic
 

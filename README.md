@@ -30,7 +30,7 @@ Important `.env` keys:
 
 ```ini
 LLM_ENDPOINT=https://opencode.ai/zen/go/v1/chat/completions
-LLM_API_KEY=your-key-here
+LLM_API_KEY_STORAGE=        # managed by StatsTalk; dpapi when configured
 LLM_MODEL=deepseek-v4-flash
 STATS_BACKEND=python        # python | spss
 SPSS_PATH=...
@@ -41,6 +41,11 @@ LLM_MOCK=true               # useful for local demo/testing
 Public LLM endpoints must use HTTPS with a certificate trusted by the operating
 system. Plain HTTP is accepted only for local services on `localhost` or
 `127.0.0.1`; certificate verification cannot be disabled.
+
+Enter or replace cloud API keys in the StatsTalk settings panel. On Windows,
+StatsTalk encrypts the key for the current user with DPAPI and stores the
+ciphertext separately under `%APPDATA%\StatsTalk`; `.env` contains only the
+storage marker. Legacy plaintext keys require explicit migration consent.
 
 ## Core Flow
 
