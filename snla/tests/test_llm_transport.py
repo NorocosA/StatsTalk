@@ -203,8 +203,7 @@ def test_connection_failure_retries_with_actionable_secret_safe_diagnostics(capl
     assert post.call_count == LLM_MAX_RETRIES + 1
 
 
-def test_debug_logging_reports_only_api_key_presence(caplog):
-    import logging
+def test_debug_logging_reports_only_api_key_presence():
     from unittest.mock import Mock
 
     from snla.llm.client import LLMClient
@@ -217,20 +216,22 @@ def test_debug_logging_reports_only_api_key_presence(caplog):
         "model": "test-model",
         "usage": {},
     }
-    caplog.set_level(logging.INFO, logger="snla.llm.client")
-
     with (
         patch("snla.config.LLM_ENDPOINT", "https://api.example.com/v1/chat"),
         patch("snla.config.LLM_API_KEY", api_key),
         patch("snla.config.LLM_MOCK", False),
         patch("snla.config.DEBUG", True),
         patch("requests.Session.post", return_value=response),
+        patch("snla.llm.client.logger.info") as log_info,
     ):
         LLMClient().chat([{"role": "user", "content": "hello"}])
 
-    assert "api_key_configured=True" in caplog.text
-    assert api_key not in caplog.text
-    assert "TAIL" not in caplog.text
+    log_info.assert_called_once()
+    template, *args = log_info.call_args.args
+    rendered = template % tuple(args)
+    assert "api_key_configured=True" in rendered
+    assert api_key not in rendered
+    assert "TAIL" not in rendered
 
 
 def test_transport_error_exposes_only_its_safe_diagnostic():
