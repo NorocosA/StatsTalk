@@ -10,6 +10,7 @@ for real users.
 """
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -39,6 +40,13 @@ def reset_session():
     srv.planner._pending.clear()
     srv._rate_limit_store.clear()  # prevent cross-test rate limit interference
     yield
+
+
+@pytest.fixture(autouse=True)
+def mock_spss_executor_factory():
+    """The airline regression exercises the Python path without requiring SPSS."""
+    with patch("snla.ui.server._make_executor", return_value=MagicMock()):
+        yield
 
 
 @pytest.fixture
