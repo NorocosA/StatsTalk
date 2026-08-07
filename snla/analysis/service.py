@@ -128,6 +128,7 @@ class AnalysisCancelled:
 class AnalysisSuccess:
     """Typed successful outcome returned by :class:`AnalysisService`."""
 
+    user_query: str
     method: str
     backend: str
     plan_explanation: str
@@ -192,7 +193,7 @@ class AnalysisService:
     def analyze(self, request: AnalysisRequest) -> AnalysisOutcome:
         active = _ActiveAnalysis(cancelled=Event())
         with self._active_lock:
-            if request.session_id in self._active:
+            if self._active:
                 return _failure(
                     request_id=uuid4().hex,
                     started_at=_now(),
@@ -472,6 +473,7 @@ class AnalysisService:
                     suggestion="请重试，或直接查看统计结果表。",
                 )
         return AnalysisSuccess(
+            user_query=request.query,
             method=capability.name,
             backend=preferred_backend,
             plan_explanation=plan.plan_explanation,
@@ -516,7 +518,7 @@ class AnalysisService:
     def confirm(self, request: AnalysisConfirmationRequest) -> AnalysisOutcome:
         active = _ActiveAnalysis(cancelled=Event())
         with self._active_lock:
-            if request.session_id in self._active:
+            if self._active:
                 return _failure(
                     request_id=uuid4().hex,
                     started_at=_now(),
@@ -633,6 +635,7 @@ class AnalysisService:
                 suggestion="请重试，或直接查看统计结果表。",
             )
         return AnalysisSuccess(
+            user_query=pending.user_input,
             method=pending.method,
             backend="spss",
             plan_explanation="",

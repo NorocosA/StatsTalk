@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
+from snla.analysis import AnalysisAudit, AnalysisSuccess
 from snla.orchestrator import planner
+from snla.parser.schema import AnalysisResult
 from snla.ui.security import loopback_security
 
 
@@ -101,3 +104,106 @@ def test_http_and_mcp_share_the_same_structured_no_data_error(monkeypatch):
     assert http_response.status_code == 400
     assert http_response.get_json()["error"] == mcp_payload["error"]
     assert mcp_payload["error"]["code"] == "NO_DATA"
+
+
+def test_http_confirm_preserves_original_query_for_word_export(monkeypatch):
+    from snla.ui import server
+
+    query = "重新编码后描述统计"
+    result = AnalysisResult(analysis_type="DESCRIPTIVES", parser_used="oms_xml")
+    outcome = AnalysisSuccess(
+        user_query=query,
+        method="descriptives",
+        backend="spss",
+        plan_explanation="",
+        result=result,
+        explanation="分析完成",
+        syntax="RECODE gender (1=0)(2=1).",
+        temp_copy=True,
+        audit=AnalysisAudit(
+            request_id="confirm-http",
+            started_at="2026-08-07T00:00:00+00:00",
+            completed_at="2026-08-07T00:00:01+00:00",
+            method="descriptives",
+            preferred_backend="spss",
+            effective_backend="spss",
+            parser_used="oms_xml",
+        ),
+    )
+    exported = {}
+
+    def fake_export(*, output_path, **kwargs):
+        exported.update(kwargs)
+        Path(output_path).write_bytes(b"docx")
+
+    monkeypatch.setattr(server.analysis_service, "confirm", lambda request: outcome)
+    monkeypatch.setattr(server, "save_session", lambda session: None)
+    monkeypatch.setattr("snla.explainer.export.export_to_docx", fake_export)
+    server.session.reset()
+    server.session.variables = [{"name": "gender", "type": "Numeric"}]
+    server.session.dataset_meta = {"file_path": "scores.sav", "filename": "scores.sav"}
+
+    server.app.config["TESTING"] = True
+    with server.app.test_client() as client:
+        bootstrap_token = loopback_security.begin_launch("http://127.0.0.1:43125")
+        bootstrap = client.post("/api/bootstrap", json={"bootstrap_token": bootstrap_token})
+        client.environ_base["HTTP_AUTHORIZATION"] = (
+            f"Bearer {bootstrap.get_json()['session_token']}"
+        )
+        confirm_response = client.post("/api/confirm")
+        export_response = client.get("/api/export")
+
+    assert confirm_response.status_code == 200
+    assert export_response.status_code == 200
+    assert exported["user_query"] == query
+    assert [item["role"] for item in server.session.history] == ["user", "assistant"]
+
+
+def test_mcp_confirm_preserves_original_query_for_word_export(tmp_path, monkeypatch):
+    from snla import mcp_server
+
+    query = "重新编码后描述统计"
+    result = AnalysisResult(analysis_type="DESCRIPTIVES", parser_used="oms_xml")
+    outcome = AnalysisSuccess(
+        user_query=query,
+        method="descriptives",
+        backend="spss",
+        plan_explanation="",
+        result=result,
+        explanation="分析完成",
+        syntax="RECODE gender (1=0)(2=1).",
+        temp_copy=True,
+        audit=AnalysisAudit(
+            request_id="confirm-mcp",
+            started_at="2026-08-07T00:00:00+00:00",
+            completed_at="2026-08-07T00:00:01+00:00",
+            method="descriptives",
+            preferred_backend="spss",
+            effective_backend="spss",
+            parser_used="oms_xml",
+        ),
+    )
+    exported = {}
+
+    def fake_export(*, output_path, **kwargs):
+        exported.update(kwargs)
+        Path(output_path).write_bytes(b"docx")
+
+    monkeypatch.setattr(mcp_server.analysis_service, "confirm", lambda request: outcome)
+    monkeypatch.setattr(mcp_server, "export_to_docx", fake_export)
+    monkeypatch.setattr(mcp_server, "_upload_dir", tmp_path)
+    mcp_server._session_states.clear()
+    state = mcp_server.MCPState(
+        variables=[{"name": "gender", "type": "Numeric"}],
+        dataset_meta={"file_path": "scores.sav", "filename": "scores.sav"},
+        file_path="scores.sav",
+    )
+    mcp_server._session_states[_MCPContext.session_id] = state
+
+    confirm_payload = asyncio.run(mcp_server.snla_confirm(_MCPContext()))
+    export_payload = asyncio.run(mcp_server.snla_export(_MCPContext()))
+
+    assert confirm_payload["ok"] is True
+    assert export_payload["ok"] is True
+    assert exported["user_query"] == query
+    assert state.last_query == query

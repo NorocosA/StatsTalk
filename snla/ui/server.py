@@ -290,7 +290,7 @@ def analyze():
         )
         payload = outcome.to_payload()
         if isinstance(outcome, AnalysisSuccess):
-            session.history.append({"role": "user", "content": user_input})
+            session.history.append({"role": "user", "content": outcome.user_query})
             session.history.append(
                 {
                     "role": "assistant",
@@ -333,7 +333,16 @@ def confirm_greylist():
         )
         payload = outcome.to_payload()
         if isinstance(outcome, AnalysisSuccess):
-            session.history.append({"role": "assistant", "content": outcome.explanation})
+            session.history.append({"role": "user", "content": outcome.user_query})
+            session.history.append(
+                {
+                    "role": "assistant",
+                    "content": outcome.explanation,
+                    "method": outcome.method,
+                    "syntax": outcome.syntax,
+                    "result": outcome.result,
+                }
+            )
             session.last_analysis = payload["last_analysis"]
             save_session(session)
         return jsonify(payload), getattr(outcome, "http_status", 200)
@@ -692,6 +701,7 @@ def export():
         last = next((m for m in reversed(session.history) if m["role"] == "assistant"), None)
         if not last:
             return jsonify({"error": "No analysis found"}), 400
+        last_user = next((m for m in reversed(session.history) if m["role"] == "user"), None)
 
         # export_to_docx writes to a file path — use a temp file
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
@@ -699,7 +709,7 @@ def export():
 
         export_word_report(
             output_path=tmp_path,
-            user_query=session.history[-2]["content"] if len(session.history) >= 2 else "",
+            user_query=last_user["content"] if last_user else "",
             method=last.get("method", "unknown"),
             analysis_result=last.get("result"),
             explanation=last.get("content", ""),

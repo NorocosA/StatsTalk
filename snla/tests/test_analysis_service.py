@@ -14,7 +14,7 @@ from snla.analysis import (
     AnalysisSuccess,
 )
 from snla.executor.spss import ExecutionResult
-from snla.orchestrator import GreylistPending, planner
+from snla.orchestrator import GreylistPending, PlanResult, planner
 from snla.parser.schema import AnalysisResult
 
 
@@ -38,6 +38,7 @@ def test_python_analysis_returns_typed_success_with_audit_metadata(tmp_path, sam
     assert outcome.audit.preferred_backend == "python"
     assert outcome.audit.effective_backend == "python"
     assert outcome.audit.parser_used == "python_pingouin"
+    assert outcome.user_query == "描述统计"
 
 
 def test_empty_query_returns_a_typed_structured_error(sample_variables):
@@ -198,6 +199,7 @@ def test_confirm_executes_pending_greylist_on_a_temporary_copy(
     assert executor.used_temp_copy is True
     assert outcome.temp_copy is True
     assert outcome.syntax == "RECODE gender (1=0)(2=1)."
+    assert outcome.user_query == "重新编码后描述统计"
     assert not planner.has_pending("confirm-contract")
 
 
@@ -255,3 +257,92 @@ def test_cancel_terminates_the_active_executor_and_returns_typed_cancelled(
     assert executor.terminated.is_set()
     assert isinstance(captured[0], AnalysisCancelled)
     assert captured[0].to_payload()["cancelled"] is True
+
+
+def test_different_sessions_share_one_global_execution_gate(
+    tmp_path, sample_variables, monkeypatch
+):
+    data_path = tmp_path / "scores.sav"
+    data_path.write_bytes(b"test fixture placeholder")
+
+    class BlockingExecutor:
+        def __init__(self):
+            self.started = threading.Event()
+            self.terminated = threading.Event()
+
+        def run(self, syntax, data_path, cancellation_token=False):
+            self.started.set()
+            assert self.terminated.wait(timeout=5)
+            return ExecutionResult(
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                xml_path=None,
+                lst_path=None,
+                success=False,
+                error_message="terminated",
+            )
+
+        def terminate(self):
+            self.terminated.set()
+
+    class FailingExecutor:
+        def run(self, syntax, data_path, cancellation_token=False):
+            return ExecutionResult(
+                exit_code=1,
+                stdout="",
+                stderr="second executor should not run",
+                xml_path=None,
+                lst_path=None,
+                success=False,
+                error_message="second executor should not run",
+            )
+
+    first_executor = BlockingExecutor()
+    executors = iter((first_executor, FailingExecutor()))
+    monkeypatch.setattr("snla.executor.spss.SPSSExecutor", lambda: next(executors))
+    service = AnalysisService(backend="spss")
+    monkeypatch.setattr(
+        service._planner,
+        "plan",
+        lambda *args, **kwargs: PlanResult(
+            method="descriptives",
+            plan_explanation="test plan",
+            grouping_variable=None,
+            test_variable="score",
+        ),
+    )
+    captured = []
+
+    first_thread = threading.Thread(
+        target=lambda: captured.append(
+            service.analyze(
+                AnalysisRequest(
+                    session_id="session-a",
+                    query="描述统计",
+                    variables=sample_variables,
+                    dataset_meta={"file_path": str(data_path)},
+                )
+            )
+        )
+    )
+    first_thread.start()
+    assert first_executor.started.wait(timeout=5)
+
+    try:
+        second = service.analyze(
+            AnalysisRequest(
+                session_id="session-b",
+                query="描述统计",
+                variables=sample_variables,
+                dataset_meta={"file_path": str(data_path)},
+            )
+        )
+    finally:
+        service.cancel("session-a")
+        first_thread.join(timeout=5)
+
+    assert not first_thread.is_alive()
+    assert isinstance(second, AnalysisFailure)
+    assert second.error.code == "ENGINE_BUSY"
+    assert second.http_status == 409

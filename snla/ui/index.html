@@ -411,7 +411,7 @@ async function sendMessage() {
             if (data.cancelled) {
                 addMessage("assistant", `<span class="error-msg">分析已取消</span>`);
             } else {
-                addMessage("assistant", `<span class="error-msg">${esc(data.error)}</span>`);
+                addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
             }
             if (data.syntax) {
                 addMessage("assistant", `<span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`);
@@ -469,7 +469,7 @@ glConfirm.addEventListener("click", async () => {
             exportBtn.disabled = false;
             addAnalysisResult(data);
         } else {
-            addMessage("assistant", `<span class="error-msg">${esc(data.error)}</span>`);
+            addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
             if (data.syntax) {
                 addMessage("assistant", `<span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`);
             }
@@ -844,6 +844,13 @@ function hideWelcome() {
 }
 
 // ── Utils ─────────────────────────────────────────────────
+function errorMessage(error) {
+    if (error && typeof error === "object") {
+        return error.user_message || error.message || error.code || "未知错误";
+    }
+    return error || "未知错误";
+}
+
 function esc(s) {
     if (!s) return "";
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");

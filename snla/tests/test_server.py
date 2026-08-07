@@ -456,6 +456,7 @@ class TestGreylistFlow:
             analysis_service,
             "confirm",
             lambda request: AnalysisSuccess(
+                user_query="计算新变量后做描述统计",
                 method="descriptives",
                 backend="spss",
                 plan_explanation="",
@@ -481,6 +482,7 @@ class TestGreylistFlow:
         assert "result" in data
         assert "explanation" in data
         assert "last_analysis" in data
+        assert session.history[-2]["content"] == "计算新变量后做描述统计"
 
 
 # ===========================================================================

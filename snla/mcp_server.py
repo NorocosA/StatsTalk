@@ -337,7 +337,7 @@ async def snla_analyze(
         state.last_result = outcome.result
         state.last_explanation = outcome.explanation or ""
         state.last_method = outcome.method
-        state.last_query = query
+        state.last_query = outcome.user_query
     await ctx.report_progress(2, 2, "分析完成")
     return payload
 
@@ -374,6 +374,7 @@ async def snla_confirm(ctx: Context) -> dict:
         state.last_result = outcome.result
         state.last_explanation = outcome.explanation or ""
         state.last_method = outcome.method
+        state.last_query = outcome.user_query
     await ctx.report_progress(2, 2, "完成")
     return payload
 
