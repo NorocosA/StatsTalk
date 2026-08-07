@@ -421,9 +421,7 @@ class AnalysisService:
                     started_at=started_at,
                     preferred_backend=preferred_backend,
                     category="configuration",
-                    user_message=(
-                        "当前未检测到 SPSS，且该方法尚未通过 Python 回退验证。"
-                    ),
+                    user_message=("当前未检测到 SPSS，且该方法尚未通过 Python 回退验证。"),
                     code="SPSS_FALLBACK_UNAVAILABLE",
                     suggestion=choices[0],
                     http_status=422,
@@ -884,9 +882,7 @@ class AnalysisService:
                 started_at=started_at,
                 preferred_backend=preferred_backend,
                 category="configuration",
-                user_message=(
-                    "确认操作执行前 SPSS 已不可用，数据修改语法不能自动转换为 Python。"
-                ),
+                user_message=("确认操作执行前 SPSS 已不可用，数据修改语法不能自动转换为 Python。"),
                 code="SPSS_FALLBACK_UNAVAILABLE",
                 suggestion=choices[0],
                 http_status=422,

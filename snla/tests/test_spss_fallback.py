@@ -77,6 +77,7 @@ def test_unvalidated_python_method_stops_instead_of_falling_back(tmp_path, monke
         "snla.executor.python.PythonStatsExecutor.execute",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
+    monkeypatch.setattr("snla.analysis.service.can_fallback_to_python", lambda _method: False)
 
     outcome = AnalysisService(backend="spss", spss_available=lambda: False).analyze(
         AnalysisRequest(

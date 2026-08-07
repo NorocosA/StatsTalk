@@ -73,9 +73,9 @@ def ttest_independent(group_var: str, test_var: str, groups: tuple) -> str:
 def anova_oneway(group_var: str, test_var: str) -> str:
     """Build a one-way ANOVA command.
 
-    The ``ONEWAY`` command performs a one-way analysis of variance. This
-    template also requests descriptive statistics and a homogeneity-of-variance
-    test.
+    ``UNIANOVA`` performs the one-way analysis while accepting both numeric and
+    string factor variables. The template also requests descriptive statistics
+    and a homogeneity-of-variance test.
 
     Args:
         group_var: Name of the factor / grouping variable.
@@ -84,14 +84,25 @@ def anova_oneway(group_var: str, test_var: str) -> str:
     Returns:
         Complete SPSS syntax string, e.g.::
 
-            ONEWAY score BY group
-              /STATISTICS DESCRIPTIVES HOMOGENEITY.
+            UNIANOVA score BY group
+              /METHOD=SSTYPE(3)
+              /INTERCEPT=INCLUDE
+              /PRINT=DESCRIPTIVE HOMOGENEITY
+              /CRITERIA=ALPHA(.05)
+              /DESIGN=group.
 
     Note:
-        SPSS ``ONEWAY`` uses the order ``dependent BY factor``, which is the
+        SPSS ``UNIANOVA`` uses the order ``dependent BY factor``, which is the
         **opposite** of the ``T-TEST`` convention.
     """
-    return f"ONEWAY {test_var} BY {group_var}\n  /STATISTICS DESCRIPTIVES HOMOGENEITY."
+    return (
+        f"UNIANOVA {test_var} BY {group_var}\n"
+        f"  /METHOD=SSTYPE(3)\n"
+        f"  /INTERCEPT=INCLUDE\n"
+        f"  /PRINT=DESCRIPTIVE HOMOGENEITY\n"
+        f"  /CRITERIA=ALPHA(.05)\n"
+        f"  /DESIGN={group_var}."
+    )
 
 
 def regression_simple(dep_var: str, indep_var: str) -> str:
@@ -109,19 +120,19 @@ def regression_simple(dep_var: str, indep_var: str) -> str:
         Complete SPSS syntax string, e.g.::
 
             REGRESSION
-              /DEPENDENT score
-              /METHOD=ENTER age
-              /STATISTICS COEFF R ANOVA.
+              /STATISTICS COEFF R ANOVA
+              /DEPENDENT=score
+              /METHOD=ENTER age.
 
     Example:
         >>> regression_simple("score", "age")
-        'REGRESSION\\n  /DEPENDENT score\\n  /METHOD=ENTER age\\n  /STATISTICS COEFF R ANOVA.'
+        'REGRESSION\\n  /STATISTICS COEFF R ANOVA\\n  /DEPENDENT=score\\n  /METHOD=ENTER age.'
     """
     return (
         f"REGRESSION\n"
-        f"  /DEPENDENT {dep_var}\n"
-        f"  /METHOD=ENTER {indep_var}\n"
-        f"  /STATISTICS COEFF R ANOVA."
+        f"  /STATISTICS COEFF R ANOVA\n"
+        f"  /DEPENDENT={dep_var}\n"
+        f"  /METHOD=ENTER {indep_var}."
     )
 
 
@@ -239,9 +250,15 @@ def mann_whitney(group_var: str, test_var: str, groups: tuple = (1, 2)) -> str:
 def kruskal_wallis(group_var: str, test_var: str) -> str:
     """Build a Kruskal-Wallis test (non-parametric one-way ANOVA).
 
-    Uses ``NPAR TESTS /K-W`` for k independent samples.
+    Uses modern ``NPTESTS`` syntax so numeric and string grouping variables are
+    both accepted by SPSS 26+.
     """
-    return f"NPAR TESTS\n  /K-W= {test_var} BY {group_var}(1 99)\n  /STATISTICS DESCRIPTIVES."
+    return (
+        f"NPTESTS\n"
+        f"  /INDEPENDENT TEST({test_var}) GROUP({group_var})\n"
+        f"  /MISSING SCOPE=ANALYSIS USERMISSING=EXCLUDE\n"
+        f"  /CRITERIA ALPHA=0.05 CILEVEL=95."
+    )
 
 
 def spearman_correlation(var1: str, var2: str) -> str:

@@ -370,6 +370,7 @@ class TestRegressionOmsXml:
     <pivotTable subType="Model Summary">
       <dimension axis="statistics">
         <category text="R Square"><cell number="0.45"/></category>
+        <category text="Adjusted R Square"><cell number="0.42"/></category>
       </dimension>
     </pivotTable>
     <pivotTable subType="ANOVA">
@@ -402,6 +403,7 @@ class TestRegressionOmsXml:
 
             assert result.analysis_type == "REGRESSION"
             assert result.statistics.get("r_squared") == 0.45
+            assert result.statistics.get("adjusted_r_squared") == 0.42
             assert result.statistics.get("f_value") == 12.5
             assert result.statistics.get("p_value") == 0.003
             assert result.statistics.get("b") == 0.85
@@ -505,6 +507,40 @@ class TestAnovaOmsXml:
         finally:
             os.unlink(tmp_name)
 
+    def test_spss_26_unianova_fixed_effects_subtype(self):
+        xml_content = """\
+<outputTree xmlns="http://www.ibm.com/software/analytics/spss/xml/oms">
+  <command text="Univariate Analysis of Variance">
+    <pivotTable subType="Test of Between Subjects Fixed Effects"
+                text="Tests of Between-Subjects Effects">
+      <dimension axis="layer" text="Dependent Variable">
+        <category text="Score" variable="true">
+          <dimension axis="row" text="Source">
+            <category text="Corrected Model">
+              <dimension axis="column" text="Statistics">
+                <category text="df"><cell number="3"/></category>
+                <category text="F"><cell number="0.51895392999468"/></category>
+                <category text="Sig."><cell number="0.66971438988581"/></category>
+              </dimension>
+            </category>
+          </dimension>
+        </category>
+      </dimension>
+    </pivotTable>
+  </command>
+</outputTree>"""
+
+        tmp_name = _write_temp_xml(xml_content)
+        try:
+            result = parse_oms_xml(tmp_name)
+
+            assert result.analysis_type == "ANOVA"
+            assert result.statistics["f_value"] == pytest.approx(0.51895392999468)
+            assert result.statistics["p_value"] == pytest.approx(0.66971438988581)
+            assert result.statistics["df"] == 3
+        finally:
+            os.unlink(tmp_name)
+
 
 # =========================================================================
 # Test 10: OMS XML — CROSSTABS (dedicated extractor)
@@ -544,6 +580,38 @@ class TestCrosstabsOmsXml:
             assert result.statistics.get("p_value") == 0.028
             assert result.statistics.get("df") == 1
 
+        finally:
+            os.unlink(tmp_name)
+
+    def test_oms_crosstabs_accepts_real_spss_subtype_without_hyphen(self):
+        pytest.importorskip("lxml", reason="lxml is required for OMS XML parsing")
+        xml_content = """\
+<outputTree xmlns="http://www.ibm.com/software/analytics/spss/xml/oms">
+  <command text="Crosstabs">
+    <pivotTable subType="Chi Square Tests">
+      <dimension axis="row">
+        <category text="Pearson Chi-Square">
+          <dimension axis="column">
+            <category text="Value"><cell number="2.3734181275969"/></category>
+            <category text="df"><cell number="1"/></category>
+            <category text="Asymptotic Significance (2-sided)">
+              <cell number="0.12341655745097"/>
+            </category>
+          </dimension>
+        </category>
+      </dimension>
+    </pivotTable>
+  </command>
+</outputTree>"""
+        tmp_name = _write_temp_xml(xml_content)
+        try:
+            result = parse_oms_xml(tmp_name)
+
+            assert result.statistics == {
+                "chi_square": pytest.approx(2.3734181275969),
+                "df": 1,
+                "p_value": pytest.approx(0.12341655745097),
+            }
         finally:
             os.unlink(tmp_name)
 
@@ -707,3 +775,70 @@ def test_unified_parse_oms_priority(temp_xml_file):
     # Verify tables were extracted despite missing subType attributes
     table_titles = [t.title for t in result.tables]
     assert "Group Statistics" in table_titles or len(table_titles) >= 1
+
+
+def test_paired_ttest_oms_extracts_inferential_statistics(tmp_path):
+    output = tmp_path / "paired.xml"
+    output.write_text(
+        """<outputTree xmlns="http://www.ibm.com/software/analytics/spss/xml/oms">
+<command text="T-Test"><pivotTable subType="Paired Samples Test" text="Paired Samples Test">
+<dimension axis="row"><category text="Pair 1"><dimension axis="column">
+<category text="t"><cell number="-1.6145"/></category>
+<category text="df"><cell number="29"/></category>
+<category text="Sig. (2-tailed)"><cell number="0.1172"/></category>
+</dimension></category></dimension></pivotTable></command></outputTree>""",
+        encoding="utf-8",
+    )
+
+    result = parse_oms_xml(str(output))
+
+    assert result.statistics["t_value"] == pytest.approx(-1.6145)
+    assert result.statistics["df"] == 29
+    assert result.statistics["p_value"] == pytest.approx(0.1172)
+
+
+def test_mann_whitney_oms_extracts_asymptotic_significance(tmp_path):
+    output = tmp_path / "mann_whitney.xml"
+    output.write_text(
+        """<outputTree xmlns="http://www.ibm.com/software/analytics/spss/xml/oms">
+<command text="NPar Tests"><pivotTable subType="Mann Whitney Test Statistics" text="Test Statistics">
+<dimension axis="row">
+<category text="Mann-Whitney U"><dimension axis="column">
+<category text="Score" variable="true"><cell number="96"/></category></dimension></category>
+<category text="Z"><dimension axis="column">
+<category text="Score" variable="true"><cell number="-0.6846"/></category></dimension></category>
+<category text="Asymp. Sig. (2-tailed)"><dimension axis="column">
+<category text="Score" variable="true"><cell number="0.4936"/></category></dimension></category>
+</dimension></pivotTable></command></outputTree>""",
+        encoding="utf-8",
+    )
+
+    result = parse_oms_xml(str(output))
+
+    assert result.analysis_type == "MANN_WHITNEY"
+    assert result.statistics["u"] == 96
+    assert result.statistics["p_value"] == pytest.approx(0.4936)
+
+
+def test_kruskal_wallis_oms_extracts_modern_nptests_summary(tmp_path):
+    output = tmp_path / "kruskal.xml"
+    output.write_text(
+        """<outputTree xmlns="http://www.ibm.com/software/analytics/spss/xml/oms">
+<command text="Nonparametric Tests"><pivotTable
+subType="Independent-Samples Kruskal-Wallis Test Summary" text="Kruskal-Wallis Test Summary">
+<dimension axis="row">
+<category text="Total N"><cell number="30"/></category>
+<category text="Test Statistic"><cell number="4.0311"/></category>
+<category text="Degree Of Freedom"><cell number="2"/></category>
+<category text="Asymptotic Sig.(2-sided test)"><cell number="0.1332"/></category>
+</dimension></pivotTable></command></outputTree>""",
+        encoding="utf-8",
+    )
+
+    result = parse_oms_xml(str(output))
+
+    assert result.analysis_type == "KRUSKAL_WALLIS"
+    assert result.statistics["h"] == pytest.approx(4.0311)
+    assert result.statistics["df"] == 2
+    assert result.statistics["p_value"] == pytest.approx(0.1332)
+    assert result.statistics["n_valid"] == 30

@@ -42,8 +42,8 @@ def test_backend_support_is_distinct_from_validation_and_fallback_eligibility():
     )
 
     assert is_backend_supported("simple_regression", "python") is True
-    assert is_backend_validated("simple_regression", "python") is False
-    assert can_fallback_to_python("simple_regression") is False
+    assert is_backend_validated("simple_regression", "python") is True
+    assert can_fallback_to_python("simple_regression") is True
 
     assert is_backend_supported("descriptives", "python") is True
     assert is_backend_validated("descriptives", "python") is True

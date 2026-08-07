@@ -70,8 +70,8 @@ _ANALYSIS_TYPE_MAP: dict[str, str] = {
     "spearman_correlation": "CORRELATIONS",
     "frequencies": "FREQUENCIES",
     "descriptives": "DESCRIPTIVES",
-    "mann_whitney_u": "UNKNOWN",
-    "kruskal_wallis": "UNKNOWN",
+    "mann_whitney_u": "MANN_WHITNEY",
+    "kruskal_wallis": "KRUSKAL_WALLIS",
 }
 
 # ---------------------------------------------------------------------------
