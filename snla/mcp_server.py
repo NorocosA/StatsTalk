@@ -26,12 +26,10 @@ Design decisions (from P6 grill, 2026-05-23):
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import os
 import shutil
 import time
-import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -45,17 +43,18 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 os.chdir(PROJECT_ROOT)  # config.py reads .env from CWD
 
 # ── SNLA imports (after path setup) ────────────────────────────────────
+from snla.analysis import (
+    AnalysisConfirmationRequest,
+    AnalysisRequest,
+    AnalysisSuccess,
+    analysis_service,
+)
 from snla.capabilities import get_public_capabilities_payload
 from snla.config import STATS_BACKEND
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
 from snla.explainer.export import export_to_docx
-from snla.explainer.naturalize import explain as naturalize_explain
-from snla.orchestrator import GreylistPending, NoPendingError, PlanResult, planner
-from snla.parser.output import parse as parse_output
-from snla.syntax.templates import get_syntax_by_method
-from snla.syntax.validator import validate as validate_syntax
-from snla.trust import get_trusted_methods, is_method_trusted, trust_loaded_from
+from snla.trust import get_trusted_methods, trust_loaded_from
 
 # ═════════════════════════════════════════════════════════════════════════
 # Constants
@@ -68,22 +67,6 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB max upload
 # ═════════════════════════════════════════════════════════════════════════
 # Per-session state (in-memory; replaces Flask's global SessionState)
 # ═════════════════════════════════════════════════════════════════════════
-
-METHOD_TO_ANALYSIS = {
-    "independent_t_test": "T-TEST",
-    "paired_t_test": "T-TEST",
-    "oneway_anova": "ANOVA",
-    "simple_regression": "REGRESSION",
-    "pearson_correlation": "CORRELATIONS",
-    "correlations": "CORRELATIONS",
-    "spearman_correlation": "CORRELATIONS",
-    "chi_square": "CROSSTABS",
-    "crosstabs": "CROSSTABS",
-    "frequencies": "FREQUENCIES",
-    "descriptives": "DESCRIPTIVES",
-    "mann_whitney_u": "T-TEST",
-    "kruskal_wallis": "ANOVA",
-}
 
 
 @dataclass
@@ -98,8 +81,6 @@ class MCPState:
     last_explanation: str = ""  # natural-language explanation
     last_method: str = ""
     last_query: str = ""
-    _executing: bool = False
-    _cancelled: bool = False
 
     def __post_init__(self):
         if self.variables is None:
@@ -209,7 +190,7 @@ async def snla_status(ctx: Context) -> dict:
         "has_data": bool(state.variables),
         "variable_count": len(state.variables),
         "filename": state.dataset_meta.get("filename", "") if state.dataset_meta else "",
-        "executing": state._executing,
+        "executing": analysis_service.is_active(ctx.session_id),
     }
 
 
@@ -336,161 +317,29 @@ async def snla_analyze(
     state = _session_state(ctx)
     sid = ctx.session_id
 
-    # ── Guard: engine busy ──────────────────────────────────────────
-    if state._executing:
-        return _engine_busy()
-
-    # ── Guard: data required ────────────────────────────────────────
-    if not state.variables:
-        return _mk_error(
-            "user", "请先上传数据文件", "NO_DATA", "使用 snla_upload 上传 .sav 或 .csv 文件后重试。"
-        )
-
-    if not query.strip():
-        return _mk_error(
-            "user", "请输入分析问题", "EMPTY_QUERY", "例如: '比较男女成绩差异' 或 '描述统计'。"
-        )
-
-    state._executing = True
-    state._cancelled = False
-
-    try:
-        # ── Phase 1: Planning (via orchestrator) ──────────────────
-        await ctx.report_progress(0, 5, "正在识别分析意图…")
-        plan: PlanResult = planner.plan(
-            sid,
-            query,
+    await ctx.report_progress(0, 2, "正在执行分析…")
+    dataset_meta = dict(state.dataset_meta or {})
+    if state.file_path:
+        dataset_meta["file_path"] = state.file_path
+    outcome = analysis_service.analyze(
+        AnalysisRequest(
+            session_id=sid,
+            query=query,
             variables=state.variables,
-            dataset_meta=state.dataset_meta,
+            dataset_meta=dataset_meta,
             last_analysis=state.last_analysis,
+            confirm_greylist=confirm_greylist,
         )
-        method = plan.method
-        gvar = plan.grouping_variable
-        tvar = plan.test_variable
-
-        # ── P5-4: simple_regression gate ──────────────────────────
-        if method == "simple_regression":
-            from snla.config import check_spss_available
-
-            if not check_spss_available():
-                state._executing = False
-                return _mk_error(
-                    "user",
-                    "回归分析当前仅在连接 SPSS 时可用。"
-                    "你可以：(1) 在本地安装 SNLA 桌面版连接 SPSS，"
-                    "(2) 使用相关分析（Pearson/Spearman）作为替代。",
-                    "METHOD_UNAVAILABLE",
-                    "建议改用 pearson_correlation 或 spearman_correlation。",
-                )
-
-        # ── Python backend fast path ──────────────────────────────
-        if STATS_BACKEND == "python":
-            state._executing = False  # Python is non-blocking
-            return await _execute_python_backend(
-                ctx, state, method, plan.plan_explanation, gvar, tvar, query
-            )
-
-        # ── Syntax generation (template-based) ────────────────────
-        await ctx.report_progress(1, 5, "正在生成分析语法…")
-        syntax = get_syntax_by_method(method, grouping_var=gvar, test_var=tvar)
-
-        # ── Validation ────────────────────────────────────────────
-        await ctx.report_progress(2, 5, "正在验证语法…")
-        var_names = [v["name"] for v in state.variables]
-        validation = validate_syntax(syntax, var_names)
-
-        if not validation["valid"]:
-            state._executing = False
-            return _mk_error(
-                "system",
-                f"语法验证失败: {'; '.join(validation['errors'])}",
-                "SYNTAX_INVALID",
-                "请尝试更具体地描述分析需求。",
-            )
-
-        greylist_warnings = [
-            w
-            for w in validation.get("warnings", [])
-            if "greylist" in w.lower() or "confirm" in w.lower()
-        ]
-
-        # ── Greylist gate ─────────────────────────────────────────
-        if greylist_warnings and not confirm_greylist:
-            planner.stage_greylist(
-                sid,
-                GreylistPending(
-                    syntax=syntax,
-                    warnings=greylist_warnings,
-                    method=method,
-                    user_input=query,
-                ),
-            )
-            state._executing = False
-            return {
-                "ok": False,
-                "requires_confirmation": True,
-                "greylist_warnings": greylist_warnings,
-                "syntax_preview": syntax[:200],
-                "message": (
-                    "此操作将修改数据（如 COMPUTE / RECODE / SELECT IF），"
-                    "需要在临时副本上执行。请回复「确认」以继续。"
-                ),
-            }
-
-        # ── Execute SPSS ──────────────────────────────────────────
-        await ctx.report_progress(3, 5, "正在执行 SPSS 分析…")
-        from snla.executor.spss import SPSSExecutor
-
-        executor = SPSSExecutor()
-        exec_result = executor.run(syntax)
-
-        if state._cancelled:
-            state._executing = False
-            state._cancelled = False
-            return {"ok": False, "cancelled": True}
-
-        if not exec_result.get("success"):
-            state._executing = False
-            return _mk_error(
-                "system",
-                f"SPSS 执行失败: {exec_result.get('error', '未知错误')}",
-                "EXECUTION_FAILED",
-                "请检查数据文件是否正确，或尝试更简单的分析。",
-            )
-
-        # ── Parse + Explain ───────────────────────────────────────
-        await ctx.report_progress(4, 5, "正在解读结果…")
-        analysis_type = METHOD_TO_ANALYSIS.get(method, "UNKNOWN")
-        parsed = parse_output(
-            oms_xml_path=exec_result.get("xml_path"),
-            lst_text=exec_result.get("lst_text"),
-            analysis_type=analysis_type,
-        )
-        explanation = naturalize_explain(parsed)
-
-        # ── Build response ────────────────────────────────────────
-        state.last_analysis = {"method": method, "syntax": syntax}
-        state.last_result = parsed
-        state.last_explanation = explanation
-        state.last_method = method
+    )
+    payload = outcome.to_payload()
+    if isinstance(outcome, AnalysisSuccess):
+        state.last_analysis = payload["last_analysis"]
+        state.last_result = outcome.result
+        state.last_explanation = outcome.explanation or ""
+        state.last_method = outcome.method
         state.last_query = query
-        state._executing = False
-
-        await ctx.report_progress(5, 5, "分析完成")
-        return _format_response(
-            method, plan.plan_explanation, syntax, parsed, explanation, greylist_warnings
-        )
-
-    except asyncio.CancelledError:
-        state._executing = False
-        state._cancelled = False
-        return {"ok": False, "cancelled": True}
-    except Exception as e:
-        state._executing = False
-        traceback.print_exc()
-        return _mk_error("system", str(e), "INTERNAL_ERROR", "服务内部错误，请稍后重试。")
-    finally:
-        state._executing = False
+    await ctx.report_progress(2, 2, "分析完成")
+    return payload
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -508,85 +357,25 @@ async def snla_confirm(ctx: Context) -> dict:
     """
     state = _session_state(ctx)
     sid = ctx.session_id
-
-    if state._executing:
-        return _engine_busy()
-
-    try:
-        pg: GreylistPending = planner.pop_pending(sid)
-    except NoPendingError:
-        return _mk_error("user", "没有待确认的操作", "NO_PENDING", "当前没有等待确认的灰名单操作。")
-
-    state._executing = True
-    state._cancelled = False
-
-    try:
-        await ctx.report_progress(0, 4, "正在临时副本上执行…")
-
-        syntax = pg.syntax
-        method = pg.method
-
-        # Execute on temp copy
-        if state.file_path:
-            from snla.executor.spss import SPSSExecutor
-
-            executor = SPSSExecutor()
-            exec_result = executor.execute_on_temp_copy(
-                syntax=syntax,
-                data_path=state.file_path,
-            )
-        else:
-            from snla.executor.spss import SPSSExecutor
-
-            executor = SPSSExecutor()
-            exec_result = executor.run(syntax)
-
-        if state._cancelled:
-            state._executing = False
-            state._cancelled = False
-            return {"ok": False, "cancelled": True}
-
-        if not exec_result.get("success"):
-            state._executing = False
-            return _mk_error(
-                "system",
-                f"执行失败: {exec_result.get('error', '未知错误')}",
-                "EXECUTION_FAILED",
-                None,
-            )
-
-        await ctx.report_progress(2, 4, "正在解读结果…")
-        analysis_type = METHOD_TO_ANALYSIS.get(method, "UNKNOWN")
-        parsed = parse_output(
-            oms_xml_path=exec_result.get("xml_path"),
-            lst_text=exec_result.get("lst_text"),
-            analysis_type=analysis_type,
+    await ctx.report_progress(0, 2, "正在临时副本上执行…")
+    dataset_meta = dict(state.dataset_meta or {})
+    if state.file_path:
+        dataset_meta["file_path"] = state.file_path
+    outcome = analysis_service.confirm(
+        AnalysisConfirmationRequest(
+            session_id=sid,
+            variables=state.variables,
+            dataset_meta=dataset_meta,
         )
-        explanation = naturalize_explain(parsed)
-
-        state.last_analysis = {"method": method, "syntax": syntax}
-        state.last_result = parsed
-        state.last_explanation = explanation
-        state.last_method = method
-        state.last_query = pg.user_input
-        state._executing = False
-
-        await ctx.report_progress(4, 4, "完成")
-
-        result = _format_response(method, "", syntax, parsed, explanation, pg.warnings)
-        result["temp_copy_note"] = "此操作已在数据的临时副本上执行，您的原始数据文件未被修改。"
-        return result
-
-    except asyncio.CancelledError:
-        state._executing = False
-        state._cancelled = False
-        return {"ok": False, "cancelled": True}
-    except Exception as e:
-        state._executing = False
-        traceback.print_exc()
-        return _mk_error("system", str(e), "INTERNAL_ERROR", "服务内部错误，请稍后重试。")
-    finally:
-        state._executing = False
+    )
+    payload = outcome.to_payload()
+    if isinstance(outcome, AnalysisSuccess):
+        state.last_analysis = payload["last_analysis"]
+        state.last_result = outcome.result
+        state.last_explanation = outcome.explanation or ""
+        state.last_method = outcome.method
+    await ctx.report_progress(2, 2, "完成")
+    return payload
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -601,11 +390,8 @@ async def snla_cancel(ctx: Context) -> dict:
     Safe to call at any time — returns success even if nothing was running.
     Also clears any pending greylist operation.
     """
-    state = _session_state(ctx)
     sid = ctx.session_id
-    state._cancelled = True
-    state._executing = False
-    planner.cancel_pending(sid)
+    analysis_service.cancel(sid)
     return {"ok": True, "message": "已取消"}
 
 
@@ -649,125 +435,6 @@ async def snla_export(ctx: Context) -> dict:
         }
     except Exception as e:
         return _mk_error("system", f"导出失败: {e}", "EXPORT_FAILED", "请稍后重试。")
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# Internal helpers
-# ═════════════════════════════════════════════════════════════════════════
-
-
-def _format_response(
-    method: str,
-    plan_explanation: str,
-    syntax: str,
-    parsed: Any,
-    explanation: str,
-    greylist_warnings: list[str],
-) -> dict:
-    """Build the unified response format (grill Q5)."""
-    # Extract tables from parsed result
-    tables = []
-    if hasattr(parsed, "tables"):
-        tables = [{"title": t.title, "rows": t.rows} for t in parsed.tables]
-    elif isinstance(parsed, dict):
-        tables = parsed.get("tables", [])
-
-    # Build Markdown table representation
-    md_parts = [f"## {method}\n"]
-    for t in tables:
-        md_parts.append(f"### {t.get('title', '')}")
-        rows = t.get("rows", [])
-        if rows:
-            md_parts.append("| " + " | ".join(rows[0].keys()) + " |")
-            md_parts.append("|" + "|".join(["---"] * len(rows[0])) + "|")
-            for row in rows:
-                md_parts.append("| " + " | ".join(str(v) for v in row.values()) + " |")
-        md_parts.append("")
-    if explanation:
-        md_parts.append(f"\n{explanation}")
-
-    statistics = {}
-    if hasattr(parsed, "statistics"):
-        statistics = parsed.statistics
-    elif isinstance(parsed, dict):
-        statistics = parsed.get("statistics", {})
-
-    return {
-        "ok": True,
-        "method": method,
-        "plan_explanation": plan_explanation,
-        "syntax_used": syntax,
-        "result": {
-            "tables": tables,
-            "statistics": statistics,
-        },
-        "explanation": explanation,
-        "markdown": "\n".join(md_parts),
-        "greylist_warnings": greylist_warnings,
-    }
-
-
-async def _execute_python_backend(
-    ctx: Context,
-    state: MCPState,
-    method: str,
-    plan_explanation: str,
-    gvar: str | None,
-    tvar: str | None,
-    query: str,
-) -> dict:
-    """Execute analysis via Python/pingouin backend (fast path)."""
-    await ctx.report_progress(2, 4, "正在通过 Python 引擎执行分析…")
-
-    import pandas as pd
-
-    from snla.executor.python import PythonStatsExecutor
-
-    # Load dataframe
-    file_path = state.file_path
-    if not file_path or not os.path.isfile(file_path):
-        return _mk_error("system", "数据文件丢失", "FILE_GONE")
-
-    suffix = os.path.splitext(file_path)[1].lower()
-    try:
-        if suffix == ".sav":
-            import pyreadstat
-
-            df, _ = pyreadstat.read_sav(file_path)
-        else:
-            df = pd.read_csv(file_path)
-    except Exception as e:
-        return _mk_error("system", f"数据加载失败: {e}", "LOAD_ERROR")
-
-    # Execute
-    py_exec = PythonStatsExecutor()
-    result = py_exec.execute(
-        method, df, grouping_var=gvar, test_var=tvar, dep_var=gvar, indep_var=tvar
-    )
-
-    # P5-4: check trust
-    if not is_method_trusted(method):
-        response = _format_response(method, plan_explanation, "", result, "", [])
-        response["warning"] = (
-            f"Python 引擎下「{method}」方法的可靠性尚未经 SPSS 交叉验证。"
-            f"以下为原始统计数字，非统计专业人士请谨慎解读。"
-            f"建议安装 SPSS 以获得完整解读。"
-        )
-        response["limited_mode"] = True
-        response["explanation"] = None
-        state.last_analysis = {"method": method}
-        return response
-
-    # Trusted → full explanation
-    explanation = naturalize_explain(result)
-    state.last_analysis = {"method": method}
-    state.last_result = result
-    state.last_explanation = explanation
-    state.last_method = method
-    state.last_query = query
-
-    await ctx.report_progress(4, 4, "分析完成")
-    return _format_response(method, plan_explanation, "", result, explanation, [])
 
 
 # ═════════════════════════════════════════════════════════════════════════
