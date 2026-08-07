@@ -53,7 +53,7 @@ SPSS checks require Windows and an installed IBM SPSS Statistics distribution:
 
 ```ini
 STATS_BACKEND=spss
-SPSS_PATH=C:\Program Files\IBM\SPSS\Statistics\29\stats.exe
+SPSS_PATH=C:\Program Files\IBM\SPSS\Statistics\29\stats.com
 SPSS_PYTHON_PATH=C:\Program Files\IBM\SPSS\Statistics\29\Python3\python.exe
 ```
 

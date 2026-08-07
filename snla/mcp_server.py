@@ -81,6 +81,7 @@ class MCPState:
     last_explanation: str = ""  # natural-language explanation
     last_method: str = ""
     last_query: str = ""
+    last_backend: str = ""
 
     def __post_init__(self):
         if self.variables is None:
@@ -351,6 +352,7 @@ async def snla_analyze(
         state.last_explanation = outcome.explanation or ""
         state.last_method = outcome.method
         state.last_query = outcome.user_query
+        state.last_backend = outcome.backend
     await ctx.report_progress(2, 2, "分析完成")
     return payload
 
@@ -394,6 +396,7 @@ async def snla_confirm(
         state.last_explanation = outcome.explanation or ""
         state.last_method = outcome.method
         state.last_query = outcome.user_query
+        state.last_backend = outcome.backend
     await ctx.report_progress(2, 2, "完成")
     return payload
 
@@ -444,6 +447,7 @@ async def snla_export(ctx: Context) -> dict:
             analysis_result=state.last_result,
             explanation=state.last_explanation,
             data_file=state.file_path or "",
+            backend=state.last_backend,
         )
 
         content = output_path.read_bytes()

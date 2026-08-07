@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from docx import Document
+
 from snla.explainer.export import export_to_docx
 from snla.parser.schema import AnalysisResult, TableResult
 
@@ -43,3 +45,19 @@ def test_export_to_docx_accepts_dict_result(tmp_path):
     )
 
     assert (tmp_path / "dict-report.docx").is_file()
+
+
+def test_export_records_the_effective_backend(tmp_path):
+    output_path = tmp_path / "backend-report.docx"
+
+    export_to_docx(
+        output_path=str(output_path),
+        user_query="Describe score",
+        method="descriptives",
+        analysis_result={"analysis_type": "DESCRIPTIVES", "statistics": {}},
+        explanation="Done",
+        backend="python",
+    )
+
+    paragraphs = "\n".join(item.text for item in Document(output_path).paragraphs)
+    assert "实际执行后端: Python" in paragraphs
