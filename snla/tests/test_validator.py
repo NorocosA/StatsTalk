@@ -1,7 +1,17 @@
 """Tests for snla.syntax.validator — 11 test cases covering blacklist, greylist,
 variable validation, bracket checking, and clean syntax pass-through."""
 
-from snla.syntax.validator import validate
+import pytest
+
+from snla.syntax.validator import (
+    _extract_tokens,
+    check_blacklist,
+    check_brackets,
+    check_greylist,
+    extract_commands,
+    validate,
+    validate_variables,
+)
 
 # ── Blacklist tests (valid=False, errors contain command name) ──────────────
 
@@ -132,3 +142,49 @@ def test_clean_syntax_passes():
     assert len(result["warnings"]) == 0, (
         f"Clean syntax should produce no warnings, got {result['warnings']}"
     )
+
+
+@pytest.mark.parametrize("syntax", ("", "   ", "."))
+def test_empty_syntax_has_no_commands(syntax):
+    assert extract_commands(syntax) == []
+
+
+def test_command_lists_are_deduplicated_and_sorted():
+    assert check_blacklist(["SAVE", "DELETE", "SAVE", "FREQUENCIES"]) == ["DELETE", "SAVE"]
+    assert check_greylist(["RECODE", "COMPUTE", "RECODE", "FREQUENCIES"]) == [
+        "COMPUTE",
+        "RECODE",
+    ]
+
+
+def test_variable_validation_can_be_disabled_with_an_empty_registry():
+    assert validate_variables("FREQUENCIES VARIABLES=unknown.", []) == []
+
+
+def test_method_enter_and_by_patterns_validate_all_variable_roles():
+    syntax = "REGRESSION /DEPENDENT=outcome /METHOD=ENTER predictor missing BY group."
+
+    assert validate_variables(syntax, ["outcome", "predictor", "group"]) == ["missing"]
+
+
+def test_by_pattern_handles_variables_at_both_context_edges():
+    assert validate_variables("BY group.", ["group"]) == []
+    assert validate_variables("score BY.", ["score"]) == []
+
+
+def test_token_extraction_skips_empty_numeric_keyword_and_quote_tokens():
+    referenced = set()
+
+    _extract_tokens(" , 123 BY TO AND OR WITH ALL EQ NE LT GT LE GE '' \"\" score.", referenced)
+
+    assert referenced == {"score"}
+
+
+def test_bracket_state_machine_handles_escaped_quotes_and_reports_all_mismatches():
+    assert check_brackets("COMPUTE text='it''s (safe)'.") == []
+
+    errors = check_brackets("COMPUTE x = value) + (other. PRINT 'unterminated.")
+
+    assert any("closing parenthesis" in error for error in errors)
+    assert any("opening parenthesis" in error for error in errors)
+    assert "Unmatched single quote" in errors

@@ -6,6 +6,18 @@ from snla.ui.security import LoopbackSecurity
 from snla.ui.server import app
 
 
+def test_launcher_version_probe_does_not_start_server(capsys, monkeypatch):
+    import launcher
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("version probe must not initialize the server")
+
+    monkeypatch.setattr(launcher, "prepare_loopback_server", fail_if_called)
+
+    assert launcher.main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == "StatsTalk 0.9.0-beta"
+
+
 def test_launch_uses_os_assigned_loopback_ports_and_fresh_secrets():
     from snla.ui.launch import prepare_loopback_server
 

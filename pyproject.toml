@@ -3,7 +3,7 @@
 # Run: ruff check --fix  (auto-fix lint)
 # Run: ruff format       (format code)
 
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -27,3 +27,24 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["snla/tests"]
+markers = [
+    "slow: tests that require a real LLM or SPSS process",
+]
+
+[tool.coverage.run]
+source = ["snla"]
+omit = [
+    "snla/tests/*",
+    "snla/executor/adapter.py",
+    "snla/executor/spss.py",
+    "snla/explainer/charts.py",
+    "snla/rag/*",
+]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true

@@ -1,0 +1,8 @@
+{
+  "branch": "master",
+  "strict": true,
+  "required_status_checks": [
+    "CI / Ubuntu quality gates",
+    "CI / Windows package"
+  ]
+}

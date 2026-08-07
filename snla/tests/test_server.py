@@ -20,7 +20,7 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -82,6 +82,13 @@ def mock_save_env():
     """Prevent _save_env_file from writing to the real .env file."""
     with patch("snla.ui.server._save_env_file"):
         yield
+
+
+@pytest.fixture(autouse=True)
+def mock_spss_executor_factory():
+    """Keep API tests independent from a locally installed SPSS runtime."""
+    with patch("snla.executor.spss.SPSSExecutor", return_value=MagicMock()) as factory:
+        yield factory
 
 
 # ===========================================================================

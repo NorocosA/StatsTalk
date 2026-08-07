@@ -75,9 +75,9 @@ def test_llm_client_rejects_public_http_before_network_access():
     from snla.llm.transport import EndpointPolicyError
 
     with (
-        patch("snla.config.LLM_ENDPOINT", "http://api.example.com/v1/chat/completions"),
-        patch("snla.config.LLM_API_KEY", "sk-secret"),
-        patch("snla.config.LLM_MOCK", False),
+        patch("snla.llm.client.config.LLM_ENDPOINT", "http://api.example.com/v1/chat/completions"),
+        patch("snla.llm.client.config.LLM_API_KEY", "sk-secret"),
+        patch("snla.llm.client.config.LLM_MOCK", False),
         patch("requests.Session.post") as post,
     ):
         client = LLMClient()
@@ -106,9 +106,9 @@ def test_llm_client_keeps_certificate_verification_enabled(endpoint):
     }
 
     with (
-        patch("snla.config.LLM_ENDPOINT", endpoint),
-        patch("snla.config.LLM_API_KEY", "sk-secret"),
-        patch("snla.config.LLM_MOCK", False),
+        patch("snla.llm.client.config.LLM_ENDPOINT", endpoint),
+        patch("snla.llm.client.config.LLM_API_KEY", "sk-secret"),
+        patch("snla.llm.client.config.LLM_MOCK", False),
         patch("requests.Session.post", return_value=response) as post,
     ):
         result = LLMClient().chat([{"role": "user", "content": "hello"}])
@@ -127,9 +127,9 @@ def test_llm_client_rejects_redirects_without_following_them():
     response.headers["Location"] = "http://api.example.com/insecure"
 
     with (
-        patch("snla.config.LLM_ENDPOINT", "https://api.example.com/v1/chat"),
-        patch("snla.config.LLM_API_KEY", "sk-secret"),
-        patch("snla.config.LLM_MOCK", False),
+        patch("snla.llm.client.config.LLM_ENDPOINT", "https://api.example.com/v1/chat"),
+        patch("snla.llm.client.config.LLM_API_KEY", "sk-secret"),
+        patch("snla.llm.client.config.LLM_MOCK", False),
         patch("requests.Session.post", return_value=response) as post,
         pytest.raises(LLMError) as caught,
     ):
@@ -153,9 +153,9 @@ def test_invalid_certificate_has_actionable_secret_safe_diagnostics(caplog):
     )
 
     with (
-        patch("snla.config.LLM_ENDPOINT", endpoint),
-        patch("snla.config.LLM_API_KEY", api_key),
-        patch("snla.config.LLM_MOCK", False),
+        patch("snla.llm.client.config.LLM_ENDPOINT", endpoint),
+        patch("snla.llm.client.config.LLM_API_KEY", api_key),
+        patch("snla.llm.client.config.LLM_MOCK", False),
         patch("requests.Session.post", side_effect=certificate_error) as post,
         patch("snla.llm.client.time.sleep"),
         pytest.raises(LLMError) as caught,
@@ -184,9 +184,9 @@ def test_connection_failure_retries_with_actionable_secret_safe_diagnostics(capl
     )
 
     with (
-        patch("snla.config.LLM_ENDPOINT", endpoint),
-        patch("snla.config.LLM_API_KEY", api_key),
-        patch("snla.config.LLM_MOCK", False),
+        patch("snla.llm.client.config.LLM_ENDPOINT", endpoint),
+        patch("snla.llm.client.config.LLM_API_KEY", api_key),
+        patch("snla.llm.client.config.LLM_MOCK", False),
         patch("requests.Session.post", side_effect=connection_error) as post,
         patch("snla.llm.client.time.sleep"),
         pytest.raises(LLMError) as caught,
@@ -201,3 +201,89 @@ def test_connection_failure_retries_with_actionable_secret_safe_diagnostics(capl
     assert api_key not in caplog.text
     assert "workspace=private" not in caplog.text
     assert post.call_count == LLM_MAX_RETRIES + 1
+
+
+def test_transport_error_exposes_only_its_safe_diagnostic():
+    from snla.llm.transport import LLMTransportError, TransportDiagnostic
+
+    diagnostic = TransportDiagnostic("transport_failed", "safe message", False)
+    error = LLMTransportError(diagnostic)
+
+    assert str(error) == "safe message"
+    assert error.diagnostic is diagnostic
+
+
+def test_urllib_redirect_handler_never_forwards_a_request():
+    from snla.llm.transport import NoRedirectHandler
+
+    assert NoRedirectHandler().redirect_request(None, None, 302, None, {}, None) is None
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    (
+        ("https://api.example.com:8443/v1?secret=yes", "api.example.com:8443"),
+        ("https:///missing-host", "configured endpoint"),
+        ("https://api.example.com:bad/path", "configured endpoint"),
+    ),
+)
+def test_safe_endpoint_label_never_includes_paths_or_invalid_values(endpoint, expected):
+    from snla.llm.transport import safe_endpoint_label
+
+    assert safe_endpoint_label(endpoint) == expected
+
+
+def test_urllib_certificate_failure_is_non_retryable():
+    import ssl
+    import urllib.error
+
+    from snla.llm.transport import diagnose_transport_failure
+
+    error = urllib.error.URLError(ssl.SSLCertVerificationError("private certificate text"))
+    diagnostic = diagnose_transport_failure("https://api.example.com/private", error)
+
+    assert diagnostic.code == "tls_verification_failed"
+    assert diagnostic.retryable is False
+    assert "private" not in diagnostic.message
+
+
+@pytest.mark.parametrize("error", (TimeoutError(), pytest.importorskip("requests").Timeout()))
+def test_timeout_failures_are_retryable(error):
+    from snla.llm.transport import diagnose_transport_failure
+
+    diagnostic = diagnose_transport_failure("https://api.example.com/v1", error)
+
+    assert diagnostic.code == "connection_timeout"
+    assert diagnostic.retryable is True
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code", "retryable"),
+    (
+        (302, "endpoint_redirect", False),
+        (400, "http_error", False),
+        (503, "http_error", True),
+    ),
+)
+def test_urllib_http_status_diagnostics(status_code, expected_code, retryable):
+    import urllib.error
+
+    from snla.llm.transport import diagnose_transport_failure
+
+    error = urllib.error.HTTPError("https://api.example.com", status_code, "ignored", {}, None)
+    diagnostic = diagnose_transport_failure("https://api.example.com/v1", error)
+
+    assert diagnostic.code == expected_code
+    assert diagnostic.retryable is retryable
+
+
+def test_unknown_transport_failure_is_non_retryable_and_secret_safe():
+    from snla.llm.transport import diagnose_transport_failure
+
+    diagnostic = diagnose_transport_failure(
+        "https://api.example.com/v1?secret=yes", RuntimeError("secret=yes")
+    )
+
+    assert diagnostic.code == "transport_failed"
+    assert diagnostic.retryable is False
+    assert "secret=yes" not in diagnostic.message
