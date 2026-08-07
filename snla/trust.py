@@ -11,9 +11,7 @@ def is_method_trusted(method: str) -> bool:
     """Return whether ``method`` is validated for Python-only execution."""
 
     capability = get_capability(method)
-    return bool(
-        capability and capability.python.supported and capability.python.validated
-    )
+    return bool(capability and capability.python.supported and capability.python.validated)
 
 
 def get_trusted_methods() -> set[str]:

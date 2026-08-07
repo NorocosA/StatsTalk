@@ -241,9 +241,7 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
 )
 _CAPABILITIES_BY_NAME = {capability.name: capability for capability in _PUBLIC_CAPABILITIES}
 _ALIASES = {
-    alias: capability.name
-    for capability in _PUBLIC_CAPABILITIES
-    for alias in capability.aliases
+    alias: capability.name for capability in _PUBLIC_CAPABILITIES for alias in capability.aliases
 }
 _NORMALIZED_ALIASES = {
     **_ALIASES,

@@ -66,6 +66,7 @@ LLM_CALL_LOG = os.getenv("LLM_CALL_LOG", "false").lower() == "true"
 LLM_MOCK = os.getenv("LLM_MOCK", "false").lower() == "true"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+
 def check_spss_available() -> bool:
     """检查本机是否实际可用 SPSS 可执行文件。
 
