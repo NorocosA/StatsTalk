@@ -257,7 +257,7 @@ def test_confirmed_method_correction_revalidates_and_then_executes(tmp_path, mon
             or AnalysisResult(analysis_type="ANOVA", parser_used="python_pingouin")
         ),
     )
-    monkeypatch.setattr("snla.analysis.service._explain_result", lambda _result: "Complete")
+    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: "Complete")
     request = AnalysisRequest(
         session_id="confirm-correction",
         query="Compare the three groups",
@@ -453,7 +453,7 @@ def test_python_executor_receives_the_same_roles_that_were_validated(tmp_path, m
         return AnalysisResult(analysis_type="T-TEST", parser_used="python_pingouin")
 
     monkeypatch.setattr("snla.executor.python.PythonStatsExecutor.execute", execute)
-    monkeypatch.setattr("snla.analysis.service._explain_result", lambda _result: "Complete")
+    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: "Complete")
 
     outcome = service.analyze(
         AnalysisRequest(

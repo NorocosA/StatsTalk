@@ -295,6 +295,10 @@ async def snla_analyze(
     ctx: Context,
     query: str,
     confirm_greylist: bool = False,
+    method: str | None = None,
+    grouping_variable: str | None = None,
+    test_variable: str | None = None,
+    alpha: float = 0.05,
 ) -> dict:
     """Execute statistical analysis from a natural-language query.
 
@@ -306,6 +310,10 @@ async def snla_analyze(
         confirm_greylist: Set to true to confirm a pending greylist operation
             (COMPUTE/RECODE/SELECT IF).  Only valid when the previous
             snla_analyze call returned requires_confirmation=true.
+        method: Optional explicit method selected by the user.
+        grouping_variable: First method-role variable when ``method`` is explicit.
+        test_variable: Second method-role variable, or the single analysis variable.
+        alpha: Significance level used by the deterministic explainer.
 
     Returns:
         On success: {ok, method, result: {tables, statistics}, explanation,
@@ -329,6 +337,11 @@ async def snla_analyze(
             dataset_meta=dataset_meta,
             last_analysis=state.last_analysis,
             confirm_greylist=confirm_greylist,
+            method=method,
+            grouping_variable=grouping_variable,
+            test_variable=test_variable,
+            alpha=alpha,
+            selection_source="user_selection" if method else "planner",
         )
     )
     payload = outcome.to_payload()

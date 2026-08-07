@@ -16,6 +16,7 @@ CLOUD_SAFE_FIELDS: set[str] = {
     "name",
     "type",
     "label",
+    "role_type",
     # NOTE: value_labels intentionally excluded — contains actual value mappings
     # (e.g., {1:"Male"}) that could leak sensitive information to cloud LLM.
     "aggregate_stats",
@@ -78,6 +79,12 @@ def filter_for_cloud(metadata: dict) -> dict:
                 for var in v:
                     if isinstance(var, dict):
                         cleaned = {fk: fv for fk, fv in var.items() if fk in CLOUD_SAFE_FIELDS}
+                        if var.get("type") == "String" or bool(var.get("value_labels")):
+                            cleaned["role_type"] = "categorical"
+                        elif var.get("type") == "Numeric":
+                            cleaned["role_type"] = "continuous"
+                        else:
+                            cleaned["role_type"] = "unsupported"
                         cleaned_vars.append(cleaned)
                     else:
                         cleaned_vars.append(var)

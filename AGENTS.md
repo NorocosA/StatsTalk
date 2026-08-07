@@ -65,6 +65,7 @@ LLM_MOCK=true
 | GET | `/` | Frontend HTML |
 | GET | `/api/status` | Health and session state |
 | POST | `/api/upload` | Upload `.sav` or `.csv` |
+| POST | `/api/suggest` | Network-free local method suggestion |
 | POST | `/api/analyze` | Main analysis pipeline |
 | POST | `/api/cancel` | Cancel running analysis |
 | POST | `/api/confirm` | Execute pending greylist operation |

@@ -51,7 +51,9 @@ storage marker. Legacy plaintext keys require explicit migration consent.
 
 ```text
 User request
-  -> planner: intent, method, variables
+  -> local suggestion or structured method/variable controls
+  -> optional cloud planner when an API key is configured
+  -> method applicability validation
   -> backend: Python or SPSS
   -> SPSS syntax template and validator
   -> executor and parser
@@ -62,6 +64,7 @@ User request
 ## Main Capabilities
 
 - Natural-language analysis planning.
+- Complete no-API-key flow with local suggestions and structured controls.
 - SPSS execution through bundled SPSS Python or batch mode.
 - Python backend for 15 methods.
 - SPSS syntax templates with blacklist and greylist validation.

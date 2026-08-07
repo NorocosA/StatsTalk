@@ -245,6 +245,37 @@ def cancel():
     return jsonify({"ok": True})
 
 
+# ── Local suggestion ─────────────────────────────────────────────────
+@app.route("/api/suggest", methods=["POST"])
+def suggest():
+    """Return a deterministic, network-free method and variable suggestion."""
+
+    data = request.get_json(silent=True) or {}
+    user_input = data.get("text", "")
+    if not isinstance(user_input, str):
+        return jsonify({"error": "输入类型无效"}), 400
+    if not session.variables or not session.dataset_meta:
+        return jsonify({"error": "请先上传数据文件"}), 400
+
+    from snla.orchestrator.planner import suggest_local
+
+    plan = suggest_local(
+        user_input.strip(),
+        session.variables,
+        last_analysis=session.last_analysis,
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "source": "local_suggestion",
+            "method": plan.method,
+            "grouping_variable": plan.grouping_variable,
+            "test_variable": plan.test_variable,
+            "label": "本地建议",
+        }
+    )
+
+
 # ── Analyze ───────────────────────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
@@ -259,13 +290,26 @@ def analyze():
         )
 
     data = request.get_json(force=True)
-    user_input = data.get("text", "").strip()
+    method = data.get("method")
+    if method is not None and not isinstance(method, str):
+        return jsonify({"error": "分析方法类型无效"}), 400
+    raw_text = data.get("text", "")
+    if not isinstance(raw_text, str):
+        return jsonify({"error": "输入类型无效"}), 400
+    user_input = raw_text.strip()
+    if method and not user_input:
+        user_input = f"使用结构化控件运行 {method}"
     confirm_greylist = data.get("confirm_greylist", False)
 
-    if not isinstance(data.get("text"), str):
-        return jsonify({"error": "输入类型无效"}), 400
     if len(user_input) > MAX_QUERY_LENGTH:
         return jsonify({"error": f"输入文本过长（最大 {MAX_QUERY_LENGTH} 字符）"}), 400
+    try:
+        alpha = float(data.get("alpha", 0.05))
+    except (TypeError, ValueError):
+        return jsonify({"error": "显著性水平必须是数字"}), 400
+    selection_source = str(data.get("selection_source", "planner"))
+    if selection_source not in {"planner", "local_suggestion", "user_selection"}:
+        return jsonify({"error": "分析选择来源无效"}), 400
 
     # ── Range expansion (Q1-Q10 → Q1, Q2, ..., Q10) ────────────────
     try:
@@ -289,6 +333,11 @@ def analyze():
                 dataset_meta=session.dataset_meta,
                 last_analysis=session.last_analysis,
                 confirm_greylist=confirm_greylist,
+                method=method,
+                grouping_variable=data.get("grouping_variable"),
+                test_variable=data.get("test_variable"),
+                alpha=alpha,
+                selection_source=selection_source,
             )
         )
         payload = outcome.to_payload()
@@ -301,6 +350,9 @@ def analyze():
                     "method": outcome.method,
                     "syntax": outcome.syntax,
                     "result": outcome.result,
+                    "parameters": outcome.parameters or {},
+                    "selection_source": outcome.selection_source,
+                    "backend": outcome.backend,
                 }
             )
             session.last_analysis = payload["last_analysis"]
@@ -347,6 +399,9 @@ def confirm_greylist():
                     "method": outcome.method,
                     "syntax": outcome.syntax,
                     "result": outcome.result,
+                    "parameters": outcome.parameters or {},
+                    "selection_source": outcome.selection_source,
+                    "backend": outcome.backend,
                 }
             )
             session.last_analysis = payload["last_analysis"]
@@ -787,6 +842,7 @@ def export():
             analysis_result=last.get("result"),
             explanation=last.get("content", ""),
             data_file=session.dataset_meta.get("filename", ""),
+            parameters=last.get("parameters", {}),
         )
 
         with open(tmp_path, "rb") as f:

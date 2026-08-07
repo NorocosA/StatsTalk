@@ -58,17 +58,10 @@ def _plan(
         return result
 
     if LLM_MOCK or not _has_llm():
-        method = canonicalize_method(_mock_intent(user_input, last_analysis))
-        if get_capability(method) is None:
-            method = "descriptives"
-        first, second = _auto_detect_roles(method, variables)
-        return _rag(
-            PlanResult(
-                method=method,
-                plan_explanation=f"（MOCK 模式）{method}",
-                grouping_variable=first,
-                test_variable=second,
-            )
+        return suggest_local(
+            user_input,
+            variables,
+            last_analysis=last_analysis,
         )
 
     # ── Real LLM path ─────────────────────────────────────────────────
@@ -164,6 +157,26 @@ def _plan(
 def _cloud_vars(variables: list[dict]) -> list[dict]:
     """Return cloud-safe variable metadata (strips raw values)."""
     return filter_for_cloud({"variables": variables}).get("variables", [])
+
+
+def suggest_local(
+    user_input: str,
+    variables: list[dict],
+    *,
+    last_analysis: dict | None = None,
+) -> PlanResult:
+    """Build a deterministic method suggestion without network or RAG access."""
+
+    method = canonicalize_method(_mock_intent(user_input, last_analysis))
+    if get_capability(method) is None:
+        method = "descriptives"
+    first, second = _auto_detect_roles(method, variables)
+    return PlanResult(
+        method=method,
+        plan_explanation=f"本地建议：{method}",
+        grouping_variable=first,
+        test_variable=second,
+    )
 
 
 def _auto_detect_vars(variables: list[dict]) -> tuple[str | None, str | None]:
