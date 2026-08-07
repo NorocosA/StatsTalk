@@ -344,6 +344,10 @@ def _determine_analysis_type(text: str) -> str:
         return "FREQUENCIES"
     if "descriptive" in lower or "描述" in lower or "descriptives" in lower:
         return "DESCRIPTIVES"
+    if "mann whitney" in lower or "mann-whitney" in lower:
+        return "MANN_WHITNEY"
+    if "kruskal wallis" in lower or "kruskal-wallis" in lower:
+        return "KRUSKAL_WALLIS"
     return "UNKNOWN"
 
 
@@ -530,6 +534,20 @@ def _extract_ttest_from_oms(xml_path: str) -> dict[str, float]:
                                 stats["mean_diff"] = val
                     break  # Only use equal variances assumed row
 
+        # ---- Paired Samples Test ----
+        if subtype == "Paired Samples Test":
+            for stat_cat in pivot.iter("{*}category"):
+                sname = stat_cat.get("text", "")
+                val = _find_cell_number(stat_cat)
+                if val is None:
+                    continue
+                if sname == "t":
+                    stats["t_value"] = val
+                elif sname == "df":
+                    stats["df"] = int(val)
+                elif sname == "Sig. (2-tailed)":
+                    stats["p_value"] = val
+
     # Compute n_valid
     if "n_male" in stats and "n_female" in stats:
         stats["n_valid"] = int(stats["n_male"] + stats["n_female"])
@@ -650,8 +668,10 @@ def _extract_regression_from_oms(xml_path: str) -> dict[str, float]:
                 val = _find_cell_number(cat)
                 if val is None:
                     continue
-                if "R Square" in text:
+                if text == "R Square":
                     stats["r_squared"] = val
+                elif text == "Adjusted R Square":
+                    stats["adjusted_r_squared"] = val
 
         if subtype == "ANOVA":
             for cat in pivot.iter("{*}category"):
@@ -712,12 +732,17 @@ def _extract_anova_from_oms(xml_path: str) -> dict[str, float]:
     root = tree.getroot()
     stats: dict[str, float] = {}
 
-    # Supported subType values for ANOVA tables
-    anova_subtypes = {"ANOVA", "Tests of Between-Subjects Effects"}
+    # SPSS versions use different internal subType values for the same table.
+    anova_subtypes = {
+        "anova",
+        "tests of between subjects effects",
+        "test of between subjects fixed effects",
+    }
 
     for pivot in root.iter("{*}pivotTable"):
-        subtype = pivot.get("subType", "")
-        if subtype not in anova_subtypes:
+        subtype = pivot.get("subType", "").replace("-", " ").casefold()
+        title = pivot.get("text", "").replace("-", " ").casefold()
+        if subtype not in anova_subtypes and title not in anova_subtypes:
             continue
 
         # Walk all category elements to find "Between Groups" row
@@ -726,7 +751,7 @@ def _extract_anova_from_oms(xml_path: str) -> dict[str, float]:
 
             # ONEWAY: "Source" dimension with "Between Groups" label
             # UNIANOVA: variable="true" categories
-            if text == "Between Groups" or cat.get("variable") == "true":
+            if text in {"Between Groups", "Corrected Model"} or cat.get("variable") == "true":
                 col_dim = cat.find("{*}dimension")
                 if col_dim is None:
                     continue
@@ -759,7 +784,8 @@ def _extract_crosstabs_from_oms(xml_path: str) -> dict[str, float]:
     stats: dict[str, float] = {}
 
     for pivot in root.iter("{*}pivotTable"):
-        if pivot.get("subType", "") != "Chi-Square Tests":
+        subtype = pivot.get("subType", "").replace("-", " ").casefold()
+        if subtype != "chi square tests":
             continue
 
         for cat in pivot.iter("{*}category"):
@@ -891,6 +917,59 @@ def _extract_frequencies_from_oms(xml_path: str) -> dict[str, Any]:
     return stats
 
 
+def _extract_mann_whitney_from_oms(xml_path: str) -> dict[str, float]:
+    """Extract Mann-Whitney U, Z, and asymptotic p-value from OMS XML."""
+
+    root = etree.parse(xml_path).getroot()
+    stats: dict[str, float] = {}
+    for pivot in root.iter("{*}pivotTable"):
+        if pivot.get("subType", "") != "Mann Whitney Test Statistics":
+            continue
+        for category in pivot.iter("{*}category"):
+            name = category.get("text", "")
+            value = _find_cell_number(category)
+            if value is None:
+                descendant = next(category.iter("{*}cell"), None)
+                if descendant is not None:
+                    value = _safe_float(descendant.get("number"))
+            if value is None:
+                continue
+            if name == "Mann-Whitney U":
+                stats["u"] = value
+            elif name == "Z":
+                stats["z_value"] = value
+            elif name == "Asymp. Sig. (2-tailed)":
+                stats["p_value"] = value
+        break
+    return stats
+
+
+def _extract_kruskal_wallis_from_oms(xml_path: str) -> dict[str, float]:
+    """Extract Kruskal-Wallis summary statistics from modern NPTESTS XML."""
+
+    root = etree.parse(xml_path).getroot()
+    stats: dict[str, float] = {}
+    expected_subtype = "Independent-Samples Kruskal-Wallis Test Summary"
+    for pivot in root.iter("{*}pivotTable"):
+        if pivot.get("subType", "") != expected_subtype:
+            continue
+        for category in pivot.iter("{*}category"):
+            name = category.get("text", "")
+            value = _find_cell_number(category)
+            if value is None:
+                continue
+            if name == "Total N":
+                stats["n_valid"] = int(value)
+            elif name == "Test Statistic":
+                stats["h"] = value
+            elif name == "Degree Of Freedom":
+                stats["df"] = int(value)
+            elif name == "Asymptotic Sig.(2-sided test)":
+                stats["p_value"] = value
+        break
+    return stats
+
+
 # Map analysis types to their dedicated extractors
 _DEDICATED_EXTRACTORS: dict[str, Any] = {
     "T-TEST": _extract_ttest_from_oms,
@@ -900,13 +979,15 @@ _DEDICATED_EXTRACTORS: dict[str, Any] = {
     "FREQUENCIES": _extract_frequencies_from_oms,
     "CROSSTABS": _extract_crosstabs_from_oms,
     "ANOVA": _extract_anova_from_oms,
+    "MANN_WHITNEY": _extract_mann_whitney_from_oms,
+    "KRUSKAL_WALLIS": _extract_kruskal_wallis_from_oms,
 }
 
 
 # ---------------------------------------------------------------------------
 
 
-def parse_oms_xml(xml_path: str) -> AnalysisResult:
+def parse_oms_xml(xml_path: str, analysis_type: str | None = None) -> AnalysisResult:
     """
     Parse an SPSS OMS XML output file into a structured ``AnalysisResult``.
 
@@ -949,13 +1030,22 @@ def parse_oms_xml(xml_path: str) -> AnalysisResult:
         raise ValueError(f"Empty XML document: {xml_path}")
 
     # --- Determine analysis type ---
-    analysis_type = "UNKNOWN"
-    for cmd_elem in root.iter("{*}command"):
-        cmd_text = cmd_elem.get("text", "")
-        inferred = _determine_analysis_type(cmd_text)
-        if inferred != "UNKNOWN":
-            analysis_type = inferred
-            break
+    analysis_type = analysis_type or "UNKNOWN"
+    if analysis_type == "UNKNOWN":
+        for cmd_elem in root.iter("{*}command"):
+            cmd_text = cmd_elem.get("text", "")
+            inferred = _determine_analysis_type(cmd_text)
+            if inferred != "UNKNOWN":
+                analysis_type = inferred
+                break
+    if analysis_type == "UNKNOWN":
+        for pivot in root.iter("{*}pivotTable"):
+            inferred = _determine_analysis_type(
+                f"{pivot.get('subType', '')} {pivot.get('text', '')}"
+            )
+            if inferred != "UNKNOWN":
+                analysis_type = inferred
+                break
 
     # --- Parse every pivot table ---
     tables: list[TableResult] = []

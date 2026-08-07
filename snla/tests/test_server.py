@@ -160,7 +160,7 @@ class TestStatusEndpoint:
         regression = next(item for item in capabilities if item["name"] == "simple_regression")
         assert regression["backends"]["python"] == {
             "supported": True,
-            "validated": False,
+            "validated": True,
         }
 
 

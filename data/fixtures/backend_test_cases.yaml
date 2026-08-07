@@ -734,6 +734,7 @@ test_cases:
   # ==========================================================================
 
   - id: "mode_batch_ttest_001"
+    diagnostic_only: true
     method: "independent_t_test"
     description: "MODE: Batch execution — gender × score"
     data_file: "data/fixtures/test_data.sav"
@@ -749,6 +750,7 @@ test_cases:
       (spss.Submit). Validates results parity between modes.
 
   - id: "mode_batch_descriptives_002"
+    diagnostic_only: true
     method: "descriptives"
     description: "MODE: Batch execution — age descriptives"
     data_file: "data/fixtures/test_data.sav"

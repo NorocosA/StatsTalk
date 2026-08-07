@@ -236,7 +236,6 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
             _tol("n_valid", 0, 0),
         ),
         minimum_sample_size=3,
-        python_validated=False,
     ),
 )
 _CAPABILITIES_BY_NAME = {capability.name: capability for capability in _PUBLIC_CAPABILITIES}

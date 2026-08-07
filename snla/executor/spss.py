@@ -29,6 +29,8 @@ from snla.config import (
 
 logger = logging.getLogger(__name__)
 
+OMS_COMPLETION_GRACE_SECONDS = 3.0
+
 # ---------------------------------------------------------------------------
 # OMS XML wrapper
 # ---------------------------------------------------------------------------
@@ -38,6 +40,20 @@ OMS /SELECT TABLES /DESTINATION FORMAT=OXML OUTFILE='{output_xml}'.
 {user_syntax}
 OMSEND.
 """
+
+
+def _oms_output_complete(xml_path: str) -> bool:
+    """Return whether SPSS has flushed a complete OMS document to disk."""
+
+    try:
+        with open(xml_path, "rb") as output:
+            output.seek(0, os.SEEK_END)
+            size = output.tell()
+            output.seek(max(0, size - 256))
+            return b"</outputTree>" in output.read()
+    except OSError:
+        return False
+
 
 # Dataset preamble — loads the source .sav into an active dataset named SNLA_Temp
 GET_FILE_PREAMBLE = "GET FILE='{data_path}'.\nDATASET NAME SNLA_Temp.\n"
@@ -246,6 +262,18 @@ class SPSSExecutor:
                 if retcode is not None:
                     exit_code = retcode
                     stdout, stderr = proc.communicate(timeout=5)
+                    break
+
+                if (
+                    time.perf_counter() - start_time >= OMS_COMPLETION_GRACE_SECONDS
+                    and _oms_output_complete(xml_path)
+                ):
+                    # SPSS 26 can finish OMS output but leave its bundled
+                    # Python host blocked during interpreter shutdown.
+                    proc.terminate()
+                    exit_code = -1
+                    stdout, stderr = proc.communicate(timeout=5)
+                    logger.info("[SPSSExecutor] Complete OMS output detected; host terminated")
                     break
 
                 if time.perf_counter() >= deadline:

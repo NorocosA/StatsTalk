@@ -21,15 +21,15 @@ from snla.syntax.templates import (
             "T-TEST GROUPS=g",
         ),
         ("paired_t_test", {"var1": "before", "var2": "after"}, "T-TEST PAIRS=before"),
-        ("oneway_anova", {"group_var": "g", "test_var": "x"}, "ONEWAY x BY g"),
-        ("simple_regression", {"dep_var": "y", "indep_var": "x"}, "/DEPENDENT y"),
+        ("oneway_anova", {"group_var": "g", "test_var": "x"}, "UNIANOVA x BY g"),
+        ("simple_regression", {"dep_var": "y", "indep_var": "x"}, "/DEPENDENT=y"),
         ("chi_square", {"row_var": "a", "col_var": "b"}, "/TABLES=a BY b"),
         ("frequencies", {"var": "x"}, "FREQUENCIES VARIABLES=x"),
         ("descriptives", {"var": "x"}, "DESCRIPTIVES VARIABLES=x"),
         ("correlations", {"var1": "x", "var2": "y"}, "/VARIABLES=x y"),
         ("spearman_correlation", {"var1": "x", "var2": "y"}, "SPEARMAN"),
         ("mann_whitney_u", {"group_var": "g", "test_var": "x"}, "/M-W= x BY g(1 2)"),
-        ("kruskal_wallis", {"group_var": "g", "test_var": "x"}, "/K-W= x BY g"),
+        ("kruskal_wallis", {"group_var": "g", "test_var": "x"}, "TEST(x) GROUP(g)"),
     ),
 )
 def test_each_public_template_dispatches(method, kwargs, fragment):
@@ -37,6 +37,12 @@ def test_each_public_template_dispatches(method, kwargs, fragment):
 
     assert fragment in syntax
     assert syntax.endswith(".")
+
+
+def test_regression_statistics_precede_dependent_subcommand_for_spss_26():
+    syntax = get_syntax_by_method("simple_regression", dep_var="y", indep_var="x")
+
+    assert syntax.index("/STATISTICS") < syntax.index("/DEPENDENT")
 
 
 def test_unknown_template_lists_available_methods():

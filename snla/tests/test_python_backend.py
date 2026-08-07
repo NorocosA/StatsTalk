@@ -276,6 +276,19 @@ class TestChiSquare:
         assert result.analysis_type == "CROSSTABS"
         assert "chi_square" in result.statistics
 
+    def test_two_by_two_pearson_chi_square_omits_yates_correction(self, executor):
+        data = pd.DataFrame(
+            {
+                "group": [1] * 15 + [2] * 15,
+                "outcome": [1] * 9 + [2] * 6 + [1] * 6 + [2] * 9,
+            }
+        )
+
+        result = executor.execute("chi_square", data, grouping_var="group", test_var="outcome")
+
+        assert result.statistics["chi_square"] == pytest.approx(1.2)
+        assert result.statistics["p_value"] == pytest.approx(0.273321678292295)
+
 
 # ===================================================================
 # Mann-Whitney U
@@ -300,6 +313,27 @@ class TestMannWhitney:
 
         titles = [t.title for t in result.tables]
         assert "Mann-Whitney U Test" in titles
+
+    def test_matches_spss_asymptotic_result_without_continuity_correction(self, executor):
+        data = pd.DataFrame(
+            {
+                "group": [1] * 15 + [2] * 15,
+                "score": list(range(15)) + list(range(3, 18)),
+            }
+        )
+
+        result = executor.execute("mann_whitney_u", data, grouping_var="group", test_var="score")
+
+        from scipy.stats import mannwhitneyu
+
+        expected = mannwhitneyu(
+            data.loc[data.group == 1, "score"],
+            data.loc[data.group == 2, "score"],
+            alternative="two-sided",
+            method="asymptotic",
+            use_continuity=False,
+        )
+        assert result.statistics["p_value"] == pytest.approx(expected.pvalue)
 
 
 # ===================================================================
@@ -394,6 +428,9 @@ class TestRegression:
         stats = result.statistics
         assert "r_squared" in stats
         assert "adj_r_squared" in stats
+        assert "coefficient" in stats
+        assert "t_value" in stats
+        assert "p_value" in stats
         assert stats["n_valid"] > 0
 
         titles = [t.title for t in result.tables]
