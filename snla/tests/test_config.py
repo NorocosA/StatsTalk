@@ -38,3 +38,29 @@ def test_reload_config_maps_spss_path_and_preserves_types():
         else:
             env_path.write_text(original_text, encoding="utf-8")
         cfg.reload_config()
+
+
+def test_reload_config_ignores_an_insecure_public_llm_endpoint():
+    import snla.config as cfg
+
+    config_path = Path(cfg.__file__).resolve()
+    env_path = config_path.parent.parent / ".env"
+    original_text = env_path.read_text(encoding="utf-8") if env_path.exists() else None
+    original_endpoint = cfg.LLM_ENDPOINT
+
+    try:
+        env_path.write_text(
+            "LLM_ENDPOINT=http://api.example.com/v1/chat/completions\n",
+            encoding="utf-8",
+        )
+
+        changed = cfg.reload_config()
+
+        assert "LLM_ENDPOINT" not in changed
+        assert original_endpoint == cfg.LLM_ENDPOINT
+    finally:
+        if original_text is None:
+            env_path.unlink(missing_ok=True)
+        else:
+            env_path.write_text(original_text, encoding="utf-8")
+        cfg.LLM_ENDPOINT = original_endpoint

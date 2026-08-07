@@ -28,6 +28,11 @@ from snla.config import DEBUG, LLM_MOCK  # noqa: F401 — LLM_MOCK imported for 
 from snla.data.persistence import load_session, save_session
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import filter_for_cloud
+from snla.llm.transport import (
+    EndpointPolicyError,
+    diagnose_transport_failure,
+    require_secure_llm_endpoint,
+)
 from snla.orchestrator import NoPendingError, planner
 from snla.session import SessionState
 from snla.trust import get_trusted_methods, trust_loaded_from
@@ -603,6 +608,19 @@ def settings():
     data = request.get_json(force=True)
     import snla.config as cfg
 
+    endpoint = data.get("LLM_ENDPOINT")
+    if endpoint:
+        try:
+            data["LLM_ENDPOINT"] = require_secure_llm_endpoint(str(endpoint).strip())
+        except EndpointPolicyError as exc:
+            return jsonify(
+                {
+                    "error": "invalid_llm_endpoint",
+                    "code": exc.code,
+                    "message": str(exc),
+                }
+            ), 400
+
     changed = []
 
     # ── Update in-memory config ────────────────────────────
@@ -703,6 +721,16 @@ def list_models():
         return jsonify({"error": "LLM endpoint is required"}), 400
     if not api_key:
         return jsonify({"error": "API key is required"}), 400
+    try:
+        endpoint = require_secure_llm_endpoint(endpoint)
+    except EndpointPolicyError as exc:
+        return jsonify(
+            {
+                "error": "invalid_llm_endpoint",
+                "code": exc.code,
+                "message": str(exc),
+            }
+        ), 400
 
     # Normalise endpoint to /models path
     base = endpoint.rstrip("/")
@@ -717,44 +745,35 @@ def list_models():
         models_url = base.rstrip("/") + "/v1/models"
 
     try:
+        import ssl
         import urllib.request
 
         req = urllib.request.Request(models_url)
         req.add_header("Authorization", f"Bearer {api_key}")
         req.add_header("Content-Type", "application/json")
-        resp = urllib.request.urlopen(req, timeout=10)
+        resp = urllib.request.urlopen(
+            req,
+            timeout=10,
+            context=ssl.create_default_context(),
+        )
         body = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        # Read error body for diagnostics
-        try:
-            err_body = e.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            err_body = ""
-        # Friendly messages for common failures
-        if e.code == 403:
-            return jsonify(
-                {
-                    "error": "API 端点返回 403 禁止访问。该服务可能不支持列出模型，请手动输入模型名称。",
-                    "detail": err_body or None,
-                }
-            ), 502
-        if e.code == 404:
-            return jsonify(
-                {
-                    "error": "该 API 端点不支持 /models 接口，请手动输入模型名称。",
-                }
-            ), 502
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        diagnostic = diagnose_transport_failure(models_url, exc)
+        logger.warning("Failed to list models: %s", diagnostic.message)
         return jsonify(
             {
-                "error": f"获取模型列表失败 (HTTP {e.code})。请手动输入模型名称。",
-                "detail": err_body or None,
+                "error": "model_endpoint_failed",
+                "code": diagnostic.code,
+                "message": diagnostic.message,
             }
         ), 502
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to list models")
         return jsonify(
             {
-                "error": f"无法连接到 API 端点。请检查端点和网络。({e})",
+                "error": "model_endpoint_failed",
+                "code": "transport_failed",
+                "message": "The model list request failed before a valid response was received.",
             }
         ), 502
 

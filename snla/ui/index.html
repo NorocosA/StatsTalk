@@ -582,11 +582,15 @@ document.getElementById("save-settings").addEventListener("click", async () => {
         STATS_BACKEND: document.getElementById("s-backend").value,
     };
     try {
-        await fetch("/api/settings", {
+        const resp = await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data),
         });
+        const result = await resp.json();
+        if (!resp.ok) {
+            throw new Error(result.message || result.error || "服务器拒绝了设置");
+        }
         alert("设置已保存");
     } catch (e) {
         alert("保存失败: " + e.message);
@@ -621,7 +625,7 @@ document.getElementById("fetch-models-btn").addEventListener("click", async () =
             });
             select.style.display = "block";
         } else {
-            alert("获取失败: " + (data.error || "未知错误"));
+            alert("获取失败: " + (data.message || data.error || "未知错误"));
         }
     } catch(e) { alert("请求失败: " + e.message); }
     btn.disabled = false; btn.textContent = "获取模型列表";
