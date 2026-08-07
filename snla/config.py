@@ -66,26 +66,6 @@ LLM_CALL_LOG = os.getenv("LLM_CALL_LOG", "false").lower() == "true"
 LLM_MOCK = os.getenv("LLM_MOCK", "false").lower() == "true"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-# ========== P5-4: 方法信任白名单（嵌入式回退） ==========
-# 当 p0_output/method_trust.json 不存在时使用（如全新安装、PyInstaller 打包后）
-# 基于 2026-05-20 P5-3 验证结果：11/12 方法可信
-_FALLBACK_TRUSTED_METHODS: set[str] = {
-    "independent_t_test",
-    "paired_t_test",
-    "oneway_anova",
-    "pearson_correlation",
-    "spearman_correlation",
-    "correlations",
-    "chi_square",
-    "crosstabs",
-    "frequencies",
-    "descriptives",
-    "mann_whitney_u",
-    "kruskal_wallis",
-    # simple_regression 排除 — SPSS 解析器限制，无法测试
-}
-
-
 def check_spss_available() -> bool:
     """检查本机是否实际可用 SPSS 可执行文件。
 

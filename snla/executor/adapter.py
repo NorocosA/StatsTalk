@@ -30,6 +30,7 @@ from typing import Any
 
 import pandas as pd
 
+from snla.capabilities import canonicalize_method, get_public_capabilities
 from snla.parser.output import parse as _parse_output
 from snla.parser.schema import AnalysisResult
 from snla.syntax.templates import get_syntax_by_method
@@ -41,12 +42,9 @@ from snla.syntax.templates import get_syntax_by_method
 # ---------------------------------------------------------------------------
 
 METHOD_ALIASES: dict[str, str] = {
-    # "user_facing_name" → "canonical_name"
-    # (canonical keys must match TEMPLATE_MAP in snla/syntax/templates.py)
-    "pearson_correlation": "correlations",
-    "correlations": "correlations",
-    "chi_square": "chi_square",
-    "crosstabs": "chi_square",
+    method_name: capability.name
+    for capability in get_public_capabilities()
+    for method_name in (capability.name, *capability.aliases)
 }
 """Normalise alternate method names to a single canonical key.
 
@@ -449,7 +447,7 @@ class BackendAdapter:
 
 def _canonical_method(method: str) -> str:
     """Resolve a method name to its canonical form via ``METHOD_ALIASES``."""
-    return METHOD_ALIASES.get(method, method)
+    return canonicalize_method(method)
 
 
 def _build_template_kwargs(method: str, kwargs: dict[str, Any]) -> dict[str, Any]:
