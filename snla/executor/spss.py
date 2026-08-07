@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from snla.config import (
     P0_OUTPUT_DIR,
@@ -167,7 +167,7 @@ class SPSSExecutor:
         start_time: float = time.perf_counter()
         run_dir: str = os.path.join(
             self.output_dir,
-            f"run_{output_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}",
+            f"run_{output_name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')}",
         )
         os.makedirs(run_dir, exist_ok=True)
 
@@ -448,7 +448,7 @@ class SPSSExecutor:
         """
         data_dir: str = os.path.dirname(os.path.abspath(data_path))
         base_name: str = os.path.splitext(os.path.basename(data_path))[0]
-        timestamp: str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        timestamp: str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
         temp_sav: str = os.path.join(data_dir, f"{base_name}_temp_{timestamp}.sav")
 
         shutil.copy2(data_path, temp_sav)

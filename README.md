@@ -5,23 +5,23 @@ StatsTalk lets users run common statistical analyses by describing the task in n
 ## Quick Start
 
 ```powershell
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
+python -m pip install uv==0.10.10
+uv venv --python 3.12 .venv
+uv pip sync --python .venv\Scripts\python.exe --require-hashes requirements.lock
 copy .env.example .env
-python launcher.py
+.venv\Scripts\python.exe launcher.py
 ```
 
 API-only mode:
 
 ```powershell
-python snla/ui/server.py
+.venv\Scripts\python.exe snla/ui/server.py
 ```
 
 MCP stdio server:
 
 ```powershell
-python snla/mcp_server.py
+.venv\Scripts\python.exe snla/mcp_server.py
 ```
 
 ## Configuration
@@ -87,11 +87,11 @@ User request
 ## Tests
 
 ```powershell
-python -m pytest snla/tests/ -v -m "not slow"
-python -m pytest snla/tests/test_server.py -v
-python -m pytest snla/tests/test_python_backend.py -v
-python -m pytest snla/tests/test_export.py -v
-python scripts/mcp_integration_test.py
+.venv\Scripts\python.exe -m pytest snla/tests/ -v -m "not slow"
+.venv\Scripts\python.exe -m pytest snla/tests/test_server.py -v
+.venv\Scripts\python.exe -m pytest snla/tests/test_python_backend.py -v
+.venv\Scripts\python.exe -m pytest snla/tests/test_export.py -v
+.venv\Scripts\python.exe -m pytest scripts/mcp_integration_test.py -v
 ```
 
 Some SPSS-dependent checks are intended for local Windows machines with SPSS installed.
@@ -125,7 +125,10 @@ data/fixtures/             sample datasets and checklists
 ## Packaging
 
 ```powershell
-pyinstaller snla.spec --noconfirm
+.venv\Scripts\python.exe -m PyInstaller snla.spec --noconfirm
 ```
 
 Output: `dist/StatsTalk.exe`.
+
+Development, CI, and packaging all use the exact hashes in `requirements.lock`.
+See `docs/ci.md` for lock updates, coverage scope, and required checks.

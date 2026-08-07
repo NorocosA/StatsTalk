@@ -57,11 +57,46 @@ def test_server_save_and_reload_use_the_shared_config_path(tmp_path, monkeypatch
     assert cfg.LLM_MODEL == "reloaded-model"
 
 
+def test_spss_availability_respects_backend_and_executable(monkeypatch):
+    import snla.config as cfg
+
+    monkeypatch.setattr(cfg, "STATS_BACKEND", "spss")
+    monkeypatch.setattr(cfg.os.path, "exists", lambda path: path == cfg.SPSS_EXECUTABLE)
+
+    assert cfg.check_spss_available() is True
+
+    monkeypatch.setattr(cfg, "STATS_BACKEND", "python")
+    assert cfg.check_spss_available() is False
+
+
+def test_validate_reports_missing_spss_key_and_insecure_endpoint(monkeypatch):
+    import snla.config as cfg
+
+    monkeypatch.setattr(cfg, "STATS_BACKEND", "spss")
+    monkeypatch.setattr(cfg, "LLM_API_KEY", "")
+    monkeypatch.setattr(cfg, "LLM_MOCK", False)
+    monkeypatch.setattr(cfg, "LLM_ENDPOINT", "http://api.example.com/v1")
+    monkeypatch.setattr(cfg.os.path, "exists", lambda path: False)
+
+    warnings = cfg.validate()
+
+    assert any("SPSS" in warning for warning in warnings)
+    assert any("LLM_API_KEY" in warning for warning in warnings)
+    assert any("LLM_ENDPOINT" in warning for warning in warnings)
+
+
+def test_reload_config_returns_empty_when_env_file_is_missing(monkeypatch):
+    import snla.config as cfg
+
+    monkeypatch.setattr(cfg.os.path, "exists", lambda path: False)
+
+    assert cfg.reload_config() == []
+
+
 def test_reload_config_maps_spss_path_and_preserves_types():
     import snla.config as cfg
 
-    config_path = Path(cfg.__file__).resolve()
-    env_path = config_path.parent.parent / ".env"
+    env_path = cfg.CONFIG_PATH
     original_text = env_path.read_text(encoding="utf-8") if env_path.exists() else None
 
     try:
@@ -97,8 +132,7 @@ def test_reload_config_maps_spss_path_and_preserves_types():
 def test_reload_config_ignores_an_insecure_public_llm_endpoint():
     import snla.config as cfg
 
-    config_path = Path(cfg.__file__).resolve()
-    env_path = config_path.parent.parent / ".env"
+    env_path = cfg.CONFIG_PATH
     original_text = env_path.read_text(encoding="utf-8") if env_path.exists() else None
     original_endpoint = cfg.LLM_ENDPOINT
 
@@ -120,11 +154,36 @@ def test_reload_config_ignores_an_insecure_public_llm_endpoint():
         cfg.LLM_ENDPOINT = original_endpoint
 
 
+def test_reload_config_skips_unknown_and_malformed_values():
+    import snla.config as cfg
+
+    env_path = cfg.CONFIG_PATH
+    original_text = env_path.read_text(encoding="utf-8") if env_path.exists() else None
+    original_timeout = cfg.SPSS_EXECUTION_TIMEOUT
+
+    try:
+        env_path.write_text(
+            "UNKNOWN_SETTING=ignored\nSPSS_EXECUTION_TIMEOUT=not-an-integer\n",
+            encoding="utf-8",
+        )
+
+        changed = cfg.reload_config()
+
+        assert "UNKNOWN_SETTING" not in changed
+        assert "SPSS_EXECUTION_TIMEOUT" not in changed
+        assert original_timeout == cfg.SPSS_EXECUTION_TIMEOUT
+    finally:
+        if original_text is None:
+            env_path.unlink(missing_ok=True)
+        else:
+            env_path.write_text(original_text, encoding="utf-8")
+
+
 def test_reload_config_disables_legacy_plaintext_until_migration(tmp_path, monkeypatch):
     import snla.config as cfg
     from snla.secrets import ApiKeyService, SecretStore
 
-    env_path = Path(cfg.__file__).resolve().parent.parent / ".env"
+    env_path = cfg.CONFIG_PATH
     original_text = env_path.read_text(encoding="utf-8") if env_path.exists() else None
     service = ApiKeyService(
         SecretStore(tmp_path / "secure_key.bin", FakeDPAPIProvider()),
@@ -155,7 +214,7 @@ def test_reload_config_resolves_dpapi_storage_marker(tmp_path, monkeypatch):
     import snla.config as cfg
     from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretStore
 
-    env_path = Path(cfg.__file__).resolve().parent.parent / ".env"
+    env_path = cfg.CONFIG_PATH
     original_text = env_path.read_text(encoding="utf-8") if env_path.exists() else None
     store = SecretStore(tmp_path / "secure_key.bin", FakeDPAPIProvider())
     store.replace("sk-secure-reload")

@@ -22,7 +22,7 @@ User natural-language request
 
 | Task | Command |
 | --- | --- |
-| Setup | `python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt` |
+| Setup | `uv venv --python 3.12 .venv && uv pip sync --python .venv\Scripts\python.exe --require-hashes requirements.lock` |
 | Desktop run | `python launcher.py` |
 | API only | `python snla/ui/server.py` |
 | MCP server | `python snla/mcp_server.py` |
