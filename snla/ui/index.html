@@ -259,6 +259,47 @@ const glCancel = document.getElementById("gl-cancel");
 const glConfirm = document.getElementById("gl-confirm");
 const welcomeSection = document.getElementById("welcome-section");
 
+// ── Per-launch authentication ───────────────────────────
+const SESSION_TOKEN_KEY = "statstalk.session-token";
+let sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
+
+async function establishAuthenticatedSession() {
+    const query = new URLSearchParams(window.location.hash.slice(1));
+    const bootstrapToken = query.get("bootstrap_token");
+    if (!bootstrapToken) {
+        if (sessionToken) return;
+        throw new Error("缺少启动凭据，请重新启动 StatsTalk");
+    }
+
+    history.replaceState(null, document.title, window.location.pathname);
+    const response = await window.fetch("/api/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bootstrap_token: bootstrapToken }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.session_token) {
+        throw new Error("启动凭据已失效，请重新启动 StatsTalk");
+    }
+
+    sessionToken = data.session_token;
+    sessionStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+}
+
+const authReady = establishAuthenticatedSession();
+
+async function apiFetch(resource, options = {}) {
+    await authReady;
+    const headers = new Headers(options.headers || {});
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+    const response = await window.fetch(resource, { ...options, headers });
+    if (response.status === 401) {
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        sessionToken = "";
+    }
+    return response;
+}
+
 // ── File upload enable ───────────────────────────────────
 fileInput.addEventListener("change", () => {
     uploadBtn.disabled = !fileInput.files.length;
@@ -277,7 +318,7 @@ async function uploadFile() {
     form.append("file", file);
 
     try {
-        const resp = await fetch("/api/upload", { method: "POST", body: form });
+        const resp = await apiFetch("/api/upload", { method: "POST", body: form });
         const data = await resp.json();
         if (data.ok) {
             hasData = true;
@@ -317,7 +358,7 @@ stopBtn.addEventListener("click", stopExecution);
 
 async function stopExecution() {
     try {
-        await fetch("/api/cancel", { method: "POST" });
+        await apiFetch("/api/cancel", { method: "POST" });
     } catch (e) {
         // Ignore cancel errors
     }
@@ -348,7 +389,7 @@ async function sendMessage() {
     const loadingId = addMessage("assistant", '<span class="loading"></span><span class="loading"></span><span class="loading"></span> 正在分析...');
 
     try {
-        const resp = await fetch("/api/analyze", {
+        const resp = await apiFetch("/api/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
@@ -415,7 +456,7 @@ glConfirm.addEventListener("click", async () => {
     const loadingId = addMessage("assistant", '<span class="loading"></span><span class="loading"></span><span class="loading"></span> 确认中...');
 
     try {
-        const resp = await fetch("/api/confirm", {
+        const resp = await apiFetch("/api/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: lastUserInput, confirm_greylist: true }),
@@ -551,7 +592,7 @@ exportBtn.addEventListener("click", async () => {
     exportBtn.disabled = true;
     exportBtn.textContent = "生成中...";
     try {
-        const resp = await fetch("/api/export");
+        const resp = await apiFetch("/api/export");
         if (resp.ok) {
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
@@ -582,7 +623,7 @@ document.getElementById("save-settings").addEventListener("click", async () => {
         STATS_BACKEND: document.getElementById("s-backend").value,
     };
     try {
-        const resp = await fetch("/api/settings", {
+        const resp = await apiFetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data),
@@ -608,7 +649,7 @@ document.getElementById("fetch-models-btn").addEventListener("click", async () =
     }
     btn.disabled = true; btn.textContent = "获取中...";
     try {
-        const resp = await fetch("/api/models", {
+        const resp = await apiFetch("/api/models", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({endpoint, api_key: apiKey}),
@@ -639,7 +680,7 @@ document.getElementById("detect-spss-btn").addEventListener("click", async () =>
     const btn = document.getElementById("detect-spss-btn");
     btn.disabled = true; btn.textContent = "检测中...";
     try {
-        const resp = await fetch("/api/detect-spss");
+        const resp = await apiFetch("/api/detect-spss");
         const data = await resp.json();
         if (data.ok && data.candidates && data.candidates.length > 0) {
             const select = document.getElementById("s-spss-select");
@@ -668,10 +709,10 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
 // ── Load saved settings + auto-detect SPSS on startup ────
 (async function loadSettings() {
     try {
-        const resp = await fetch("/api/settings");
+        const resp = await apiFetch("/api/settings");
         const data = await resp.json();
         if (data.LLM_ENDPOINT) document.getElementById("s-endpoint").value = data.LLM_ENDPOINT;
-        if (data.LLM_API_KEY) document.getElementById("s-key").value = data.LLM_API_KEY;
+        if (data.LLM_API_KEY_CONFIGURED) document.getElementById("s-key").placeholder = "已配置";
         if (data.LLM_MODEL) document.getElementById("s-model").value = data.LLM_MODEL;
         if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss").value = data.SPSS_PYTHON_PATH;
         if (data.STATS_BACKEND) document.getElementById("s-backend").value = data.STATS_BACKEND;
@@ -679,7 +720,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
 
     // Auto-detect SPSS availability and auto-switch if needed
     try {
-        const statusResp = await fetch("/api/status");
+        const statusResp = await apiFetch("/api/status");
         const status = await statusResp.json();
         
         // Note: session persistence restores data for backend use,
@@ -688,7 +729,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         // Auto-load Demo data on first launch (no data, no restored session)
         if (!status.has_data) {
             try {
-                const demoResp = await fetch("/api/load-demo", { method: "POST" });
+                const demoResp = await apiFetch("/api/load-demo", { method: "POST" });
                 const demoData = await demoResp.json();
                 if (demoData.ok) {
                     hasData = true;
@@ -706,14 +747,20 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         if (!status.spss_available && backendSelect.value === "spss") {
             // SPSS not available but backend is set to SPSS — auto-switch to Python
             backendSelect.value = "python";
-            const trustedCount = status.trusted_methods ? status.trusted_methods.length : 0;
+            const trustedCount = (status.capabilities || []).filter(function(capability) {
+                return capability.backends && capability.backends.python &&
+                    capability.backends.python.validated;
+            }).length;
             notice.innerHTML = '未检测到 SPSS，已自动切换至 <strong>Python 引擎</strong>。' +
                 'Python 引擎可完成 ' + trustedCount + ' 种常用分析的完整解读（含白话结论）。' +
                 ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
             notice.classList.add("show");
         } else if (!status.spss_available) {
             // Already on Python backend — show brief info
-            const trustedCount = status.trusted_methods ? status.trusted_methods.length : 0;
+            const trustedCount = (status.capabilities || []).filter(function(capability) {
+                return capability.backends && capability.backends.python &&
+                    capability.backends.python.validated;
+            }).length;
             notice.innerHTML = '当前使用 <strong>Python 引擎</strong>（' + trustedCount + ' 种方法已通过 SPSS 交叉验证）。' +
                 ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
             notice.classList.add("show");
@@ -728,7 +775,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
 
     // Show config warnings on first launch
     try {
-        const wResp = await fetch("/api/startup-warnings");
+        const wResp = await apiFetch("/api/startup-warnings");
         const wData = await wResp.json();
         if (wData.warnings && wData.warnings.length > 0) {
             let container = document.getElementById("warnings") || document.createElement("div");
@@ -760,7 +807,7 @@ function loadDemo() {
     let btn = document.getElementById('demoBtn');
     btn.disabled = true;
     btn.textContent = '正在加载...';
-    fetch('/api/load-demo', { method: 'POST' })
+    apiFetch('/api/load-demo', { method: 'POST' })
         .then(r => r.json())
         .then(data => {
             if (data.ok) {

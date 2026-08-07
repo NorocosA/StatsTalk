@@ -70,6 +70,6 @@ echo.
 
 start "" venv\Scripts\python.exe launcher.py
 
-echo   Browser: http://localhost:8501
+echo   StatsTalk will open on a secure random local port.
 echo.
 pause

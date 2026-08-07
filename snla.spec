@@ -15,7 +15,7 @@ a = Analysis(
     ],
     hiddenimports=[
         'flask', 'flask.json.provider', 'flask.sessions', 'flask.signals',
-        'pywebview', 'pandas', 'pyreadstat', 'lxml',
+        'webview', 'pandas', 'pyreadstat', 'lxml',
         'dotenv', 'docx', 'numpy', 'requests',
         'snla.config', 'snla.session',
         'snla.data.reader', 'snla.data.sanitizer', 'snla.data.persistence', 'snla.data.range_expander',
@@ -26,6 +26,7 @@ a = Analysis(
         'snla.parser.output', 'snla.parser.schema', 'snla.parser._oms', 'snla.parser._lst',
         'snla.explainer.naturalize', 'snla.explainer.export', 'snla.explainer.charts',
         'snla.ui.server', 'snla.ui._helpers', 'snla.ui._pipeline',
+        'snla.ui.launch', 'snla.ui.security',
         'snla.orchestrator', 'snla.orchestrator.planner',
         'snla.trust', 'snla.mcp_server',
         'snla.rag', 'snla.rag.integration',
