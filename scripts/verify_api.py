@@ -44,7 +44,7 @@ time.sleep(1.0)
 atexit.register(waitress_server.close)
 
 BASE = launch.origin
-bootstrap_token = parse_qs(urlsplit(launch.bootstrap_url).query)["bootstrap_token"][0]
+bootstrap_token = parse_qs(urlsplit(launch.bootstrap_url).fragment)["bootstrap_token"][0]
 bootstrap_body = json.dumps({"bootstrap_token": bootstrap_token}).encode()
 bootstrap_request = urllib.request.Request(
     f"{BASE}/api/bootstrap",

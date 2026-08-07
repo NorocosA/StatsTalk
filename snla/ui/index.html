@@ -264,14 +264,14 @@ const SESSION_TOKEN_KEY = "statstalk.session-token";
 let sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
 
 async function establishAuthenticatedSession() {
-    const query = new URLSearchParams(window.location.search);
+    const query = new URLSearchParams(window.location.hash.slice(1));
     const bootstrapToken = query.get("bootstrap_token");
     if (!bootstrapToken) {
         if (sessionToken) return;
         throw new Error("缺少启动凭据，请重新启动 StatsTalk");
     }
 
-    history.replaceState(null, document.title, window.location.pathname + window.location.hash);
+    history.replaceState(null, document.title, window.location.pathname);
     const response = await window.fetch("/api/bootstrap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

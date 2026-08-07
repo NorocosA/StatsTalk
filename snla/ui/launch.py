@@ -41,7 +41,7 @@ def prepare_loopback_server(
 
     origin = f"http://{LOOPBACK_HOST}:{effective_port}"
     bootstrap_token = security.begin_launch(origin)
-    bootstrap_url = f"{origin}/?{urlencode({'bootstrap_token': bootstrap_token})}"
+    bootstrap_url = f"{origin}/#{urlencode({'bootstrap_token': bootstrap_token})}"
     return server, LaunchContext(origin=origin, bootstrap_url=bootstrap_url)
 
 

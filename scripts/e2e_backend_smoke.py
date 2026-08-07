@@ -89,7 +89,7 @@ def start_server():
     t.start()
     time.sleep(1.0)
 
-    bootstrap_token = parse_qs(urlsplit(launch.bootstrap_url).query)["bootstrap_token"][0]
+    bootstrap_token = parse_qs(urlsplit(launch.bootstrap_url).fragment)["bootstrap_token"][0]
     bootstrap = HTTP_SESSION.post(
         f"{BASE_URL}/api/bootstrap",
         json={"bootstrap_token": bootstrap_token},
