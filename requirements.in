@@ -8,6 +8,7 @@ pingouin>=0.5.5,<0.7
 pyreadstat>=1.2.7,<2
 
 # HTTP API, LLM transport, and configuration
+cryptography>=45,<51
 flask>=3.1,<4
 python-dotenv>=1.0,<2
 requests>=2.32,<3

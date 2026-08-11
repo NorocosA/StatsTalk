@@ -16,7 +16,8 @@ a = Analysis(
     hiddenimports=[
         'flask', 'flask.json.provider', 'flask.sessions', 'flask.signals',
         'webview', 'pandas', 'pyreadstat', 'lxml',
-        'dotenv', 'docx', 'numpy', 'requests',
+        'dotenv', 'docx', 'numpy', 'requests', 'cryptography',
+        'cryptography.hazmat.primitives.ciphers.aead', 'cryptography.hazmat.primitives.kdf.scrypt',
         'snla.config', 'snla.secrets', 'snla.session',
         'snla.data.reader', 'snla.data.sanitizer', 'snla.data.persistence', 'snla.data.range_expander',
         'snla.llm.client',

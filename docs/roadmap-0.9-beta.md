@@ -132,7 +132,10 @@ registry automatically.
 - Store only `LLM_API_KEY_STORAGE=dpapi` in ordinary configuration.
 - Never silently fall back to plaintext after encryption or decryption failure.
 - On DPAPI failure, disable cloud features and ask the user to enter a new key.
-- Do not provide portable encrypted-key backup in 0.9.
+- Portable backups use a user-supplied password, Scrypt key derivation, and
+  authenticated encryption; importing a backup re-encrypts the key with the
+  current Windows user's DPAPI identity.
+- Backup passwords must contain at least 12 characters and cannot be recovered.
 - Migrate legacy plaintext keys only after explicit consent and transactional encrypt,
   persist, and decrypt verification.
 

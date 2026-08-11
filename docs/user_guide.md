@@ -6,7 +6,7 @@ StatsTalk 是一个桌面统计分析工具。用户上传 `.sav` 或 `.csv` 数
 
 ```powershell
 cd D:\Projects\StatsTalk
-venv\Scripts\activate
+.venv\Scripts\activate
 python launcher.py
 ```
 
@@ -54,6 +54,15 @@ python snla/ui/server.py
 ## 隐私说明
 
 StatsTalk 只把变量结构发送给 LLM，例如变量名、类型、标签、分类/连续角色和行列规模。原始数据行不会发送给云端。`value_labels` 会在云端请求前剥离，敏感变量名会被替换为 `var_01`、`var_02` 这样的占位名。未配置 API Key 时，上传、建议、校验、分析、解释和导出均在本地完成。
+
+## API Key 备份
+
+设置中的“导出密钥备份”会生成受密码保护的 `.stkb` 文件。密码至少需要 12 位，
+StatsTalk 不保存密码，也无法帮助找回。请将备份文件和密码分开保管。
+
+在新电脑或 Windows 账户中选择“恢复密钥备份”后，StatsTalk 会先验证并解密备份，
+再使用当前账户的 Windows DPAPI 重新加密保存。错误密码、损坏文件或保存失败不会覆盖
+机器上已有的 API Key。备份文件不包含原 DPAPI 密文，不能替代妥善保管备份密码。
 
 ## 常见问题
 
