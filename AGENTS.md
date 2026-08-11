@@ -81,7 +81,7 @@ LLM_MOCK=true
 | POST | `/api/reload-config` | Reload `.env` |
 | POST | `/api/models` | List LLM models |
 | GET | `/api/detect-spss` | Detect SPSS installations |
-| GET | `/api/export` | Download Word report |
+| GET | `/api/export` | Download Word report or `?format=json` analysis record |
 
 ## Module Map
 
@@ -106,6 +106,7 @@ LLM_MOCK=true
 | `snla/parser/` | OMS XML, LST, and schema layers |
 | `snla/explainer/naturalize.py` | Statistical explanation layer |
 | `snla/explainer/export.py` | Word report export |
+| `snla/explainer/record.py` | Privacy-safe reproducibility record and result layers |
 | `snla/explainer/charts.py` | Chart generation |
 | `snla/orchestrator/` | Planner and greylist state machine |
 | `snla/rag/` | SPSS documentation retrieval support |

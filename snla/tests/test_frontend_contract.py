@@ -69,6 +69,25 @@ def test_spss_fallback_notice_preserves_preference_and_offers_explicit_switch():
     assert html.count("showCorrectionChoices(data.correction_choices)") == 2
 
 
+def test_results_keep_warnings_in_summary_and_evidence_in_advanced_section():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert "summary.warnings" in html
+    assert 'class="result-warnings"' in html
+    assert "renderAdvancedResults(data.advanced || {})" in html
+    assert '<details class="advanced-results">' in html
+    assert "advanced.tables" in html
+    assert "advanced.syntax" in html
+
+
+def test_frontend_offers_word_and_json_exports():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="export-btn"' in html
+    assert 'id="export-json-btn"' in html
+    assert 'apiFetch("/api/export?format=json")' in html
+
+
 def test_api_key_backup_ui_requires_password_and_never_handles_plaintext_key():
     html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
 

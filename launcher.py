@@ -13,8 +13,7 @@ import webbrowser
 from snla.ui.launch import prepare_loopback_server
 from snla.ui.server import app as flask_app
 from snla.ui.server import cleanup_runtime_data
-
-APP_VERSION = "0.9.0-beta"
+from snla.version import APP_VERSION
 
 
 class DesktopApi:
