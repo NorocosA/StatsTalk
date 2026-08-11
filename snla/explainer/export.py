@@ -19,6 +19,7 @@ def export_to_docx(
     export_apa: bool = True,
     parameters: dict[str, Any] | None = None,
     backend: str = "",
+    analysis_record: dict[str, Any] | None = None,
 ) -> str:
     """Generate a Word report and return the absolute output path."""
     from docx import Document
@@ -27,6 +28,11 @@ def export_to_docx(
 
     result = _coerce_result(analysis_result)
     stats = result.statistics or {}
+    if analysis_record:
+        backend = backend or str(
+            analysis_record.get("advanced", {}).get("backend", {}).get("effective", "")
+        )
+        parameters = parameters or analysis_record.get("parameters", {})
 
     doc = Document()
     normal = doc.styles["Normal"]
@@ -52,7 +58,32 @@ def export_to_docx(
     if result.n_valid:
         doc.add_paragraph(f"有效样本量: N = {result.n_valid}")
 
-    doc.add_heading("3. 关键统计结果", level=1)
+    if analysis_record:
+        variables = analysis_record.get("variables", [])
+        if variables:
+            doc.add_paragraph(
+                "分析变量: "
+                + "; ".join(f"{item.get('role', '')}: {item.get('name', '')}" for item in variables)
+            )
+        versions = analysis_record.get("versions", {})
+        package_versions = versions.get("packages", {})
+        doc.add_paragraph(
+            "版本: "
+            f"StatsTalk {versions.get('statstalk', 'unknown')}; "
+            f"Python {versions.get('python', 'unknown')}"
+            + (
+                "; " + ", ".join(f"{name} {value}" for name, value in package_versions.items())
+                if package_versions
+                else ""
+            )
+        )
+        warnings = analysis_record.get("warnings", [])
+        if warnings:
+            doc.add_heading("3. 重要提示", level=1)
+            for item in warnings:
+                doc.add_paragraph(str(item), style="List Bullet")
+
+    doc.add_heading("4. 关键统计结果", level=1)
     if stats:
         table = doc.add_table(rows=1, cols=2, style="Table Grid")
         table.rows[0].cells[0].text = "统计量"
@@ -69,18 +100,45 @@ def export_to_docx(
         doc.add_paragraph("本次结果未提取到可汇总的关键统计量。")
 
     if result.tables:
-        doc.add_heading("4. 结果表", level=1)
-        for table_result in result.tables[:3]:
+        doc.add_heading("5. 结果表", level=1)
+        for table_result in result.tables:
             _add_result_table(doc, table_result)
 
-    doc.add_heading("5. 结果解读", level=1)
+    doc.add_heading("6. 结果解读", level=1)
     doc.add_paragraph(explanation or "暂无结果解读。")
 
     if export_apa:
-        doc.add_heading("6. APA 摘要", level=1)
+        doc.add_heading("7. APA 摘要", level=1)
         paragraph = doc.add_paragraph(_build_apa(method, _method_label(method), stats))
         if paragraph.runs:
             paragraph.runs[0].bold = True
+
+    if analysis_record:
+        advanced = analysis_record.get("advanced", {})
+        doc.add_heading("8. 可复现性与高级信息", level=1)
+        backend_info = advanced.get("backend", {})
+        if backend_info.get("preferred"):
+            doc.add_paragraph(f"偏好后端: {backend_info['preferred'].title()}")
+        if backend_info.get("effective"):
+            doc.add_paragraph(f"实际后端: {backend_info['effective'].title()}")
+        fallback = backend_info.get("fallback")
+        if fallback:
+            doc.add_paragraph(
+                f"后端回退: {fallback.get('message') or fallback.get('code') or 'used'}"
+            )
+        syntax = advanced.get("syntax")
+        if syntax:
+            doc.add_paragraph("执行语法:")
+            doc.add_paragraph(str(syntax))
+        diagnostics = advanced.get("diagnostics", {})
+        for label, key in (
+            ("分析记录 ID", "request_id"),
+            ("解析器", "parser_used"),
+            ("完成时间", "completed_at"),
+            ("选择来源", "selection_source"),
+        ):
+            if diagnostics.get(key) is not None:
+                doc.add_paragraph(f"{label}: {diagnostics[key]}")
 
     doc.add_paragraph("")
     footer = doc.add_paragraph("本报告由 StatsTalk 自动生成。")
@@ -136,7 +194,7 @@ def _add_stat_row(table: Any, label: str, value: Any, fmt: str = "") -> None:
 
 def _add_result_table(doc: Any, table_result: TableResult) -> None:
     doc.add_paragraph(table_result.title or "结果表")
-    rows = table_result.rows[:8]
+    rows = table_result.rows
     if not rows:
         doc.add_paragraph("该表没有可展示的行。")
         return
@@ -146,8 +204,9 @@ def _add_result_table(doc: Any, table_result: TableResult) -> None:
         for key in row:
             if key not in columns:
                 columns.append(key)
-    columns = columns[:6]
-
+    if not columns:
+        doc.add_paragraph("该表没有可展示的列。")
+        return
     table = doc.add_table(rows=1, cols=len(columns), style="Table Grid")
     for idx, column in enumerate(columns):
         table.rows[0].cells[idx].text = column or "项目"

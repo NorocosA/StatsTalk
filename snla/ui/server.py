@@ -509,6 +509,7 @@ def analyze():
                     "parameters": outcome.parameters or {},
                     "selection_source": outcome.selection_source,
                     "backend": outcome.backend,
+                    "analysis_record": payload["analysis_record"],
                 }
             )
             session.last_analysis = payload["last_analysis"]
@@ -557,6 +558,7 @@ def confirm_greylist():
                     "parameters": outcome.parameters or {},
                     "selection_source": outcome.selection_source,
                     "backend": outcome.backend,
+                    "analysis_record": payload["analysis_record"],
                 }
             )
             session.last_analysis = payload["last_analysis"]
@@ -1084,7 +1086,7 @@ def _find_spss_candidates(search_roots=None):
 # ── Export ────────────────────────────────────────────────────────────
 @app.route("/api/export")
 def export():
-    """Generate and download Word report."""
+    """Download the last analysis as a Word report or allowlisted JSON record."""
     if not session.history:
         return jsonify({"error": "No analysis to export"}), 400
 
@@ -1099,6 +1101,26 @@ def export():
         if not last:
             return jsonify({"error": "No analysis found"}), 400
         last_user = next((m for m in reversed(session.history) if m["role"] == "user"), None)
+        analysis_record = last.get("analysis_record")
+        export_format = request.args.get("format", "docx").lower()
+        if export_format == "json":
+            if not analysis_record:
+                return jsonify({"error": "Analysis record is unavailable"}), 409
+            payload = json.dumps(
+                analysis_record, ensure_ascii=False, indent=2, allow_nan=False
+            ).encode("utf-8")
+            response = send_file(
+                BytesIO(payload),
+                mimetype="application/json",
+                as_attachment=True,
+                download_name="statstalk_analysis.json",
+                max_age=0,
+            )
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+            return response
+        if export_format != "docx":
+            return jsonify({"error": "Unsupported export format"}), 400
 
         # export_to_docx writes to a file path — use a temp file
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
@@ -1113,13 +1135,12 @@ def export():
             data_file=session.dataset_meta.get("filename", ""),
             parameters=last.get("parameters", {}),
             backend=last.get("backend", ""),
+            analysis_record=analysis_record,
         )
 
         with open(tmp_path, "rb") as f:
             buf = io.BytesIO(f.read())
         os.unlink(tmp_path)
-
-        from flask import send_file
 
         return send_file(
             buf,

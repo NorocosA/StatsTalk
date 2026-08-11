@@ -10,7 +10,7 @@ Exposes 8 tools for OpenClaw / Claude Desktop / any MCP client:
     snla_analyze    — plan + execute statistical analysis
     snla_confirm    — confirm a pending greylist operation
     snla_cancel     — cancel running analysis
-    snla_export     — export last result as DOCX
+    snla_export     — export last result as DOCX or privacy-safe JSON
 
 Usage:
     python snla/mcp_server.py                  # stdio transport (Claude Desktop)
@@ -28,6 +28,7 @@ Design decisions (from P6 grill, 2026-05-23):
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 from collections.abc import AsyncIterator
@@ -87,6 +88,7 @@ class MCPState:
     last_method: str = ""
     last_query: str = ""
     last_backend: str = ""
+    last_record: dict | None = None
     pending_workbook: dict | None = None
 
     def __post_init__(self):
@@ -411,6 +413,7 @@ async def snla_analyze(
         state.last_method = outcome.method
         state.last_query = outcome.user_query
         state.last_backend = outcome.backend
+        state.last_record = payload["analysis_record"]
     await ctx.report_progress(2, 2, "分析完成")
     return payload
 
@@ -455,6 +458,7 @@ async def snla_confirm(
         state.last_method = outcome.method
         state.last_query = outcome.user_query
         state.last_backend = outcome.backend
+        state.last_record = payload["analysis_record"]
     await ctx.report_progress(2, 2, "完成")
     return payload
 
@@ -482,10 +486,10 @@ async def snla_cancel(ctx: Context) -> dict:
 
 
 @mcp.tool()
-async def snla_export(ctx: Context) -> dict:
-    """Export the last analysis result as a Word (.docx) report.
+async def snla_export(ctx: Context, format: str = "docx") -> dict:
+    """Export the last analysis result as Word (.docx) or allowlisted JSON.
 
-    Returns base64-encoded .docx file content.
+    Returns base64-encoded content; JSON also includes the structured record.
     """
     state = _session_state(ctx)
     sid = ctx.session_id
@@ -494,6 +498,28 @@ async def snla_export(ctx: Context) -> dict:
         return _mk_error(
             "user", "没有可导出的分析结果", "NO_RESULT", "请先使用 snla_analyze 执行分析。"
         )
+
+    export_format = format.strip().lower()
+    if export_format == "json":
+        if state.last_record is None:
+            return _mk_error(
+                "system",
+                "当前结果缺少可复现分析记录。",
+                "ANALYSIS_RECORD_UNAVAILABLE",
+                "请重新运行分析后导出。",
+            )
+        content = json.dumps(
+            state.last_record, ensure_ascii=False, indent=2, allow_nan=False
+        ).encode("utf-8")
+        return {
+            "ok": True,
+            "filename": f"statstalk_analysis_{sid[:8]}.json",
+            "size": len(content),
+            "content_base64": base64.b64encode(content).decode(),
+            "record": state.last_record,
+        }
+    if export_format != "docx":
+        return _mk_error("user", "导出格式仅支持 docx 或 json。", "EXPORT_FORMAT_UNSUPPORTED")
 
     try:
         output_path = _upload_dir / sid / f"snla_report_{sid[:8]}.docx"
@@ -506,6 +532,7 @@ async def snla_export(ctx: Context) -> dict:
             explanation=state.last_explanation,
             data_file=state.file_path or "",
             backend=state.last_backend,
+            analysis_record=state.last_record,
         )
 
         content = output_path.read_bytes()

@@ -80,7 +80,8 @@ User request
 - Privacy filtering before LLM calls.
 - Session-only dataset working copies with opt-in encrypted path restore.
 - Safe `.xlsx` import with explicit single-worksheet selection.
-- Word `.docx` report export.
+- Layered novice summary and complete advanced result evidence.
+- Word `.docx` report and privacy-safe reproducibility JSON export.
 - Flask/PyWebView desktop UI and FastMCP server.
 
 ## Supported Methods

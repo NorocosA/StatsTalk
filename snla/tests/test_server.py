@@ -622,6 +622,34 @@ class TestExportEndpoint:
         assert "error" in data
         assert "analysis" in data["error"].lower() or "export" in data["error"].lower()
 
+    def test_export_json_returns_only_stored_allowlisted_record(self, client):
+        record = {
+            "schema_version": "1.0",
+            "capability": "descriptives",
+            "variables": [{"role": "variable", "name": "score"}],
+            "parameters": {"alpha": 0.05},
+            "versions": {"statstalk": "0.9.0-beta", "python": "3.12"},
+            "warnings": [],
+            "fallback": None,
+            "summary": {"conclusion": "Mean is 3.0."},
+            "advanced": {"tables": [], "syntax": "", "diagnostics": {}},
+        }
+        session.history = [
+            {"role": "user", "content": "describe score"},
+            {
+                "role": "assistant",
+                "content": "Mean is 3.0.",
+                "analysis_record": record,
+            },
+        ]
+
+        response = client.get("/api/export?format=json")
+
+        assert response.status_code == 200
+        assert response.mimetype == "application/json"
+        assert response.get_json() == record
+        assert "no-store" in response.headers["Cache-Control"]
+
 
 def test_spss_detection_only_reports_stats_executables(tmp_path):
     from snla.ui.server import _find_spss_candidates

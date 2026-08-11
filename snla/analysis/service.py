@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from snla.capabilities import can_fallback_to_python, get_capability
+from snla.explainer.record import build_analysis_record
 from snla.orchestrator import (
     GreylistPending,
     NoPendingError,
@@ -219,9 +220,27 @@ class AnalysisSuccess:
     selection_source: str = "planner"
     fallback_reason: dict[str, Any] | None = None
     backend_restored: bool = False
+    variable_roles: dict[str, str] | None = None
+    applicability_warnings: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, Any]:
         result = analysis_result_to_dict(self.result)
+        analysis_record = build_analysis_record(
+            capability=self.method,
+            variable_roles=self.variable_roles or {},
+            parameters=self.parameters or {},
+            result=self.result,
+            conclusion=self.explanation,
+            syntax=self.syntax,
+            preferred_backend=self.audit.preferred_backend,
+            effective_backend=self.backend,
+            fallback_reason=self.fallback_reason,
+            warning=self.warning,
+            greylist_warnings=self.greylist_warnings,
+            audit=self.audit,
+            selection_source=self.selection_source,
+            applicability_warnings=self.applicability_warnings,
+        )
         payload: dict[str, Any] = {
             "ok": True,
             "method": self.method,
@@ -248,6 +267,9 @@ class AnalysisSuccess:
                 **({"syntax": self.syntax} if self.syntax else {}),
             },
             "audit": asdict(self.audit),
+            "summary": analysis_record["summary"],
+            "advanced": analysis_record["advanced"],
+            "analysis_record": analysis_record,
         }
         if self.warning:
             payload["warning"] = self.warning
@@ -750,6 +772,7 @@ class AnalysisService:
             selection_source=selection_source,
             fallback_reason=fallback_reason,
             backend_restored=backend_restored,
+            variable_roles=bindings,
             audit=AnalysisAudit(
                 request_id=request_id,
                 started_at=started_at,

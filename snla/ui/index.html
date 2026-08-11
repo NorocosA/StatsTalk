@@ -63,9 +63,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #header { padding: 16px 24px; background: #fff; border-bottom: 1px solid #e4e7ed; font-size: 16px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
 .header-actions { display: flex; gap: 8px; align-items: center; }
-#export-btn { padding: 6px 14px; background: #e6a23c; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
-#export-btn:hover { background: #cf9236; }
-#export-btn:disabled { background: #f0c78e; cursor: not-allowed; }
+.export-btn { padding: 6px 14px; background: #e6a23c; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.export-btn:hover { background: #cf9236; }
+.export-btn:disabled { background: #f0c78e; cursor: not-allowed; }
 #stop-btn { padding: 6px 14px; background: #f56c6c; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; display: none; }
 #stop-btn:hover { background: #e04848; }
 
@@ -81,6 +81,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .msg pre { display: none; background: #f5f7fa; padding: 10px; border-radius: 6px; font-size: 12px; overflow-x: auto; margin-top: 6px; white-space: pre-wrap; }
 .msg pre.show { display: block; }
 .msg .stats { margin-top: 8px; font-size: 13px; color: #606266; }
+.result-warnings { margin: 10px 0 0; padding: 9px 12px 9px 28px; background: #fdf6ec; border-left: 3px solid #e6a23c; color: #7d5b16; }
+.result-warnings li { margin: 3px 0; }
+.advanced-results { margin-top: 12px; border-top: 1px solid #e4e7ed; padding-top: 8px; }
+.advanced-results summary { cursor: pointer; color: #409eff; font-size: 13px; }
+.advanced-results table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+.advanced-results th, .advanced-results td { border: 1px solid #dcdfe6; padding: 5px; text-align: left; vertical-align: top; }
+.advanced-results .advanced-meta { margin-top: 8px; font-size: 12px; color: #606266; }
+.advanced-results pre { display: block; }
 .loading { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #409eff; animation: blink 1.4s infinite both; margin-right: 4px; }
 .loading:nth-child(2) { animation-delay: 0.2s; }
 .loading:nth-child(3) { animation-delay: 0.4s; }
@@ -263,7 +271,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <span>StatsTalk</span>
         <div class="header-actions">
             <button id="stop-btn">停止</button>
-            <button id="export-btn" disabled>导出 Word 报告</button>
+            <button id="export-btn" class="export-btn" disabled>导出 Word 报告</button>
+            <button id="export-json-btn" class="export-btn" disabled>导出 JSON</button>
         </div>
     </div>
     <div id="messages">
@@ -383,6 +392,7 @@ const messagesEl = document.getElementById("messages");
 const userInput = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const exportBtn = document.getElementById("export-btn");
+const exportJsonBtn = document.getElementById("export-json-btn");
 const stopBtn = document.getElementById("stop-btn");
 const settingsToggle = document.getElementById("settings-toggle");
 const settingsPanel = document.getElementById("settings-panel");
@@ -486,6 +496,7 @@ function applyDatasetPayload(data) {
     lastAnalysis = null;
     hasAnalysis = false;
     exportBtn.disabled = true;
+    exportJsonBtn.disabled = true;
     contextHint.style.display = "none";
 }
 
@@ -734,6 +745,7 @@ async function sendMessage() {
         if (data.ok) {
             hasAnalysis = true;
             exportBtn.disabled = false;
+            exportJsonBtn.disabled = false;
             addAnalysisResult(data);
         } else {
             if (data.cancelled) {
@@ -839,6 +851,7 @@ glConfirm.addEventListener("click", async () => {
         } else if (data.ok) {
             hasAnalysis = true;
             exportBtn.disabled = false;
+            exportJsonBtn.disabled = false;
             addAnalysisResult(data);
         } else {
             addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
@@ -921,27 +934,36 @@ function addAnalysisResult(data) {
         }
     }
 
-    // Main result (suppress explanation when limited_mode)
-    if (!data.limited_mode) {
-        html += `<strong>${esc(data.method)}</strong>`;
-        if (data.explanation) {
-            html += `<br><br>${formatExplanation(data.explanation)}`;
-        }
-        if (data.ai_polish) {
-            html += '<div class="ai-polish-result"><strong>可选 AI 语言润色</strong>';
-            html += `${formatExplanation(data.ai_polish)}</div>`;
-        }
+    const summary = data.summary || {
+        conclusion: data.explanation || "",
+        key_statistics: (data.result && data.result.statistics) || {},
+        warnings: data.warning ? [data.warning] : [],
+    };
+    html += `<strong>${esc(data.method)}</strong>`;
+    if (summary.conclusion) {
+        html += `<br><br>${formatExplanation(summary.conclusion)}`;
     }
-    if (data.syntax && !data.degradation) {
-        html += `<br><span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`;
-    }
-    if (data.result && data.result.statistics && !data.limited_mode) {
+    if (summary.key_statistics && Object.keys(summary.key_statistics).length) {
         html += '<div class="stats">';
-        for (const [k, v] of Object.entries(data.result.statistics)) {
-            html += `${esc(k)}: ${esc(String(v))}<br>`;
+        for (const [key, value] of Object.entries(summary.key_statistics)) {
+            html += `${esc(key)}: ${esc(String(value))}<br>`;
         }
         html += '</div>';
     }
+    if (summary.warnings && summary.warnings.length) {
+        html += '<ul class="result-warnings">';
+        summary.warnings.forEach(item => { html += `<li>${esc(item)}</li>`; });
+        html += '</ul>';
+    }
+    if (summary.fallback && summary.fallback.used) {
+        const reason = summary.fallback.reason || {};
+        html += `<div class="stats"><strong>后端回退:</strong> ${esc(reason.message || reason.code || "已使用备用后端")}</div>`;
+    }
+    if (data.ai_polish) {
+        html += '<div class="ai-polish-result"><strong>可选 AI 语言润色</strong>';
+        html += `${formatExplanation(data.ai_polish)}</div>`;
+    }
+    html += renderAdvancedResults(data.advanced || {});
     addMessage("assistant", html);
 
     // Multi-turn context (Feature 4)
@@ -949,6 +971,40 @@ function addAnalysisResult(data) {
         lastAnalysis = data.last_analysis;
         updateContextHint();
     }
+}
+
+function renderAdvancedResults(advanced) {
+    const tables = advanced.tables || [];
+    const diagnostics = advanced.diagnostics || {};
+    const backend = advanced.backend || {};
+    let html = '<details class="advanced-results"><summary>高级结果</summary>';
+    tables.forEach(table => {
+        html += `<div class="advanced-meta"><strong>${esc(table.title || "结果表")}</strong></div>`;
+        const rows = table.rows || [];
+        const columns = [...new Set(rows.flatMap(row => Object.keys(row)))];
+        if (columns.length) {
+            html += '<table><thead><tr>';
+            columns.forEach(column => { html += `<th>${esc(column)}</th>`; });
+            html += '</tr></thead><tbody>';
+            rows.forEach(row => {
+                html += '<tr>';
+                columns.forEach(column => { html += `<td>${esc(String(row[column] ?? ""))}</td>`; });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+        }
+    });
+    if (advanced.syntax) {
+        html += `<div class="advanced-meta"><strong>执行语法</strong></div><pre>${esc(advanced.syntax)}</pre>`;
+    }
+    html += '<div class="advanced-meta">';
+    if (backend.effective) html += `实际后端: ${esc(backend.effective)}<br>`;
+    if (backend.preferred) html += `偏好后端: ${esc(backend.preferred)}<br>`;
+    for (const [key, value] of Object.entries(diagnostics)) {
+        if (value !== null && value !== "") html += `${esc(key)}: ${esc(String(value))}<br>`;
+    }
+    html += '</div></details>';
+    return html;
 }
 
 function showBackendOutcome(data) {
@@ -1024,6 +1080,27 @@ exportBtn.addEventListener("click", async () => {
     }
     exportBtn.disabled = false;
     exportBtn.textContent = "导出 Word 报告";
+});
+
+exportJsonBtn.addEventListener("click", async () => {
+    exportJsonBtn.disabled = true;
+    try {
+        const response = await apiFetch("/api/export?format=json");
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || "JSON 导出失败");
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "statstalk_analysis.json";
+        anchor.click();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert("导出失败: " + error.message);
+    }
+    exportJsonBtn.disabled = false;
 });
 
 // ── Settings ──────────────────────────────────────────────
