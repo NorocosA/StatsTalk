@@ -18,7 +18,7 @@ API-only mode:
 .venv\Scripts\python.exe snla/ui/server.py
 ```
 
-MCP stdio server:
+MCP stdio server (enable `MCP_ENABLED=true` first):
 
 ```powershell
 .venv\Scripts\python.exe snla/mcp_server.py
@@ -34,6 +34,7 @@ LLM_API_KEY_STORAGE=        # managed by StatsTalk; dpapi when configured
 LLM_MODEL=deepseek-v4-flash
 AI_POLISH_ENABLED=false     # explicit opt-in; aggregate result fields only
 SESSION_RESTORE_ENABLED=false # explicit opt-in; encrypted original path only
+MCP_ENABLED=false           # experimental local integration; explicit opt-in
 STATS_BACKEND=python        # python | spss
 SPSS_PATH=...
 SPSS_PYTHON_PATH=...

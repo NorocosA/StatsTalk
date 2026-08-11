@@ -23,6 +23,15 @@ def pytest_configure(config):
     )
 
 
+@pytest.fixture(autouse=True)
+def enable_experimental_mcp_for_functional_tests(monkeypatch):
+    """Functional tests opt in; production configuration remains disabled by default."""
+
+    from snla import config
+
+    monkeypatch.setattr(config, "MCP_ENABLED", True)
+
+
 # ── Variable definitions ─────────────────────────────────────────────────────
 
 

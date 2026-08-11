@@ -78,6 +78,7 @@ LLM_API_KEY = _API_KEY_RESOLUTION.api_key
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 AI_POLISH_ENABLED = os.getenv("AI_POLISH_ENABLED", "false").lower() == "true"
 SESSION_RESTORE_ENABLED = os.getenv("SESSION_RESTORE_ENABLED", "false").lower() == "true"
+MCP_ENABLED = os.getenv("MCP_ENABLED", "false").lower() == "true"
 
 # ========== Token 控制 ==========
 LLM_MAX_INPUT_TOKENS = int(os.getenv("LLM_MAX_INPUT_TOKENS", "4000"))
@@ -239,6 +240,7 @@ def reload_config() -> list[str]:
         "LLM_MOCK": _parse_bool,
         "AI_POLISH_ENABLED": _parse_bool,
         "SESSION_RESTORE_ENABLED": _parse_bool,
+        "MCP_ENABLED": _parse_bool,
         "DEBUG": _parse_bool,
     }
     reloadable_keys = {
@@ -252,6 +254,7 @@ def reload_config() -> list[str]:
         "LLM_MODEL",
         "AI_POLISH_ENABLED",
         "SESSION_RESTORE_ENABLED",
+        "MCP_ENABLED",
         "LLM_MAX_INPUT_TOKENS",
         "LLM_MAX_OUTPUT_TOKENS",
         "LLM_MAX_HISTORY_ROUNDS",
