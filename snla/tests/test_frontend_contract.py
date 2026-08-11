@@ -104,3 +104,23 @@ def test_ai_polish_is_explicit_opt_in_with_disclosure_and_separate_output():
     assert "data.ai_polish" in html
     assert "data.explanation" in html
     assert 'class="ai-polish-result"' in html
+
+
+def test_dataset_restore_is_opt_in_and_requires_startup_confirmation():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    for control_id in (
+        "s-session-restore",
+        "inspect-local-data",
+        "clear-local-data",
+        "choose-dataset-btn",
+    ):
+        assert f'id="{control_id}"' in html
+    assert "SESSION_RESTORE_ENABLED" in html
+    assert "window.pywebview.api.choose_dataset()" in html
+    assert 'apiFetch("/api/open-local-dataset"' in html
+    assert 'apiFetch("/api/restore-dataset"' in html
+    assert 'apiFetch("/api/local-data"' in html
+    assert 'method: "DELETE"' in html
+    assert 'status.restore.state === "pending"' in html
+    assert "confirm(" in html

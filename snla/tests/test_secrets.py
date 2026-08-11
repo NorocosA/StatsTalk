@@ -70,6 +70,22 @@ def test_windows_dpapi_round_trips_for_the_current_user():
     assert provider.unprotect(ciphertext) == plaintext
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI is Windows-only")
+def test_windows_dpapi_entropy_separates_api_keys_from_restore_references():
+    from snla.secrets import SecretProtectionError, WindowsDPAPIProvider
+
+    api_key_provider = WindowsDPAPIProvider()
+    restore_provider = WindowsDPAPIProvider(
+        description="StatsTalk dataset restore reference",
+        entropy=b"StatsTalk dataset restore reference v1",
+    )
+    ciphertext = restore_provider.protect(b"private dataset path")
+
+    assert restore_provider.unprotect(ciphertext) == b"private dataset path"
+    with pytest.raises(SecretProtectionError):
+        api_key_provider.unprotect(ciphertext)
+
+
 def test_explicit_legacy_migration_replaces_plaintext_with_marker(tmp_path):
     from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretStore
 

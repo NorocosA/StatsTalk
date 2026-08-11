@@ -95,6 +95,7 @@ def test_no_key_text_request_is_labeled_local_and_never_enters_rag(tmp_path, mon
 
 def test_no_key_journey_uses_no_network_and_exports_word_report(tmp_path, monkeypatch):
     from snla import config
+    from snla.data.retention import DatasetRetention
     from snla.ui import server
 
     def forbid_network(*args, **kwargs):
@@ -106,9 +107,17 @@ def test_no_key_journey_uses_no_network_and_exports_word_report(tmp_path, monkey
     monkeypatch.setattr(config, "LLM_API_KEY", "")
     monkeypatch.setattr(config, "LLM_MOCK", False)
     monkeypatch.setattr(config, "STATS_BACKEND", "python")
-    monkeypatch.setattr(config, "P0_OUTPUT_DIR", str(tmp_path / "uploads"))
     monkeypatch.setattr(server, "_check_rate_limit", lambda: False)
-    monkeypatch.setattr(server, "save_session", lambda _session: None)
+    monkeypatch.setattr(
+        server,
+        "dataset_retention",
+        DatasetRetention(
+            reference_path=tmp_path / "restore.bin",
+            workspace_root=tmp_path / "workspaces",
+            provider=object(),
+            restore_enabled=lambda: False,
+        ),
+    )
     server.session.reset()
     server.app.config["TESTING"] = True
 

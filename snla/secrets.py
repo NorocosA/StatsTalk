@@ -224,7 +224,12 @@ class SecretBackupCodec:
 class WindowsDPAPIProvider:
     """Protect bytes with Windows DPAPI scoped to the current user."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        description: str = "StatsTalk API key",
+        entropy: bytes | None = None,
+    ) -> None:
         if os.name != "nt":
             raise SecretProtectionError(
                 "dpapi_unavailable",
@@ -232,6 +237,8 @@ class WindowsDPAPIProvider:
             )
         self._crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._description = description
+        self._entropy = entropy
         self._configure_functions()
 
     def _configure_functions(self) -> None:
@@ -270,11 +277,12 @@ class WindowsDPAPIProvider:
 
     def protect(self, plaintext: bytes) -> bytes:
         input_blob, _buffer = self._input_blob(plaintext)
+        entropy_blob, _entropy_buffer = self._optional_entropy_blob()
         output_blob = _DataBlob()
         succeeded = self._crypt32.CryptProtectData(
             ctypes.byref(input_blob),
-            "StatsTalk API key",
-            None,
+            self._description,
+            ctypes.byref(entropy_blob) if entropy_blob is not None else None,
             None,
             None,
             CRYPTPROTECT_UI_FORBIDDEN,
@@ -284,17 +292,25 @@ class WindowsDPAPIProvider:
 
     def unprotect(self, ciphertext: bytes) -> bytes:
         input_blob, _buffer = self._input_blob(ciphertext)
+        entropy_blob, _entropy_buffer = self._optional_entropy_blob()
         output_blob = _DataBlob()
         succeeded = self._crypt32.CryptUnprotectData(
             ctypes.byref(input_blob),
             None,
-            None,
+            ctypes.byref(entropy_blob) if entropy_blob is not None else None,
             None,
             None,
             CRYPTPROTECT_UI_FORBIDDEN,
             ctypes.byref(output_blob),
         )
         return self._finish(succeeded, output_blob, "dpapi_decrypt_failed", "unprotect")
+
+    def _optional_entropy_blob(
+        self,
+    ) -> tuple[_DataBlob | None, ctypes.Array[ctypes.c_char] | None]:
+        if self._entropy is None:
+            return None, None
+        return self._input_blob(self._entropy)
 
     def _finish(
         self,

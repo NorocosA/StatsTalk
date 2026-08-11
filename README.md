@@ -33,6 +33,7 @@ LLM_ENDPOINT=https://opencode.ai/zen/go/v1/chat/completions
 LLM_API_KEY_STORAGE=        # managed by StatsTalk; dpapi when configured
 LLM_MODEL=deepseek-v4-flash
 AI_POLISH_ENABLED=false     # explicit opt-in; aggregate result fields only
+SESSION_RESTORE_ENABLED=false # explicit opt-in; encrypted original path only
 STATS_BACKEND=python        # python | spss
 SPSS_PATH=...
 SPSS_PYTHON_PATH=...
@@ -77,7 +78,7 @@ User request
 - SPSS syntax templates with blacklist and greylist validation.
 - OMS XML parser with LST fallback.
 - Privacy filtering before LLM calls.
-- SQLite shadow persistence for desktop sessions.
+- Session-only dataset working copies with opt-in encrypted path restore.
 - Word `.docx` report export.
 - Flask/PyWebView desktop UI and FastMCP server.
 
@@ -111,7 +112,7 @@ Some SPSS-dependent checks are intended for local Windows machines with SPSS ins
 ```text
 snla/config.py              environment config and hot reload
 snla/session.py             single-user session state
-snla/data/                  readers, privacy filtering, persistence
+snla/data/                  readers, privacy filtering, ephemeral retention
 snla/llm/                   LLM client and prompts
 snla/syntax/                SPSS templates and syntax validator
 snla/executor/              SPSS and Python backends
@@ -129,7 +130,7 @@ data/fixtures/             sample datasets and checklists
 
 - SPSS automation is Windows-focused.
 - The Flask app is single-user; concurrent analyses return 409.
-- SQLite persistence is a local shadow store, not multi-instance sync.
+- Browser uploads are session-only; optional restore requires the desktop file picker.
 - Batch variable expansion such as `Q1-Q10` is currently a preprocessor, not multi-result aggregation.
 
 ## Packaging

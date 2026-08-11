@@ -17,7 +17,7 @@ Usage:
 
 Design decisions (from P6 grill, 2026-05-23):
     - Direct integration with orchestrator (not HTTP-wrapping Flask)
-    - Session-scoped file storage in ``uploads/{session_id}/`` (30-min TTL)
+    - Session-scoped file storage under the per-user application-data directory
     - Two-tool greylist flow (analyze returns requires_confirmation → confirm resumes)
     - Structured errors: {ok, error: {category, user_message, code, suggestion}}
     - Python backend fast path for trusted methods; ENGINE_BUSY for SPSS contention
@@ -29,7 +29,6 @@ from __future__ import annotations
 import base64
 import os
 import shutil
-import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -54,13 +53,13 @@ from snla.config import STATS_BACKEND
 from snla.data.reader import read_and_extract
 from snla.data.sanitizer import build_cloud_planning_context
 from snla.explainer.export import export_to_docx
+from snla.secrets import application_data_directory
 from snla.trust import get_trusted_methods, trust_loaded_from
 
 # ═════════════════════════════════════════════════════════════════════════
 # Constants
 # ═════════════════════════════════════════════════════════════════════════
 
-SESSION_TTL = 30 * 60  # 30 minutes — uploads/{session_id}/ cleanup
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB max upload
 
 
@@ -89,7 +88,7 @@ class MCPState:
 
 
 _session_states: dict[str, MCPState] = {}
-_upload_dir = Path("uploads")
+_upload_dir = application_data_directory() / "mcp_session_workspaces"
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -132,20 +131,6 @@ def _mk_error(category: str, user_message: str, code: str, suggestion: str | Non
     }
 
 
-def _cleanup_stale_uploads():
-    """Remove upload directories older than SESSION_TTL."""
-    if not _upload_dir.exists():
-        return
-    now = time.time()
-    for child in _upload_dir.iterdir():
-        if child.is_dir():
-            try:
-                if now - child.stat().st_mtime > SESSION_TTL:
-                    shutil.rmtree(child, ignore_errors=True)
-            except OSError:
-                pass
-
-
 # ═════════════════════════════════════════════════════════════════════════
 # Lifespan
 # ═════════════════════════════════════════════════════════════════════════
@@ -154,11 +139,12 @@ def _cleanup_stale_uploads():
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     """Startup: create upload directory. Shutdown: cleanup."""
-    _upload_dir.mkdir(exist_ok=True)
-    _cleanup_stale_uploads()
+    shutil.rmtree(_upload_dir, ignore_errors=True)
+    _upload_dir.mkdir(parents=True, exist_ok=True)
     try:
         yield {}
     finally:
+        _session_states.clear()
         shutil.rmtree(_upload_dir, ignore_errors=True)
 
 
