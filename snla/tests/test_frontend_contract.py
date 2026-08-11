@@ -88,6 +88,17 @@ def test_frontend_offers_word_and_json_exports():
     assert 'apiFetch("/api/export?format=json")' in html
 
 
+def test_mcp_is_explicit_opt_in_with_local_data_disclosure():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="s-mcp-enabled" type="checkbox"' in html
+    assert 'id="mcp-disclosure"' in html
+    for disclosure in ("明确选择的数据文件", "变量结构", "统计结果", "重启 MCP 服务"):
+        assert disclosure in html
+    assert 'MCP_ENABLED: document.getElementById("s-mcp-enabled").checked' in html
+    assert "data.MCP_ENABLED === true" in html
+
+
 def test_api_key_backup_ui_requires_password_and_never_handles_plaintext_key():
     html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
 

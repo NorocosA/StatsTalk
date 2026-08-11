@@ -45,6 +45,7 @@ STATS_BACKEND=python        # python | spss
 SPSS_PATH=...
 SPSS_PYTHON_PATH=...
 LLM_MOCK=true
+MCP_ENABLED=false           # experimental; opt in before starting MCP
 ```
 
 ## Server Notes

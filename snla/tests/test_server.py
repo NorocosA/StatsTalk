@@ -368,6 +368,7 @@ class TestSettingsEndpoint:
             "AI_POLISH_ENABLED",
             "AI_POLISH_FIELDS",
             "SESSION_RESTORE_ENABLED",
+            "MCP_ENABLED",
             "SPSS_PATH",
             "STATS_BACKEND",
         ):
@@ -376,6 +377,21 @@ class TestSettingsEndpoint:
         assert isinstance(data["AI_POLISH_FIELDS"], list)
         assert "analysis_type" in data["AI_POLISH_FIELDS"]
         assert "raw_data" not in data["AI_POLISH_FIELDS"]
+
+    def test_settings_can_explicitly_enable_and_disable_mcp(self, client, monkeypatch):
+        import snla.config as cfg
+        from snla.ui import server
+
+        monkeypatch.setattr(cfg, "MCP_ENABLED", False)
+        monkeypatch.setattr(server, "_save_env_file", lambda: None)
+
+        enabled = client.post("/api/settings", json={"MCP_ENABLED": True})
+        disabled = client.post("/api/settings", json={"MCP_ENABLED": False})
+
+        assert enabled.status_code == 200
+        assert "MCP_ENABLED" in enabled.get_json()["changed"]
+        assert disabled.status_code == 200
+        assert cfg.MCP_ENABLED is False
 
     def test_settings_can_explicitly_disable_ai_polish(self, client, monkeypatch):
         import snla.config as cfg

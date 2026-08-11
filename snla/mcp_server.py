@@ -31,19 +31,30 @@ import base64
 import json
 import os
 import shutil
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP
-
 # ── Ensure project root on sys.path ───────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+sys.path = [entry for entry in sys.path if not entry or Path(entry).resolve() != PACKAGE_DIR]
+sys.path.insert(0, str(PROJECT_ROOT))
 os.chdir(PROJECT_ROOT)  # config.py reads .env from CWD
 
 # ── SNLA imports (after path setup) ────────────────────────────────────
+from snla import config as runtime_config
+
+if __name__ == "__main__" and not runtime_config.MCP_ENABLED:
+    print("StatsTalk MCP is disabled. Enable MCP in Settings before starting it.")
+    raise SystemExit(2)
+
+from mcp.server.fastmcp import Context, FastMCP
+
 from snla.analysis import (
     AnalysisConfirmationRequest,
     AnalysisRequest,
@@ -140,6 +151,23 @@ def _mk_error(category: str, user_message: str, code: str, suggestion: str | Non
     }
 
 
+def _requires_mcp_enabled(function):
+    """Reject experimental MCP operations before they touch session or local data."""
+
+    @wraps(function)
+    async def guarded(*args, **kwargs):
+        if not runtime_config.MCP_ENABLED:
+            return _mk_error(
+                "configuration",
+                "MCP 实验功能当前已关闭。",
+                "MCP_DISABLED",
+                "请在 StatsTalk 设置中明确启用 MCP，并重新启动 MCP 服务。",
+            )
+        return await function(*args, **kwargs)
+
+    return guarded
+
+
 # ═════════════════════════════════════════════════════════════════════════
 # Lifespan
 # ═════════════════════════════════════════════════════════════════════════
@@ -175,9 +203,26 @@ async def snla_status(ctx: Context) -> dict:
     """
     from snla.config import check_spss_available
 
+    if not runtime_config.MCP_ENABLED:
+        return {
+            "ok": True,
+            "enabled": False,
+            "experimental": True,
+            "backend": runtime_config.STATS_BACKEND,
+            "spss_available": False,
+            "capabilities": get_public_capabilities_payload(),
+            "trusted_methods": get_trusted_methods(),
+            "trust_source": trust_loaded_from(),
+            "has_data": False,
+            "variable_count": 0,
+            "filename": "",
+            "executing": False,
+        }
     state = _session_state(ctx)
     return {
         "ok": True,
+        "enabled": True,
+        "experimental": True,
         "backend": STATS_BACKEND,
         "spss_available": check_spss_available(),
         "capabilities": get_public_capabilities_payload(),
@@ -196,6 +241,7 @@ async def snla_status(ctx: Context) -> dict:
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_upload(
     ctx: Context,
     file_path: str,
@@ -287,6 +333,7 @@ async def snla_upload(
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_select_worksheet(ctx: Context, worksheet: str) -> dict:
     """Select and load exactly one worksheet from the pending .xlsx workbook."""
 
@@ -325,6 +372,7 @@ async def snla_select_worksheet(ctx: Context, worksheet: str) -> dict:
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_variables(ctx: Context) -> dict:
     """List variables in the currently uploaded data file.
 
@@ -351,6 +399,7 @@ async def snla_variables(ctx: Context) -> dict:
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_analyze(
     ctx: Context,
     query: str,
@@ -424,6 +473,7 @@ async def snla_analyze(
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_confirm(
     ctx: Context,
     decision: str = "accept",
@@ -469,6 +519,7 @@ async def snla_confirm(
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_cancel(ctx: Context) -> dict:
     """Cancel the currently running analysis.
 
@@ -486,6 +537,7 @@ async def snla_cancel(ctx: Context) -> dict:
 
 
 @mcp.tool()
+@_requires_mcp_enabled
 async def snla_export(ctx: Context, format: str = "docx") -> dict:
     """Export the last analysis result as Word (.docx) or allowlisted JSON.
 
@@ -551,8 +603,6 @@ async def snla_export(ctx: Context, format: str = "docx") -> dict:
 # ═════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    import sys
-
     if "--transport" in sys.argv:
         idx = sys.argv.index("--transport")
         transport = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "stdio"

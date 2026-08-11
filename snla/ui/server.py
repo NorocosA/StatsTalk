@@ -697,6 +697,7 @@ def settings():
                 "AI_POLISH_ENABLED": cfg.AI_POLISH_ENABLED,
                 "AI_POLISH_FIELDS": list(POLISH_AGGREGATE_FIELDS),
                 "SESSION_RESTORE_ENABLED": cfg.SESSION_RESTORE_ENABLED,
+                "MCP_ENABLED": cfg.MCP_ENABLED,
                 "SPSS_PATH": cfg.SPSS_EXECUTABLE,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
@@ -780,6 +781,9 @@ def settings():
         if not cfg.SESSION_RESTORE_ENABLED:
             dataset_retention.forget()
         changed.append("SESSION_RESTORE_ENABLED")
+    if "MCP_ENABLED" in data:
+        cfg.MCP_ENABLED = data["MCP_ENABLED"] is True
+        changed.append("MCP_ENABLED")
 
     # ── Persist to local .env file (never uploaded) ────────
     if changed:
@@ -891,6 +895,7 @@ def _save_env_file():
         "LLM_MODEL": "LLM_MODEL",
         "AI_POLISH_ENABLED": "AI_POLISH_ENABLED",
         "SESSION_RESTORE_ENABLED": "SESSION_RESTORE_ENABLED",
+        "MCP_ENABLED": "MCP_ENABLED",
         "STATS_BACKEND": "STATS_BACKEND",
         "LLM_MOCK": "LLM_MOCK",
     }

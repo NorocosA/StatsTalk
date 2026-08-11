@@ -1,5 +1,5 @@
 """
-MCP Server integration test — validates the 7 MCP tools work correctly.
+MCP Server integration test — validates the 8 MCP tools work correctly.
 
 Run: python scripts/mcp_integration_test.py
 Requires: snla package importable, project root as CWD or on sys.path.
@@ -80,7 +80,7 @@ def test_tool_count():
     actual = len(tools)
     names = [t.name for t in tools]
     assert actual == 8, f"Expected 8 tools, got {actual}: {names}"
-    print(f"[OK] 7 tools registered: {names}")
+    print(f"[OK] 8 tools registered: {names}")
 
 
 def test_tool_names():
@@ -103,7 +103,7 @@ def test_tool_names():
     extra = names - expected
     assert not missing, f"Missing tools: {missing}"
     assert not extra, f"Unexpected tools: {extra}"
-    print("[OK] All 7 tool names verified")
+    print("[OK] All 8 tool names verified")
 
 
 def test_error_format():

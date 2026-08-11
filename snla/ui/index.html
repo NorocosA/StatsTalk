@@ -249,6 +249,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
                     <button id="clear-local-data" type="button">清除本地数据</button>
                 </div>
             </div>
+            <div id="mcp-setting">
+                <label for="s-mcp-enabled">
+                    <input id="s-mcp-enabled" type="checkbox">
+                    启用实验性 MCP 接口
+                </label>
+                <p id="mcp-disclosure">默认关闭。启用后，连接到本机 MCP 服务的客户端可以读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。更改后需重启 MCP 服务；桌面本地 API 的令牌与来源校验保持不变。</p>
+            </div>
             <label>SPSS 可执行文件</label>
             <input id="s-spss" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\stats.com">
             <label>SPSS Python 路径</label>
@@ -1139,6 +1146,7 @@ document.getElementById("save-settings").addEventListener("click", async () => {
         LLM_MODEL: document.getElementById("s-model").value,
         AI_POLISH_ENABLED: document.getElementById("s-ai-polish").checked,
         SESSION_RESTORE_ENABLED: document.getElementById("s-session-restore").checked,
+        MCP_ENABLED: document.getElementById("s-mcp-enabled").checked,
         SPSS_PATH: document.getElementById("s-spss").value,
         SPSS_PYTHON_PATH: document.getElementById("s-spss-python").value,
         STATS_BACKEND: document.getElementById("s-backend").value,
@@ -1202,6 +1210,12 @@ document.getElementById("s-ai-polish").addEventListener("change", (event) => {
 document.getElementById("s-session-restore").addEventListener("change", (event) => {
     if (event.target.checked && !confirm(
         "仅保存由当前 Windows 账户加密的原文件路径，不保存数据副本或分析历史。是否启用？"
+    )) event.target.checked = false;
+});
+
+document.getElementById("s-mcp-enabled").addEventListener("change", (event) => {
+    if (event.target.checked && !confirm(
+        "MCP 客户端可读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。是否启用？"
     )) event.target.checked = false;
 });
 
@@ -1412,6 +1426,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         if (data.LLM_MODEL) document.getElementById("s-model").value = data.LLM_MODEL;
         document.getElementById("s-ai-polish").checked = data.AI_POLISH_ENABLED === true;
         document.getElementById("s-session-restore").checked = data.SESSION_RESTORE_ENABLED === true;
+        document.getElementById("s-mcp-enabled").checked = data.MCP_ENABLED === true;
         if (data.SPSS_PATH) document.getElementById("s-spss").value = data.SPSS_PATH;
         if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss-python").value = data.SPSS_PYTHON_PATH;
         if (data.STATS_BACKEND) document.getElementById("s-backend").value = data.STATS_BACKEND;

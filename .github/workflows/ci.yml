@@ -61,7 +61,7 @@ jobs:
       - name: Flask API regression
         run: .venv/bin/python -m pytest snla/tests/test_server.py snla/tests/test_integration.py -q
 
-      - name: MCP seven-tool integration
+      - name: MCP eight-tool integration
         run: .venv/bin/python -m pytest scripts/mcp_integration_test.py -q
 
       - name: Security decision branches
