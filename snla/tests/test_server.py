@@ -369,6 +369,9 @@ class TestSettingsEndpoint:
             "AI_POLISH_FIELDS",
             "SESSION_RESTORE_ENABLED",
             "MCP_ENABLED",
+            "CRASH_REPORTING_ENABLED",
+            "CRASH_REPORTING_DECIDED",
+            "CRASH_REPORTING_AVAILABLE",
             "SPSS_PATH",
             "STATS_BACKEND",
         ):
@@ -377,6 +380,79 @@ class TestSettingsEndpoint:
         assert isinstance(data["AI_POLISH_FIELDS"], list)
         assert "analysis_type" in data["AI_POLISH_FIELDS"]
         assert "raw_data" not in data["AI_POLISH_FIELDS"]
+        assert "SENTRY_DSN" not in data
+
+    def test_crash_reporting_requires_explicit_consent(self, client, monkeypatch):
+        import snla.config as cfg
+
+        monkeypatch.setattr(cfg, "CRASH_REPORTING_ENABLED", False)
+        response = client.post("/api/settings", json={"CRASH_REPORTING_ENABLED": True})
+
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "crash_reporting_consent_required"
+        assert cfg.CRASH_REPORTING_ENABLED is False
+
+    def test_crash_reporting_can_be_enabled_and_withdrawn(self, client, monkeypatch):
+        import snla.config as cfg
+        from snla.ui import server
+
+        calls = []
+        monkeypatch.setattr(cfg, "SENTRY_DSN", "https://public@sentry.invalid/1")
+        monkeypatch.setattr(cfg, "CRASH_REPORTING_ENABLED", False)
+        monkeypatch.setattr(cfg, "CRASH_REPORTING_DECIDED", False)
+        monkeypatch.setattr(
+            server.crash_reporter,
+            "initialize",
+            lambda **kwargs: calls.append(("initialize", kwargs)),
+        )
+        monkeypatch.setattr(
+            server.crash_reporter, "withdraw", lambda: calls.append(("withdraw", {}))
+        )
+
+        enabled = client.post(
+            "/api/settings",
+            json={
+                "CRASH_REPORTING_ENABLED": True,
+                "CRASH_REPORTING_CONSENT": True,
+            },
+        )
+        withdrawn = client.delete("/api/crash-reporting")
+
+        assert enabled.status_code == 200
+        assert withdrawn.status_code == 200
+        assert cfg.CRASH_REPORTING_ENABLED is False
+        assert cfg.CRASH_REPORTING_DECIDED is True
+        assert calls == [
+            ("initialize", {"consented": True, "dsn": cfg.SENTRY_DSN}),
+            ("withdraw", {}),
+        ]
+
+    def test_crash_reporting_preview_and_queue_clear(self, client, monkeypatch):
+        from snla.ui import server
+
+        preview = {
+            "exception_type": "RuntimeError",
+            "stacktrace": [{"function": "main", "lineno": 10}],
+        }
+        cleared = []
+        monkeypatch.setattr(server.crash_reporter, "preview_latest", lambda: preview)
+        monkeypatch.setattr(
+            server.crash_reporter,
+            "status",
+            lambda: {"enabled": True, "initialized": True},
+        )
+        monkeypatch.setattr(
+            server.crash_reporter,
+            "clear_queued_reports",
+            lambda: cleared.append(True),
+        )
+
+        status = client.get("/api/crash-reporting")
+        cleared_response = client.delete("/api/crash-reporting/queue")
+
+        assert status.get_json()["latest_event"] == preview
+        assert cleared_response.status_code == 200
+        assert cleared == [True]
 
     def test_settings_can_explicitly_enable_and_disable_mcp(self, client, monkeypatch):
         import snla.config as cfg

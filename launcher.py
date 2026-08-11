@@ -53,6 +53,15 @@ def main(argv=None):
         print(f"StatsTalk {APP_VERSION}")
         return 0
 
+    from snla import config
+    from snla.telemetry import crash_reporter
+
+    crash_reporter.initialize(
+        consented=config.CRASH_REPORTING_ENABLED and config.CRASH_REPORTING_DECIDED,
+        dsn=config.SENTRY_DSN,
+    )
+    crash_reporter.install_exception_hooks()
+
     waitress_server, launch = prepare_loopback_server(flask_app)
     port = int(waitress_server.effective_port)
 

@@ -107,6 +107,26 @@ def test_reload_config_applies_mcp_opt_in_state(tmp_path, monkeypatch):
     assert cfg.MCP_ENABLED is False
 
 
+def test_reload_config_applies_crash_reporting_consent(tmp_path, monkeypatch):
+    import snla.config as cfg
+
+    config_path = tmp_path / "config.env"
+    config_path.write_text(
+        "CRASH_REPORTING_ENABLED=false\nCRASH_REPORTING_DECIDED=true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cfg, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(cfg, "CRASH_REPORTING_ENABLED", True)
+    monkeypatch.setattr(cfg, "CRASH_REPORTING_DECIDED", False)
+
+    changed = cfg.reload_config()
+
+    assert "CRASH_REPORTING_ENABLED" in changed
+    assert "CRASH_REPORTING_DECIDED" in changed
+    assert cfg.CRASH_REPORTING_ENABLED is False
+    assert cfg.CRASH_REPORTING_DECIDED is True
+
+
 def test_reload_config_maps_spss_path_and_preserves_types():
     import snla.config as cfg
 

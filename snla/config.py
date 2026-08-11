@@ -79,6 +79,9 @@ LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 AI_POLISH_ENABLED = os.getenv("AI_POLISH_ENABLED", "false").lower() == "true"
 SESSION_RESTORE_ENABLED = os.getenv("SESSION_RESTORE_ENABLED", "false").lower() == "true"
 MCP_ENABLED = os.getenv("MCP_ENABLED", "false").lower() == "true"
+CRASH_REPORTING_ENABLED = os.getenv("CRASH_REPORTING_ENABLED", "false").lower() == "true"
+CRASH_REPORTING_DECIDED = os.getenv("CRASH_REPORTING_DECIDED", "false").lower() == "true"
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
 # ========== Token 控制 ==========
 LLM_MAX_INPUT_TOKENS = int(os.getenv("LLM_MAX_INPUT_TOKENS", "4000"))
@@ -241,6 +244,8 @@ def reload_config() -> list[str]:
         "AI_POLISH_ENABLED": _parse_bool,
         "SESSION_RESTORE_ENABLED": _parse_bool,
         "MCP_ENABLED": _parse_bool,
+        "CRASH_REPORTING_ENABLED": _parse_bool,
+        "CRASH_REPORTING_DECIDED": _parse_bool,
         "DEBUG": _parse_bool,
     }
     reloadable_keys = {
@@ -255,6 +260,9 @@ def reload_config() -> list[str]:
         "AI_POLISH_ENABLED",
         "SESSION_RESTORE_ENABLED",
         "MCP_ENABLED",
+        "CRASH_REPORTING_ENABLED",
+        "CRASH_REPORTING_DECIDED",
+        "SENTRY_DSN",
         "LLM_MAX_INPUT_TOKENS",
         "LLM_MAX_OUTPUT_TOKENS",
         "LLM_MAX_HISTORY_ROUNDS",

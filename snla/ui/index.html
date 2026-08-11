@@ -58,6 +58,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #session-restore-setting p { margin: 6px 0; color: #606266; font-size: 11px; line-height: 1.5; }
 #local-data-actions { display: flex; gap: 6px; }
 #local-data-actions button { flex: 1; }
+#crash-reporting-setting { margin: 4px 0 10px; padding: 8px 0; border-top: 1px solid #ebeef5; border-bottom: 1px solid #ebeef5; }
+#crash-reporting-setting label { display: flex; align-items: center; gap: 7px; color: #303133; }
+#crash-reporting-setting input { width: auto; margin: 0; }
+#crash-reporting-setting p { margin: 6px 0; color: #606266; font-size: 11px; line-height: 1.5; }
+#crash-reporting-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#crash-reporting-actions button { min-width: 0; }
 
 /* Main chat */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -189,6 +195,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #secret-backup-cancel { background: #f5f7fa; color: #606266; }
 #secret-backup-submit { background: #409eff; color: #fff; }
 #secret-backup-submit:disabled { background: #a0cfff; cursor: not-allowed; }
+#crash-consent-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1200; justify-content: center; align-items: center; }
+#crash-consent-modal.open { display: flex; }
+.crash-consent-dialog { width: min(480px, 92vw); background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.22); }
+.crash-consent-dialog h2 { font-size: 18px; margin-bottom: 10px; }
+.crash-consent-dialog p { color: #606266; font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+.crash-consent-dialog label { display: flex; align-items: flex-start; gap: 8px; color: #303133; font-size: 13px; line-height: 1.5; margin: 14px 0; }
+.crash-consent-dialog input { margin-top: 3px; }
+#crash-consent-submit { width: 100%; padding: 9px; border: 0; border-radius: 4px; background: #409eff; color: #fff; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -255,6 +269,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
                     启用实验性 MCP 接口
                 </label>
                 <p id="mcp-disclosure">默认关闭。启用后，连接到本机 MCP 服务的客户端可以读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。更改后需重启 MCP 服务；桌面本地 API 的令牌与来源校验保持不变。</p>
+            </div>
+            <div id="crash-reporting-setting">
+                <label for="s-crash-reporting">
+                    <input id="s-crash-reporting" type="checkbox">
+                    允许发送匿名崩溃报告
+                </label>
+                <p id="crash-reporting-disclosure">仅发送错误类型、函数名和行号、应用版本、Windows 版本、实际后端和随机安装标识。不发送异常消息、数据、变量名、分析问题、API Key、文件路径、环境变量、请求或响应。</p>
+                <div id="crash-reporting-actions">
+                    <button id="preview-crash-report" type="button">查看最近报告</button>
+                    <button id="clear-crash-reports" type="button">清空待发送报告</button>
+                    <button id="withdraw-crash-consent" type="button">关闭并删除标识</button>
+                </div>
             </div>
             <label>SPSS 可执行文件</label>
             <input id="s-spss" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\stats.com">
@@ -370,6 +396,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     </div>
 </div>
 
+<!-- First-run crash-report consent -->
+<div id="crash-consent-modal" role="dialog" aria-modal="true" aria-labelledby="crash-consent-title">
+    <div class="crash-consent-dialog">
+        <h2 id="crash-consent-title">帮助 StatsTalk 改进</h2>
+        <p>当 StatsTalk 崩溃时，是否允许自动发送匿名错误报告？</p>
+        <p>报告仅包含：错误类型、函数名和行号、程序版本、Windows 版本、实际后端、随机安装标识。</p>
+        <p>报告不包含：你的数据、变量名、分析问题、异常消息、API Key、文件路径、环境变量、请求或响应。</p>
+        <label for="crash-consent-checkbox">
+            <input id="crash-consent-checkbox" type="checkbox">
+            允许发送匿名崩溃报告（可随时在设置中撤回）
+        </label>
+        <button id="crash-consent-submit" type="button">开始使用</button>
+    </div>
+</div>
+
 <script>
 // ── State ────────────────────────────────────────────────
 let hasData = false;
@@ -427,6 +468,8 @@ const secretBackupModal = document.getElementById("secret-backup-modal");
 const secretBackupPassword = document.getElementById("secret-backup-password");
 const secretBackupConfirmation = document.getElementById("secret-backup-confirmation");
 const secretBackupSubmit = document.getElementById("secret-backup-submit");
+const crashConsentModal = document.getElementById("crash-consent-modal");
+const crashConsentCheckbox = document.getElementById("crash-consent-checkbox");
 
 // ── Per-launch authentication ───────────────────────────
 const SESSION_TOKEN_KEY = "statstalk.session-token";
@@ -1147,6 +1190,8 @@ document.getElementById("save-settings").addEventListener("click", async () => {
         AI_POLISH_ENABLED: document.getElementById("s-ai-polish").checked,
         SESSION_RESTORE_ENABLED: document.getElementById("s-session-restore").checked,
         MCP_ENABLED: document.getElementById("s-mcp-enabled").checked,
+        CRASH_REPORTING_ENABLED: document.getElementById("s-crash-reporting").checked,
+        CRASH_REPORTING_CONSENT: document.getElementById("s-crash-reporting").checked,
         SPSS_PATH: document.getElementById("s-spss").value,
         SPSS_PYTHON_PATH: document.getElementById("s-spss-python").value,
         STATS_BACKEND: document.getElementById("s-backend").value,
@@ -1217,6 +1262,47 @@ document.getElementById("s-mcp-enabled").addEventListener("change", (event) => {
     if (event.target.checked && !confirm(
         "MCP 客户端可读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。是否启用？"
     )) event.target.checked = false;
+});
+
+document.getElementById("s-crash-reporting").addEventListener("change", (event) => {
+    if (event.target.checked && !confirm(
+        "匿名报告仅含错误类型、函数名和行号、版本、实际后端及随机安装标识，不含数据、分析问题、API Key 或路径。是否启用？"
+    )) event.target.checked = false;
+});
+
+document.getElementById("preview-crash-report").addEventListener("click", async () => {
+    const response = await apiFetch("/api/crash-reporting");
+    const data = await response.json();
+    alert(data.latest_event ? JSON.stringify(data.latest_event, null, 2) : "暂无已清洗的崩溃报告。");
+});
+
+document.getElementById("clear-crash-reports").addEventListener("click", async () => {
+    const response = await apiFetch("/api/crash-reporting/queue", {method: "DELETE"});
+    if (!response.ok) alert("无法清空待发送报告。");
+    else alert("待发送报告和本地预览已清空。");
+});
+
+document.getElementById("withdraw-crash-consent").addEventListener("click", async () => {
+    if (!confirm("关闭崩溃报告并删除本机随机安装标识？")) return;
+    const response = await apiFetch("/api/crash-reporting", {method: "DELETE"});
+    if (!response.ok) return alert("无法关闭崩溃报告。");
+    document.getElementById("s-crash-reporting").checked = false;
+    alert("崩溃报告已关闭，随机安装标识已删除。");
+});
+
+document.getElementById("crash-consent-submit").addEventListener("click", async () => {
+    const enabled = crashConsentCheckbox.checked;
+    const response = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            CRASH_REPORTING_ENABLED: enabled,
+            CRASH_REPORTING_CONSENT: enabled,
+        }),
+    });
+    if (!response.ok) return alert("无法保存崩溃报告选择。");
+    document.getElementById("s-crash-reporting").checked = enabled;
+    crashConsentModal.classList.remove("open");
 });
 
 document.getElementById("inspect-local-data").addEventListener("click", async () => {
@@ -1427,6 +1513,8 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         document.getElementById("s-ai-polish").checked = data.AI_POLISH_ENABLED === true;
         document.getElementById("s-session-restore").checked = data.SESSION_RESTORE_ENABLED === true;
         document.getElementById("s-mcp-enabled").checked = data.MCP_ENABLED === true;
+        document.getElementById("s-crash-reporting").checked = data.CRASH_REPORTING_ENABLED === true;
+        if (data.CRASH_REPORTING_DECIDED !== true) crashConsentModal.classList.add("open");
         if (data.SPSS_PATH) document.getElementById("s-spss").value = data.SPSS_PATH;
         if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss-python").value = data.SPSS_PYTHON_PATH;
         if (data.STATS_BACKEND) document.getElementById("s-backend").value = data.STATS_BACKEND;

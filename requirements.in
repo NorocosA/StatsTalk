@@ -13,6 +13,7 @@ cryptography>=45,<51
 flask>=3.1,<4
 python-dotenv>=1.0,<2
 requests>=2.32,<3
+sentry-sdk>=2.35,<3
 waitress>=3.0,<4
 
 # Parsing, export, and MCP

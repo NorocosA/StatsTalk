@@ -21,7 +21,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, got_request_exception, jsonify, request, send_file, send_from_directory
 
 from snla.analysis import (
     AnalysisConfirmationRequest,
@@ -51,6 +51,7 @@ from snla.llm.transport import (
 from snla.orchestrator import planner_instance
 from snla.secrets import BACKUP_MAX_BYTES, SecretProtectionError
 from snla.session import SessionState
+from snla.telemetry import crash_reporter
 from snla.trust import get_trusted_methods, trust_loaded_from
 from snla.ui._helpers import (
     RATE_LIMIT_MAX_REQUESTS,
@@ -71,6 +72,13 @@ if not logging.getLogger().hasHandlers():
     )
 
 app = Flask(__name__, static_folder=None)
+
+
+def _capture_unhandled_request_exception(_sender, exception, **_extra):
+    crash_reporter.capture_exception(exception)
+
+
+got_request_exception.connect(_capture_unhandled_request_exception, app)
 
 
 @app.before_request
@@ -698,6 +706,9 @@ def settings():
                 "AI_POLISH_FIELDS": list(POLISH_AGGREGATE_FIELDS),
                 "SESSION_RESTORE_ENABLED": cfg.SESSION_RESTORE_ENABLED,
                 "MCP_ENABLED": cfg.MCP_ENABLED,
+                "CRASH_REPORTING_ENABLED": cfg.CRASH_REPORTING_ENABLED,
+                "CRASH_REPORTING_DECIDED": cfg.CRASH_REPORTING_DECIDED,
+                "CRASH_REPORTING_AVAILABLE": bool(cfg.SENTRY_DSN),
                 "SPSS_PATH": cfg.SPSS_EXECUTABLE,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
@@ -784,6 +795,22 @@ def settings():
     if "MCP_ENABLED" in data:
         cfg.MCP_ENABLED = data["MCP_ENABLED"] is True
         changed.append("MCP_ENABLED")
+    if "CRASH_REPORTING_ENABLED" in data:
+        requested = data["CRASH_REPORTING_ENABLED"] is True
+        if requested and data.get("CRASH_REPORTING_CONSENT") is not True:
+            return jsonify(
+                {
+                    "error": "crash_reporting_consent_required",
+                    "message": "Explicit consent is required before crash reporting can be enabled.",
+                }
+            ), 400
+        cfg.CRASH_REPORTING_DECIDED = True
+        cfg.CRASH_REPORTING_ENABLED = requested
+        if requested:
+            crash_reporter.initialize(consented=True, dsn=cfg.SENTRY_DSN)
+        else:
+            crash_reporter.withdraw()
+        changed.extend(["CRASH_REPORTING_ENABLED", "CRASH_REPORTING_DECIDED"])
 
     # ── Persist to local .env file (never uploaded) ────────
     if changed:
@@ -794,8 +821,43 @@ def settings():
             "ok": True,
             "changed": changed,
             "api_key_status": cfg.api_key_public_status(),
+            "crash_reporting": crash_reporter.status(),
         }
     )
+
+
+@app.get("/api/crash-reporting")
+def crash_reporting_status():
+    """Preview only the sanitized event that would be sent."""
+
+    return jsonify(
+        {
+            "ok": True,
+            "status": crash_reporter.status(),
+            "latest_event": crash_reporter.preview_latest(),
+        }
+    )
+
+
+@app.delete("/api/crash-reporting/queue")
+def clear_crash_reporting_queue():
+    """Discard pending SDK events and the local sanitized preview."""
+
+    crash_reporter.clear_queued_reports()
+    return jsonify({"ok": True, "status": crash_reporter.status()})
+
+
+@app.delete("/api/crash-reporting")
+def withdraw_crash_reporting():
+    """Withdraw consent and delete the random installation identifier."""
+
+    import snla.config as cfg
+
+    cfg.CRASH_REPORTING_ENABLED = False
+    cfg.CRASH_REPORTING_DECIDED = True
+    crash_reporter.withdraw()
+    _save_env_file()
+    return jsonify({"ok": True, "status": crash_reporter.status()})
 
 
 def _backup_error_response(exc: SecretProtectionError):
@@ -896,6 +958,8 @@ def _save_env_file():
         "AI_POLISH_ENABLED": "AI_POLISH_ENABLED",
         "SESSION_RESTORE_ENABLED": "SESSION_RESTORE_ENABLED",
         "MCP_ENABLED": "MCP_ENABLED",
+        "CRASH_REPORTING_ENABLED": "CRASH_REPORTING_ENABLED",
+        "CRASH_REPORTING_DECIDED": "CRASH_REPORTING_DECIDED",
         "STATS_BACKEND": "STATS_BACKEND",
         "LLM_MOCK": "LLM_MOCK",
     }

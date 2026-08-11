@@ -99,6 +99,21 @@ def test_mcp_is_explicit_opt_in_with_local_data_disclosure():
     assert "data.MCP_ENABLED === true" in html
 
 
+def test_crash_reporting_is_unchecked_opt_in_and_can_be_previewed_or_withdrawn():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="crash-consent-checkbox" type="checkbox"' in html
+    assert 'id="s-crash-reporting" type="checkbox"' in html
+    assert 'id="crash-consent-checkbox" type="checkbox" checked' not in html
+    for disclosure in ("异常消息", "API Key", "文件路径", "环境变量", "请求或响应"):
+        assert disclosure in html
+    assert 'apiFetch("/api/crash-reporting")' in html
+    assert 'apiFetch("/api/crash-reporting/queue", {method: "DELETE"})' in html
+    assert 'apiFetch("/api/crash-reporting", {method: "DELETE"})' in html
+    assert "CRASH_REPORTING_CONSENT: enabled" in html
+    assert "data.CRASH_REPORTING_DECIDED !== true" in html
+
+
 def test_api_key_backup_ui_requires_password_and_never_handles_plaintext_key():
     html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
 
