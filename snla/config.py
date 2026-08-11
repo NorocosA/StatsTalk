@@ -152,6 +152,28 @@ def delete_api_key() -> dict[str, object]:
     return resolution.public_status()
 
 
+def export_api_key_backup(password: str, password_confirmation: str) -> bytes:
+    """Create a password-protected portable backup without exposing the key."""
+
+    if _API_KEY_RESOLUTION.state != "configured":
+        raise SecretProtectionError(
+            "backup_key_unavailable",
+            "There is no configured API key to back up.",
+        )
+    return _API_KEY_SERVICE.export_backup(password, password_confirmation)
+
+
+def import_api_key_backup(payload: bytes, password: str) -> dict[str, object]:
+    """Restore a portable backup and bind it to the current Windows user."""
+
+    global _LEGACY_LLM_API_KEY
+
+    resolution = _API_KEY_SERVICE.import_backup(payload, password)
+    _LEGACY_LLM_API_KEY = ""
+    _apply_api_key_resolution(resolution)
+    return resolution.public_status()
+
+
 def check_spss_available() -> bool:
     """Return whether the configured SPSS command executable exists."""
 

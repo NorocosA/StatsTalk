@@ -14,13 +14,14 @@ import json
 import logging
 import os
 import sys
+from io import BytesIO
 from pathlib import Path
 
 # Ensure project root on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from snla.analysis import (
     AnalysisConfirmationRequest,
@@ -40,7 +41,7 @@ from snla.llm.transport import (
     require_secure_llm_endpoint,
 )
 from snla.orchestrator import planner_instance
-from snla.secrets import SecretProtectionError
+from snla.secrets import BACKUP_MAX_BYTES, SecretProtectionError
 from snla.session import SessionState
 from snla.trust import get_trusted_methods, trust_loaded_from
 from snla.ui._helpers import (
@@ -617,6 +618,82 @@ def settings():
             "api_key_status": cfg.api_key_public_status(),
         }
     )
+
+
+def _backup_error_response(exc: SecretProtectionError):
+    client_error_codes = {
+        "backup_authentication_failed",
+        "backup_invalid",
+        "backup_invalid_secret",
+        "backup_password_mismatch",
+        "backup_password_required",
+        "backup_password_too_long",
+        "backup_password_weak",
+        "backup_too_large",
+        "backup_unsupported_parameters",
+        "backup_unsupported_version",
+    }
+    status_code = 400 if exc.code in client_error_codes else 409
+    return jsonify(
+        {
+            "error": "api_key_backup_failed",
+            "code": exc.code,
+            "message": str(exc),
+        }
+    ), status_code
+
+
+@app.post("/api/api-key-backup/export")
+def export_api_key_backup():
+    """Download a portable password-protected backup of the current API key."""
+
+    import snla.config as cfg
+
+    data = request.get_json(silent=True) or {}
+    try:
+        payload = cfg.export_api_key_backup(
+            str(data.get("password") or ""),
+            str(data.get("password_confirmation") or ""),
+        )
+    except SecretProtectionError as exc:
+        return _backup_error_response(exc)
+    response = send_file(
+        BytesIO(payload),
+        mimetype="application/vnd.statstalk.key-backup+json",
+        as_attachment=True,
+        download_name="StatsTalk-api-key-backup.stkb",
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@app.post("/api/api-key-backup/import")
+def import_api_key_backup():
+    """Restore a portable backup into the current user's DPAPI store."""
+
+    import snla.config as cfg
+
+    backup_file = request.files.get("backup")
+    if backup_file is None or not backup_file.filename:
+        return jsonify(
+            {
+                "error": "api_key_backup_failed",
+                "code": "backup_file_required",
+                "message": "Choose a StatsTalk API-key backup file.",
+            }
+        ), 400
+    payload = backup_file.stream.read(BACKUP_MAX_BYTES + 1)
+    try:
+        api_key_status = cfg.import_api_key_backup(
+            payload,
+            str(request.form.get("password") or ""),
+        )
+    except SecretProtectionError as exc:
+        return _backup_error_response(exc)
+    return jsonify({"ok": True, "api_key_status": api_key_status})
 
 
 def _save_env_file():

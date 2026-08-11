@@ -71,6 +71,8 @@ LLM_MOCK=true
 | POST | `/api/confirm` | Execute pending greylist operation |
 | GET | `/api/variables` | Cloud-safe variable list |
 | GET/POST | `/api/settings` | Read/update config |
+| POST | `/api/api-key-backup/export` | Download a password-protected key backup |
+| POST | `/api/api-key-backup/import` | Restore and rebind a key backup to DPAPI |
 | POST | `/api/reload-config` | Reload `.env` |
 | POST | `/api/models` | List LLM models |
 | GET | `/api/detect-spss` | Detect SPSS installations |
@@ -82,6 +84,7 @@ LLM_MOCK=true
 | --- | --- |
 | `snla/config.py` | Env config, validation, hot reload |
 | `snla/session.py` | Single-user session state |
+| `snla/secrets.py` | DPAPI storage and portable password-protected key backups |
 | `snla/trust.py` | Trusted method whitelist |
 | `snla/data/reader.py` | `.sav`/`.csv` readers |
 | `snla/data/sanitizer.py` | Privacy filtering and variable desensitization |

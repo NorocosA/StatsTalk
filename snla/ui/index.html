@@ -38,9 +38,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #api-key-status { display: none; padding: 6px 8px; margin: 0 0 8px; border-left: 3px solid #909399; background: #f5f7fa; color: #606266; font-size: 12px; line-height: 1.5; }
 #api-key-status.warning { display: block; border-left-color: #e6a23c; background: #fdf6ec; color: #8a5a00; }
 #api-key-status.success { display: block; border-left-color: #67c23a; background: #f0f9eb; color: #39751e; }
-#api-key-actions { display: flex; gap: 6px; margin-bottom: 8px; }
-#api-key-actions button { flex: 1; padding: 6px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; cursor: pointer; font-size: 12px; }
+#api-key-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+#api-key-actions button { min-width: 0; padding: 6px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; cursor: pointer; font-size: 12px; }
 #api-key-actions button[hidden] { display: none; }
+#api-key-backup-note { margin-bottom: 8px; color: #909399; font-size: 11px; line-height: 1.45; }
 
 /* Main chat */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -150,6 +151,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .gl-btn-cancel:hover { background: #e4e7ed; }
 .gl-btn-confirm { background: #409eff; color: #fff; }
 .gl-btn-confirm:hover { background: #337ecc; }
+
+/* Secret backup modal */
+#secret-backup-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1100; justify-content: center; align-items: center; }
+#secret-backup-modal.open { display: flex; }
+.secret-backup-dialog { width: min(420px, 90vw); background: #fff; border-radius: 8px; padding: 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.secret-backup-dialog h2 { font-size: 17px; margin-bottom: 8px; }
+.secret-backup-dialog p { color: #606266; font-size: 13px; line-height: 1.55; margin-bottom: 14px; }
+.secret-backup-dialog label { display: block; color: #606266; font-size: 12px; margin: 10px 0 4px; }
+.secret-backup-dialog input { width: 100%; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 9px; }
+.secret-backup-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.secret-backup-actions button { min-width: 76px; padding: 8px 14px; border: 0; border-radius: 4px; cursor: pointer; }
+#secret-backup-cancel { background: #f5f7fa; color: #606266; }
+#secret-backup-submit { background: #409eff; color: #fff; }
+#secret-backup-submit:disabled { background: #a0cfff; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -178,7 +193,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
             <div id="api-key-actions">
                 <button id="migrate-api-key" type="button" hidden>安全迁移现有密钥</button>
                 <button id="delete-api-key" type="button" hidden>删除密钥</button>
+                <button id="export-api-key-backup" type="button" hidden>导出密钥备份</button>
+                <button id="import-api-key-backup" type="button">恢复密钥备份</button>
             </div>
+            <p id="api-key-backup-note">备份密码无法找回。请将备份文件和密码分开保管。</p>
+            <input id="api-key-backup-file" type="file" accept=".stkb,application/vnd.statstalk.key-backup+json" hidden>
             <label>模型</label>
             <input id="s-model" placeholder="deepseek-v4-flash">
             <button id="fetch-models-btn">获取模型列表</button>
@@ -278,6 +297,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     </div>
 </div>
 
+<!-- API-key Backup Modal -->
+<div id="secret-backup-modal" role="dialog" aria-modal="true" aria-labelledby="secret-backup-title">
+    <div class="secret-backup-dialog">
+        <h2 id="secret-backup-title">导出密钥备份</h2>
+        <p id="secret-backup-description">使用至少 12 位密码保护备份。StatsTalk 无法找回此密码。</p>
+        <label for="secret-backup-password">备份密码</label>
+        <input id="secret-backup-password" type="password" autocomplete="new-password" maxlength="1024">
+        <div id="secret-backup-confirm-row">
+            <label for="secret-backup-confirmation">确认备份密码</label>
+            <input id="secret-backup-confirmation" type="password" autocomplete="new-password" maxlength="1024">
+        </div>
+        <div class="secret-backup-actions">
+            <button id="secret-backup-cancel" type="button">取消</button>
+            <button id="secret-backup-submit" type="button">导出</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // ── State ────────────────────────────────────────────────
 let hasData = false;
@@ -290,6 +327,8 @@ let availableCapabilities = [];
 let localVariables = [];
 let selectionSource = "user_selection";
 let spssAvailable = false;
+let secretBackupMode = "export";
+let pendingSecretBackupFile = null;
 
 // ── DOM ──────────────────────────────────────────────────
 const fileInput = document.getElementById("file-input");
@@ -325,6 +364,10 @@ const secondVariableSelect = document.getElementById("second-variable-select");
 const alphaInput = document.getElementById("alpha-input");
 const localSuggestBtn = document.getElementById("local-suggest-btn");
 const suggestionSource = document.getElementById("suggestion-source");
+const secretBackupModal = document.getElementById("secret-backup-modal");
+const secretBackupPassword = document.getElementById("secret-backup-password");
+const secretBackupConfirmation = document.getElementById("secret-backup-confirmation");
+const secretBackupSubmit = document.getElementById("secret-backup-submit");
 
 // ── Per-launch authentication ───────────────────────────
 const SESSION_TOKEN_KEY = "statstalk.session-token";
@@ -895,6 +938,7 @@ function updateApiKeyStatus(data) {
     const box = document.getElementById("api-key-status");
     const migrate = document.getElementById("migrate-api-key");
     const remove = document.getElementById("delete-api-key");
+    const exportBackup = document.getElementById("export-api-key-backup");
     const keyInput = document.getElementById("s-key");
     const labels = {
         configured: "API Key 已使用 Windows 账户安全存储。",
@@ -906,6 +950,7 @@ function updateApiKeyStatus(data) {
     box.className = status.state === "configured" ? "success" : "warning";
     migrate.hidden = status.state !== "migration_required";
     remove.hidden = !["configured", "reenter_required"].includes(status.state);
+    exportBackup.hidden = status.state !== "configured";
     keyInput.placeholder = status.state === "configured" ? "已安全配置" : "输入新的 API Key";
 }
 
@@ -964,6 +1009,95 @@ document.getElementById("delete-api-key").addEventListener("click", async () => 
     const data = await resp.json();
     if (!resp.ok) return alert(data.message || "API Key 删除失败");
     updateApiKeyStatus(data);
+});
+
+function openSecretBackupModal(mode, backupFile = null) {
+    secretBackupMode = mode;
+    pendingSecretBackupFile = backupFile;
+    secretBackupPassword.value = "";
+    secretBackupConfirmation.value = "";
+    const exporting = mode === "export";
+    document.getElementById("secret-backup-title").textContent = exporting
+        ? "导出密钥备份"
+        : "恢复密钥备份";
+    document.getElementById("secret-backup-description").textContent = exporting
+        ? "使用至少 12 位密码保护备份。StatsTalk 无法找回此密码。"
+        : "输入创建备份时使用的密码。恢复成功后，密钥将绑定到当前 Windows 账户。";
+    document.getElementById("secret-backup-confirm-row").hidden = !exporting;
+    secretBackupSubmit.textContent = exporting ? "导出" : "恢复";
+    secretBackupModal.classList.add("open");
+    secretBackupPassword.focus();
+}
+
+function closeSecretBackupModal() {
+    secretBackupModal.classList.remove("open");
+    secretBackupPassword.value = "";
+    secretBackupConfirmation.value = "";
+    pendingSecretBackupFile = null;
+    document.getElementById("api-key-backup-file").value = "";
+}
+
+document.getElementById("export-api-key-backup").addEventListener("click", () => {
+    openSecretBackupModal("export");
+});
+
+document.getElementById("import-api-key-backup").addEventListener("click", () => {
+    document.getElementById("api-key-backup-file").click();
+});
+
+document.getElementById("api-key-backup-file").addEventListener("change", (event) => {
+    const backupFile = event.target.files && event.target.files[0];
+    if (backupFile) openSecretBackupModal("import", backupFile);
+});
+
+document.getElementById("secret-backup-cancel").addEventListener("click", closeSecretBackupModal);
+
+secretBackupSubmit.addEventListener("click", async () => {
+    const password = secretBackupPassword.value;
+    secretBackupSubmit.disabled = true;
+    try {
+        if (secretBackupMode === "export") {
+            const response = await apiFetch("/api/api-key-backup/export", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    password,
+                    password_confirmation: secretBackupConfirmation.value,
+                }),
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || "密钥备份导出失败");
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = "StatsTalk-api-key-backup.stkb";
+            anchor.click();
+            URL.revokeObjectURL(url);
+            closeSecretBackupModal();
+            alert("密钥备份已导出。请将备份文件和密码分开保管。");
+        } else {
+            if (!pendingSecretBackupFile) throw new Error("请选择密钥备份文件");
+            const form = new FormData();
+            form.append("backup", pendingSecretBackupFile);
+            form.append("password", password);
+            const response = await apiFetch("/api/api-key-backup/import", {
+                method: "POST",
+                body: form,
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || "密钥备份恢复失败");
+            updateApiKeyStatus(result);
+            closeSecretBackupModal();
+            alert("API Key 已恢复并绑定到当前 Windows 账户。");
+        }
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        secretBackupSubmit.disabled = false;
+    }
 });
 
 document.getElementById("fetch-models-btn").addEventListener("click", async () => {

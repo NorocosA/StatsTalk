@@ -67,3 +67,25 @@ def test_spss_fallback_notice_preserves_preference_and_offers_explicit_switch():
     assert 'JSON.stringify({STATS_BACKEND: "python"})' in html
     assert "data.backend_restored" in html
     assert html.count("showCorrectionChoices(data.correction_choices)") == 2
+
+
+def test_api_key_backup_ui_requires_password_and_never_handles_plaintext_key():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    for control_id in (
+        "export-api-key-backup",
+        "import-api-key-backup",
+        "api-key-backup-file",
+        "secret-backup-password",
+        "secret-backup-confirmation",
+    ):
+        assert f'id="{control_id}"' in html
+    assert 'type="password"' in html
+    assert "备份密码无法找回" in html
+    assert 'apiFetch("/api/api-key-backup/export"' in html
+    assert 'apiFetch("/api/api-key-backup/import"' in html
+    assert 'form.append("password", password)' in html
+    backup_script = html[
+        html.index("function openSecretBackupModal") : html.index("// ── Model Fetch")
+    ]
+    assert "LLM_API_KEY" not in backup_script

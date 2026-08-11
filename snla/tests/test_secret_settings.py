@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import io
 from unittest.mock import patch
 
 import snla.config as cfg
-from snla.secrets import API_KEY_MARKER, ApiKeyService, SecretProtectionError, SecretStore
+from snla.secrets import (
+    API_KEY_MARKER,
+    ApiKeyService,
+    SecretBackupCodec,
+    SecretProtectionError,
+    SecretStore,
+)
 from snla.ui.security import loopback_security
 from snla.ui.server import app
 
@@ -197,3 +204,146 @@ def test_provider_failure_never_exposes_api_key_in_response_or_logs(
     assert response.get_json()["code"] == "secret_encrypt_failed"
     assert api_key.encode() not in response.data
     assert api_key not in caplog.text
+
+
+def _backup_service(tmp_path, name: str):
+    return ApiKeyService(
+        SecretStore(tmp_path / name / "secure_key.bin", FakeDPAPIProvider()),
+        tmp_path / name / ".env",
+        backup_codec=SecretBackupCodec(n=2**10),
+    )
+
+
+def test_backup_export_api_returns_only_encrypted_no_store_payload(tmp_path, monkeypatch):
+    api_key = "sk-api-export-private"
+    password = "backup-password"
+    service = _backup_service(tmp_path, "source")
+    configured = service.replace(api_key)
+    monkeypatch.setattr(cfg, "_API_KEY_SERVICE", service)
+    monkeypatch.setattr(cfg, "_API_KEY_RESOLUTION", configured)
+    monkeypatch.setattr(cfg, "LLM_API_KEY", api_key)
+
+    with _authenticated_client() as client:
+        response = client.post(
+            "/api/api-key-backup/export",
+            json={"password": password, "password_confirmation": password},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert "StatsTalk-api-key-backup.stkb" in response.headers["Content-Disposition"]
+    assert api_key.encode() not in response.data
+    assert service.store.path.read_bytes() not in response.data
+
+
+def test_backup_import_api_rebinds_key_and_returns_only_public_status(tmp_path, monkeypatch):
+    password = "backup-password"
+    source = _backup_service(tmp_path, "source")
+    source.replace("sk-api-import-private")
+    payload = source.export_backup(password, password)
+
+    destination = _backup_service(tmp_path, "destination")
+    configured = destination.replace("sk-old-private")
+    monkeypatch.setattr(cfg, "_API_KEY_SERVICE", destination)
+    monkeypatch.setattr(cfg, "_API_KEY_RESOLUTION", configured)
+    monkeypatch.setattr(cfg, "LLM_API_KEY", configured.api_key)
+
+    with _authenticated_client() as client:
+        response = client.post(
+            "/api/api-key-backup/import",
+            data={
+                "password": password,
+                "backup": (io.BytesIO(payload), "key.stkb"),
+            },
+        )
+
+    assert response.status_code == 200
+    assert destination.store.read() == "sk-api-import-private"
+    assert cfg.LLM_API_KEY == "sk-api-import-private"
+    assert response.get_json()["api_key_status"]["state"] == "configured"
+    assert b"sk-api-import-private" not in response.data
+    assert password.encode() not in response.data
+
+
+def test_backup_import_api_failure_preserves_previous_key_and_redacts_input(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    source = _backup_service(tmp_path, "source")
+    source.replace("sk-do-not-leak")
+    payload = source.export_backup("right-password", "right-password")
+
+    destination = _backup_service(tmp_path, "destination")
+    configured = destination.replace("sk-keep-private")
+    previous_ciphertext = destination.store.path.read_bytes()
+    previous_config = destination.env_path.read_bytes()
+    monkeypatch.setattr(cfg, "_API_KEY_SERVICE", destination)
+    monkeypatch.setattr(cfg, "_API_KEY_RESOLUTION", configured)
+    monkeypatch.setattr(cfg, "LLM_API_KEY", configured.api_key)
+
+    with _authenticated_client() as client:
+        response = client.post(
+            "/api/api-key-backup/import",
+            data={
+                "password": "wrong-password",
+                "backup": (io.BytesIO(payload), "key.stkb"),
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "backup_authentication_failed"
+    assert destination.store.path.read_bytes() == previous_ciphertext
+    assert destination.env_path.read_bytes() == previous_config
+    assert destination.store.read() == "sk-keep-private"
+    combined = response.data.decode() + caplog.text
+    assert "wrong-password" not in combined
+    assert "right-password" not in combined
+    assert "sk-do-not-leak" not in combined
+
+
+def test_backup_api_rejects_missing_file_and_password_mismatch(tmp_path, monkeypatch):
+    service = _backup_service(tmp_path, "source")
+    configured = service.replace("sk-private")
+    monkeypatch.setattr(cfg, "_API_KEY_SERVICE", service)
+    monkeypatch.setattr(cfg, "_API_KEY_RESOLUTION", configured)
+
+    with _authenticated_client() as client:
+        missing_file = client.post(
+            "/api/api-key-backup/import",
+            data={"password": "backup-password"},
+        )
+        mismatch = client.post(
+            "/api/api-key-backup/export",
+            json={
+                "password": "backup-password",
+                "password_confirmation": "different-password",
+            },
+        )
+
+    assert missing_file.status_code == 400
+    assert missing_file.get_json()["code"] == "backup_file_required"
+    assert mismatch.status_code == 400
+    assert mismatch.get_json()["code"] == "backup_password_mismatch"
+
+
+def test_backup_export_api_does_not_export_an_orphaned_store(tmp_path, monkeypatch):
+    service = _backup_service(tmp_path, "source")
+    service.store.replace("sk-orphaned-private")
+    monkeypatch.setattr(cfg, "_API_KEY_SERVICE", service)
+    monkeypatch.setattr(cfg, "_API_KEY_RESOLUTION", service.resolve(""))
+    monkeypatch.setattr(cfg, "LLM_API_KEY", "")
+
+    with _authenticated_client() as client:
+        response = client.post(
+            "/api/api-key-backup/export",
+            json={
+                "password": "backup-password",
+                "password_confirmation": "backup-password",
+            },
+        )
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "backup_key_unavailable"
+    assert b"sk-orphaned-private" not in response.data

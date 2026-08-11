@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ctypes
+import json
 import os
 import tempfile
 from collections.abc import Callable
@@ -12,8 +15,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+
 CRYPTPROTECT_UI_FORBIDDEN = 0x1
 API_KEY_MARKER = "dpapi"
+BACKUP_FORMAT = "statstalk-api-key-backup"
+BACKUP_VERSION = 1
+BACKUP_AAD = b"StatsTalk API key backup v1"
+BACKUP_MAX_BYTES = 64 * 1024
+BACKUP_MIN_PASSWORD_LENGTH = 12
+BACKUP_MAX_PASSWORD_BYTES = 1024
 
 
 class SecretProtectionError(Exception):
@@ -55,6 +68,157 @@ class _DataBlob(ctypes.Structure):
 class _FileSnapshot:
     existed: bool
     contents: bytes = field(default=b"", repr=False)
+
+
+class SecretBackupCodec:
+    """Encode portable API-key backups with a password-derived AEAD key."""
+
+    def __init__(self, *, n: int = 2**15, r: int = 8, p: int = 1) -> None:
+        self.n = n
+        self.r = r
+        self.p = p
+
+    def encrypt(self, plaintext: bytes, password: str) -> bytes:
+        password_bytes = self._password_bytes(password, require_strength=True)
+        salt = os.urandom(16)
+        nonce = os.urandom(12)
+        key = self._derive(password_bytes, salt)
+        ciphertext = AESGCM(key).encrypt(nonce, plaintext, BACKUP_AAD)
+        container = {
+            "cipher": {
+                "ciphertext": self._encode(ciphertext),
+                "name": "aes-256-gcm",
+                "nonce": self._encode(nonce),
+            },
+            "format": BACKUP_FORMAT,
+            "kdf": {
+                "n": self.n,
+                "name": "scrypt",
+                "p": self.p,
+                "r": self.r,
+                "salt": self._encode(salt),
+            },
+            "version": BACKUP_VERSION,
+        }
+        return json.dumps(container, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+    def decrypt(self, payload: bytes, password: str) -> bytes:
+        if len(payload) > BACKUP_MAX_BYTES:
+            raise SecretProtectionError(
+                "backup_too_large",
+                "The API-key backup file is larger than StatsTalk supports.",
+            )
+        password_bytes = self._password_bytes(password, require_strength=False)
+        container = self._parse_container(payload)
+        kdf = container["kdf"]
+        cipher = container["cipher"]
+        salt = self._decode(kdf["salt"], expected_length=16)
+        nonce = self._decode(cipher["nonce"], expected_length=12)
+        ciphertext = self._decode(cipher["ciphertext"], maximum_length=16 * 1024)
+        try:
+            key = self._derive(password_bytes, salt)
+            return AESGCM(key).decrypt(nonce, ciphertext, BACKUP_AAD)
+        except InvalidTag:
+            raise SecretProtectionError(
+                "backup_authentication_failed",
+                "The backup password is incorrect or the backup file is damaged.",
+            ) from None
+        except SecretProtectionError:
+            raise
+        except Exception:
+            raise SecretProtectionError(
+                "backup_decryption_failed",
+                "The API-key backup could not be decrypted.",
+            ) from None
+
+    def _parse_container(self, payload: bytes) -> dict[str, object]:
+        try:
+            container = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise SecretProtectionError(
+                "backup_invalid",
+                "The selected file is not a valid StatsTalk API-key backup.",
+            ) from None
+        if not isinstance(container, dict):
+            self._raise_invalid()
+        if container.get("format") != BACKUP_FORMAT:
+            self._raise_invalid()
+        if container.get("version") != BACKUP_VERSION:
+            raise SecretProtectionError(
+                "backup_unsupported_version",
+                "This API-key backup version is not supported by StatsTalk.",
+            )
+        kdf = container.get("kdf")
+        cipher = container.get("cipher")
+        if not isinstance(kdf, dict) or not isinstance(cipher, dict):
+            self._raise_invalid()
+        expected_kdf = {"name": "scrypt", "n": self.n, "r": self.r, "p": self.p}
+        if any(kdf.get(key) != value for key, value in expected_kdf.items()):
+            raise SecretProtectionError(
+                "backup_unsupported_parameters",
+                "This API-key backup uses unsupported security parameters.",
+            )
+        if cipher.get("name") != "aes-256-gcm":
+            raise SecretProtectionError(
+                "backup_unsupported_parameters",
+                "This API-key backup uses unsupported security parameters.",
+            )
+        for mapping, fields in ((kdf, ("salt",)), (cipher, ("nonce", "ciphertext"))):
+            if any(not isinstance(mapping.get(field), str) for field in fields):
+                self._raise_invalid()
+        return container
+
+    @staticmethod
+    def _password_bytes(password: str, *, require_strength: bool) -> bytes:
+        if not isinstance(password, str) or not password:
+            raise SecretProtectionError(
+                "backup_password_required",
+                "Enter the backup password.",
+            )
+        if require_strength and len(password) < BACKUP_MIN_PASSWORD_LENGTH:
+            raise SecretProtectionError(
+                "backup_password_weak",
+                f"Use at least {BACKUP_MIN_PASSWORD_LENGTH} characters for the backup password.",
+            )
+        encoded = password.encode("utf-8")
+        if len(encoded) > BACKUP_MAX_PASSWORD_BYTES:
+            raise SecretProtectionError(
+                "backup_password_too_long",
+                "The backup password is longer than StatsTalk supports.",
+            )
+        return encoded
+
+    def _derive(self, password: bytes, salt: bytes) -> bytes:
+        return Scrypt(salt=salt, length=32, n=self.n, r=self.r, p=self.p).derive(password)
+
+    @staticmethod
+    def _encode(value: bytes) -> str:
+        return base64.b64encode(value).decode("ascii")
+
+    @classmethod
+    def _decode(
+        cls,
+        value: str,
+        *,
+        expected_length: int | None = None,
+        maximum_length: int | None = None,
+    ) -> bytes:
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (ValueError, binascii.Error):
+            cls._raise_invalid()
+        if expected_length is not None and len(decoded) != expected_length:
+            cls._raise_invalid()
+        if maximum_length is not None and len(decoded) > maximum_length:
+            cls._raise_invalid()
+        return decoded
+
+    @staticmethod
+    def _raise_invalid() -> None:
+        raise SecretProtectionError(
+            "backup_invalid",
+            "The selected file is not a valid StatsTalk API-key backup.",
+        )
 
 
 class WindowsDPAPIProvider:
@@ -241,9 +405,16 @@ class SecretStore:
 class ApiKeyService:
     """Coordinate secure storage with the API-key marker in ``.env``."""
 
-    def __init__(self, store: SecretStore, env_path: Path) -> None:
+    def __init__(
+        self,
+        store: SecretStore,
+        env_path: Path,
+        *,
+        backup_codec: SecretBackupCodec | None = None,
+    ) -> None:
         self.store = store
         self.env_path = env_path
+        self.backup_codec = backup_codec or SecretBackupCodec()
 
     def resolve(self, configured_value: str | None) -> SecretResolution:
         raw_value = (configured_value or "").strip()
@@ -308,6 +479,42 @@ class ApiKeyService:
 
     def delete(self) -> SecretResolution:
         return self._transaction(self._delete)
+
+    def export_backup(self, password: str, password_confirmation: str) -> bytes:
+        if password != password_confirmation:
+            raise SecretProtectionError(
+                "backup_password_mismatch",
+                "The backup password confirmation does not match.",
+            )
+        try:
+            api_key = self.store.read()
+        except Exception:
+            raise SecretProtectionError(
+                "backup_key_unavailable",
+                "The current API key cannot be opened, so it cannot be backed up.",
+            ) from None
+        if not api_key:
+            raise SecretProtectionError(
+                "backup_key_unavailable",
+                "There is no configured API key to back up.",
+            )
+        return self.backup_codec.encrypt(api_key.encode("utf-8"), password)
+
+    def import_backup(self, payload: bytes, password: str) -> SecretResolution:
+        plaintext = self.backup_codec.decrypt(payload, password)
+        try:
+            api_key = plaintext.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SecretProtectionError(
+                "backup_invalid_secret",
+                "The API-key backup does not contain a valid key.",
+            ) from None
+        if not api_key:
+            raise SecretProtectionError(
+                "backup_invalid_secret",
+                "The API-key backup does not contain a valid key.",
+            )
+        return self.replace(api_key)
 
     def _replace_and_mark(self, api_key: str) -> SecretResolution:
         self._persist_verified(api_key)
@@ -455,9 +662,12 @@ def create_api_key_service(
 
 __all__ = [
     "API_KEY_MARKER",
+    "BACKUP_MAX_BYTES",
+    "BACKUP_MIN_PASSWORD_LENGTH",
     "ApiKeyService",
     "ProtectionProvider",
     "SecretResolution",
+    "SecretBackupCodec",
     "SecretProtectionError",
     "SecretStore",
     "WindowsDPAPIProvider",
