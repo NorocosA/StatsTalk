@@ -31,7 +31,7 @@ class DesktopApi:
             return None
         selected = self._window.create_file_dialog(
             allow_multiple=False,
-            file_types=("SPSS and CSV datasets (*.sav;*.csv)",),
+            file_types=("StatsTalk datasets (*.sav;*.csv;*.xlsx)",),
         )
         return selected[0] if selected else None
 

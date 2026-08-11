@@ -65,7 +65,8 @@ LLM_MOCK=true
 | --- | --- | --- |
 | GET | `/` | Frontend HTML |
 | GET | `/api/status` | Health and session state |
-| POST | `/api/upload` | Upload `.sav` or `.csv` |
+| POST | `/api/upload` | Upload `.sav`, `.csv`, or inspect `.xlsx` |
+| POST | `/api/select-worksheet` | Load one explicitly selected `.xlsx` worksheet |
 | POST | `/api/suggest` | Network-free local method suggestion |
 | POST | `/api/analyze` | Main analysis pipeline |
 | POST | `/api/cancel` | Cancel running analysis |

@@ -24,6 +24,9 @@ class SessionState:
     variables: list[dict] = field(default_factory=list)
     # [{"name": str, "type": str, "label": str, "value_labels": dict|None, "desensitized": bool|None, "original_name": str|None}]
 
+    pending_workbook: dict | None = None
+    # Safe structure and local path while an .xlsx workbook awaits explicit sheet selection.
+
     # ===== Variable Name Mapping (Privacy) =====
     var_name_map: dict[str, str] = field(default_factory=dict)
     # Desensitized name → Original name (e.g., {"var_01": "患者姓名"})
@@ -180,6 +183,7 @@ class SessionState:
         self.cleanup()
         self.dataset_meta = {}
         self.variables = []
+        self.pending_workbook = None
         self.var_name_map = {}
         self.reverse_var_name_map = {}
         self.history = []

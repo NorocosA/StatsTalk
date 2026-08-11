@@ -79,6 +79,7 @@ User request
 - OMS XML parser with LST fallback.
 - Privacy filtering before LLM calls.
 - Session-only dataset working copies with opt-in encrypted path restore.
+- Safe `.xlsx` import with explicit single-worksheet selection.
 - Word `.docx` report export.
 - Flask/PyWebView desktop UI and FastMCP server.
 
@@ -131,6 +132,8 @@ data/fixtures/             sample datasets and checklists
 - SPSS automation is Windows-focused.
 - The Flask app is single-user; concurrent analyses return 409.
 - Browser uploads are session-only; optional restore requires the desktop file picker.
+- Excel imports accept `.xlsx` only, stop above 100 MB or 5 million effective cells, and
+  read formula caches without executing macros or combining worksheets.
 - Batch variable expansion such as `Q1-Q10` is currently a preprocessor, not multi-result aggregation.
 
 ## Packaging

@@ -19,6 +19,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #upload-btn { width: 100%; margin-top: 8px; padding: 8px; background: #409eff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
 #upload-btn:hover { background: #337ecc; }
 #upload-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+#worksheet-picker { display: none; margin-top: 9px; }
+#worksheet-picker.show { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+#worksheet-select { min-width: 0; height: 34px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 7px; }
+#worksheet-load-btn { height: 34px; border: 0; border-radius: 4px; padding: 0 10px; background: #409eff; color: #fff; cursor: pointer; }
 #var-list { font-size: 13px; max-height: 200px; overflow-y: auto; }
 #var-list .var-item { padding: 4px 0; display: flex; justify-content: space-between; }
 #var-list .var-name { font-weight: 600; }
@@ -187,8 +191,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="section">
         <h3>数据文件</h3>
         <button id="choose-dataset-btn" type="button">选择本地数据文件</button>
-        <input type="file" id="file-input" accept=".sav,.csv">
+        <input type="file" id="file-input" accept=".sav,.csv,.xlsx">
         <button id="upload-btn">上传并分析</button>
+        <div id="worksheet-picker">
+            <select id="worksheet-select" aria-label="选择 Excel 工作表"></select>
+            <button id="worksheet-load-btn" type="button">加载工作表</button>
+        </div>
         <div id="upload-status" class="status"></div>
     </div>
     <div class="section" id="var-section" style="display:none">
@@ -365,6 +373,9 @@ let pendingSecretBackupFile = null;
 const fileInput = document.getElementById("file-input");
 const uploadBtn = document.getElementById("upload-btn");
 const uploadStatus = document.getElementById("upload-status");
+const worksheetPicker = document.getElementById("worksheet-picker");
+const worksheetSelect = document.getElementById("worksheet-select");
+const worksheetLoadBtn = document.getElementById("worksheet-load-btn");
 const varSection = document.getElementById("var-section");
 const varList = document.getElementById("var-list");
 const rowCount = document.getElementById("row-count");
@@ -458,13 +469,14 @@ document.getElementById("choose-dataset-btn").addEventListener("click", async ()
         });
         const data = await resp.json();
         if (!resp.ok) return uploadStatus.textContent = data.message || "打开失败";
-        applyDatasetPayload(data);
+        handleDatasetPayload(data);
         return;
     }
     fileInput.click();
 });
 
 function applyDatasetPayload(data) {
+    worksheetPicker.classList.remove("show");
     hasData = true;
     uploadStatus.textContent = `${data.filename} (${data.row_count} 行)`;
     userInput.disabled = false;
@@ -476,6 +488,40 @@ function applyDatasetPayload(data) {
     exportBtn.disabled = true;
     contextHint.style.display = "none";
 }
+
+function handleDatasetPayload(data) {
+    if (!data.requires_worksheet_selection) {
+        applyDatasetPayload(data);
+        return;
+    }
+    hasData = false;
+    userInput.disabled = true;
+    sendBtn.disabled = true;
+    worksheetSelect.innerHTML = data.sheets.map(sheet =>
+        `<option value="${esc(sheet.name)}">${esc(sheet.name)} (${sheet.row_count} x ${sheet.column_count})</option>`
+    ).join("");
+    worksheetPicker.classList.add("show");
+    uploadStatus.textContent = `${data.filename}：请选择一个工作表`;
+}
+
+worksheetLoadBtn.addEventListener("click", async () => {
+    worksheetLoadBtn.disabled = true;
+    try {
+        const response = await apiFetch("/api/select-worksheet", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({worksheet: worksheetSelect.value}),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            uploadStatus.textContent = data.message || data.error || "工作表加载失败";
+            return;
+        }
+        applyDatasetPayload(data);
+    } finally {
+        worksheetLoadBtn.disabled = false;
+    }
+});
 
 // ── Upload ───────────────────────────────────────────────
 async function uploadFile() {
@@ -492,7 +538,7 @@ async function uploadFile() {
         const resp = await apiFetch("/api/upload", { method: "POST", body: form });
         const data = await resp.json();
         if (data.ok) {
-            applyDatasetPayload(data);
+            handleDatasetPayload(data);
         } else {
             uploadStatus.textContent = `错误: ${data.error}`;
         }
@@ -1312,7 +1358,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
             });
             const restoreData = await restoreResp.json();
             if (restoreResp.ok && restoreData.restored) {
-                applyDatasetPayload(restoreData);
+                handleDatasetPayload(restoreData);
                 restored = true;
             } else if (consent && !restoreResp.ok) {
                 alert(restoreData.message || "原始数据文件无法恢复，请重新选择文件。");

@@ -4,6 +4,7 @@
 # Data I/O and statistical engine
 numpy>=1.26,<3
 pandas>=2.2,<3.1
+openpyxl>=3.1,<4
 pingouin>=0.5.5,<0.7
 pyreadstat>=1.2.7,<2
 

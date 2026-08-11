@@ -31,7 +31,12 @@ from snla.analysis import (
 )
 from snla.capabilities import get_public_capabilities_payload
 from snla.config import DEBUG, LLM_MOCK  # noqa: F401 — LLM_MOCK imported for test patching
-from snla.data.reader import read_and_extract
+from snla.data.reader import (
+    ExcelImportError,
+    inspect_xlsx,
+    read_and_extract,
+    read_xlsx_and_extract,
+)
 from snla.data.retention import (
     DatasetRetentionError,
     create_dataset_retention,
@@ -123,8 +128,13 @@ def _add_exact_origin_cors(response):
 
 # ── Upload limits ────────────────────────────────────────────────────
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB
-ALLOWED_EXTENSIONS = {".sav", ".csv"}
-ALLOWED_MIME_TYPES = {"application/octet-stream", "text/csv"}
+MAX_EXCEL_UPLOAD_SIZE = 100 * 1024 * 1024
+ALLOWED_EXTENSIONS = {".sav", ".csv", ".xlsx"}
+ALLOWED_MIME_TYPES = {
+    "application/octet-stream",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 # ── Query limits ──────────────────────────────────────────────────────
@@ -183,6 +193,27 @@ def status():
 def _load_dataset_path(path: Path, *, filename: str) -> dict[str, object]:
     """Load one local dataset into memory without persisting its contents."""
 
+    if path.suffix.lower() == ".xlsx":
+        if path.stat().st_size > MAX_EXCEL_UPLOAD_SIZE:
+            raise ExcelImportError(
+                "EXCEL_FILE_TOO_LARGE", "Excel workbooks must be 100 MB or smaller."
+            )
+        structure = inspect_xlsx(path)
+        session.reset()
+        session.pending_workbook = {
+            "file_path": str(path),
+            "filename": filename,
+            "structure": structure,
+        }
+        return {
+            "ok": True,
+            "filename": filename,
+            "format": "xlsx",
+            "requires_worksheet_selection": True,
+            "sheets": structure["sheets"],
+            "total_effective_cells": structure["total_effective_cells"],
+        }
+
     meta = read_and_extract(str(path))
     meta["file_path"] = str(path)
     meta["filename"] = filename
@@ -239,7 +270,7 @@ def open_local_dataset():
             {
                 "error": "local_dataset_invalid",
                 "code": "local_dataset_invalid",
-                "message": "Choose an existing .sav or .csv dataset.",
+                "message": "Choose an existing .sav, .csv, or .xlsx dataset.",
             }
         ), 400
     try:
@@ -296,7 +327,7 @@ def upload():
     # Extension validation
     suffix = Path(f.filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
-        return jsonify({"error": "不支持的文件类型，仅支持 .sav 和 .csv"}), 400
+        return jsonify({"error": "不支持的文件类型，仅支持 .sav、.csv 和 .xlsx"}), 400
 
     # MIME validation (allow octet-stream since .sav has no standard MIME)
     mime = f.content_type or ""
@@ -306,15 +337,54 @@ def upload():
     dest = dataset_retention.allocate_upload(f.filename)
     f.save(dest)
 
+    if suffix == ".xlsx" and dest.stat().st_size > MAX_EXCEL_UPLOAD_SIZE:
+        dest.unlink(missing_ok=True)
+        return jsonify({"error": "Excel 文件大小超过限制（最大 100MB）"}), 413
+
     try:
         payload = _load_dataset_path(dest, filename=f.filename)
         session.register_temp_file(str(dest))
         dataset_retention.forget()
         return jsonify(payload)
+    except ExcelImportError as exc:
+        dest.unlink(missing_ok=True)
+        return jsonify({"error": str(exc), "code": exc.code, "message": str(exc)}), 422
     except Exception as e:
         dest.unlink(missing_ok=True)
         logger.exception("Upload failed")
         return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/select-worksheet")
+def select_worksheet():
+    """Load one explicitly selected worksheet from the pending workbook."""
+
+    pending = session.pending_workbook
+    worksheet = (request.get_json(silent=True) or {}).get("worksheet")
+    if pending is None:
+        return jsonify(
+            {"error": "no_pending_workbook", "message": "Upload an .xlsx file first."}
+        ), 409
+    if not isinstance(worksheet, str) or not worksheet:
+        return jsonify({"error": "worksheet_required", "message": "Choose a worksheet."}), 400
+    try:
+        meta = read_xlsx_and_extract(pending["file_path"], worksheet)
+        meta["filename"] = pending["filename"]
+        session.dataset_meta = meta
+        session.variables = meta.get("variables", [])
+        session.pending_workbook = None
+        cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
+        return jsonify(
+            {
+                "ok": True,
+                "filename": meta["filename"],
+                "worksheet": worksheet,
+                "variables": cloud_vars,
+                "row_count": meta.get("row_count", 0),
+            }
+        )
+    except ExcelImportError as exc:
+        return jsonify({"error": str(exc), "code": exc.code, "message": str(exc)}), 422
 
 
 # ── Cancel ────────────────────────────────────────────────────────────

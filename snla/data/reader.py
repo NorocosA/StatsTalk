@@ -16,13 +16,164 @@ contract instead.
 """
 
 import os
+from pathlib import Path
+from zipfile import BadZipFile
 
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils.cell import range_boundaries
+from openpyxl.utils.exceptions import InvalidFileException
 
 try:
     import pyreadstat
 except ImportError:
     pyreadstat = None  # type: ignore[assignment]
+
+
+MAX_EXCEL_EFFECTIVE_CELLS = 5_000_000
+
+
+class ExcelImportError(ValueError):
+    """Actionable error raised while inspecting or loading an Excel workbook."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(f"{code}: {message}")
+
+
+def _worksheet_dimensions(worksheet) -> tuple[int, int]:
+    try:
+        dimension = worksheet.calculate_dimension()
+    except ValueError:
+        raise ExcelImportError(
+            "EXCEL_DIMENSIONS_UNAVAILABLE",
+            "The worksheet does not declare safe dimensions and cannot be imported.",
+        ) from None
+    min_column, min_row, max_column, max_row = range_boundaries(dimension)
+    if (min_column, min_row, max_column, max_row) == (1, 1, 1, 1):
+        first = next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True), (None,))
+        if not first or all(value is None for value in first):
+            return 0, 0
+    return max_row, max_column
+
+
+def inspect_xlsx(file_path: str | Path) -> dict:
+    """Return sheet names and dimensions without exposing headers or cell values."""
+
+    path = Path(file_path)
+    if path.suffix.lower() != ".xlsx":
+        raise ExcelImportError("EXCEL_UNSUPPORTED_TYPE", "Only .xlsx workbooks are supported.")
+    if not path.is_file():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    try:
+        workbook = load_workbook(
+            path,
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (BadZipFile, InvalidFileException, KeyError, OSError, ValueError):
+        raise ExcelImportError(
+            "EXCEL_CORRUPT", "The workbook is damaged or is not a valid .xlsx file."
+        ) from None
+
+    try:
+        sheets = []
+        total_cells = 0
+        for worksheet in workbook.worksheets:
+            row_count, column_count = _worksheet_dimensions(worksheet)
+            effective_cells = row_count * column_count
+            total_cells += effective_cells
+            if total_cells > MAX_EXCEL_EFFECTIVE_CELLS:
+                raise ExcelImportError(
+                    "EXCEL_TOO_MANY_CELLS",
+                    f"Workbook exceeds the {MAX_EXCEL_EFFECTIVE_CELLS:,}-cell limit.",
+                )
+            sheets.append(
+                {
+                    "name": worksheet.title,
+                    "row_count": row_count,
+                    "column_count": column_count,
+                    "effective_cells": effective_cells,
+                }
+            )
+        return {
+            "filename": path.name,
+            "format": "xlsx",
+            "sheets": sheets,
+            "total_effective_cells": total_cells,
+        }
+    finally:
+        workbook.close()
+
+
+def read_xlsx_sheet(file_path: str | Path, worksheet_name: str) -> tuple["pd.DataFrame", dict]:
+    """Load one explicitly selected worksheet using cached formula values only."""
+
+    path = Path(file_path)
+    structure = inspect_xlsx(path)
+    if worksheet_name not in {sheet["name"] for sheet in structure["sheets"]}:
+        raise ExcelImportError(
+            "EXCEL_WORKSHEET_NOT_FOUND", "Choose one of the workbook's listed worksheets."
+        )
+
+    workbook = load_workbook(path, read_only=True, data_only=True, keep_links=False)
+    try:
+        worksheet = workbook[worksheet_name]
+        rows = worksheet.iter_rows(values_only=True)
+        header = list(next(rows, ()))
+        if not header or all(value is None for value in header):
+            raise ExcelImportError("EXCEL_EMPTY_SHEET", "The selected worksheet is empty.")
+
+        second_row = list(next(rows, ()))
+        empty_header = [
+            index for index, value in enumerate(header) if value is None or not str(value).strip()
+        ]
+        if empty_header:
+            second_row_looks_like_header = second_row and all(
+                isinstance(value, str) and value.strip() for value in second_row[: len(header)]
+            )
+            if second_row_looks_like_header:
+                raise ExcelImportError(
+                    "EXCEL_MULTIPLE_HEADER_ROWS",
+                    "Use a single unmerged header row before importing this worksheet.",
+                )
+            raise ExcelImportError(
+                "EXCEL_EMPTY_HEADER", "Every imported column must have a non-empty header."
+            )
+
+        headers = [str(value).strip() for value in header]
+        normalized = [value.casefold() for value in headers]
+        if len(normalized) != len(set(normalized)):
+            raise ExcelImportError("EXCEL_DUPLICATE_HEADERS", "Column headers must be unique.")
+
+        data_rows = []
+        if second_row:
+            data_rows.append(second_row[: len(headers)])
+        data_rows.extend(list(row[: len(headers)]) for row in rows)
+        while data_rows and all(value is None for value in data_rows[-1]):
+            data_rows.pop()
+        dataframe = pd.DataFrame(data_rows, columns=headers)
+        metadata = {
+            "filename": path.name,
+            "format": "xlsx",
+            "worksheet": worksheet_name,
+            "row_count": len(dataframe),
+            "column_count": len(headers),
+            "file_path": str(path.resolve()),
+            "file_label": None,
+        }
+        return dataframe, metadata
+    finally:
+        workbook.close()
+
+
+def read_xlsx_and_extract(file_path: str | Path, worksheet_name: str) -> dict:
+    """Load one worksheet and return the canonical dataset metadata contract."""
+
+    dataframe, metadata = read_xlsx_sheet(file_path, worksheet_name)
+    return extract_metadata(dataframe, metadata)
 
 
 def read_sav(file_path: str) -> tuple["pd.DataFrame", dict]:

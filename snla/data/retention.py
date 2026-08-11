@@ -20,7 +20,7 @@ from snla.secrets import (
 
 RESTORE_FORMAT = "statstalk-dataset-restore"
 RESTORE_VERSION = 1
-SUPPORTED_DATASET_SUFFIXES = {".csv", ".sav"}
+SUPPORTED_DATASET_SUFFIXES = {".csv", ".sav", ".xlsx"}
 RESTORE_DPAPI_ENTROPY = b"StatsTalk dataset restore reference v1"
 
 
@@ -171,7 +171,7 @@ class DatasetRetention:
         if suffix not in SUPPORTED_DATASET_SUFFIXES:
             raise DatasetRetentionError(
                 "working_file_invalid",
-                "Choose a .sav or .csv dataset.",
+                "Choose a .sav, .csv, or .xlsx dataset.",
             )
         if self._workspace is None:
             self.workspace_root.mkdir(parents=True, exist_ok=True)
@@ -237,12 +237,12 @@ class DatasetRetention:
         except OSError:
             raise DatasetRetentionError(
                 "restore_source_invalid",
-                "Choose an existing .sav or .csv dataset.",
+                "Choose an existing .sav, .csv, or .xlsx dataset.",
             ) from None
         if not source.is_file() or source.suffix.lower() not in SUPPORTED_DATASET_SUFFIXES:
             raise DatasetRetentionError(
                 "restore_source_invalid",
-                "Choose an existing .sav or .csv dataset.",
+                "Choose an existing .sav, .csv, or .xlsx dataset.",
             )
         return source
 
