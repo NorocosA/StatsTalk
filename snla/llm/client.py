@@ -14,6 +14,12 @@ from typing import Any
 import requests
 
 from snla import config
+from snla.llm.transport import (
+    EndpointPolicyError,
+    LLMTransportError,
+    diagnose_transport_failure,
+    require_secure_llm_endpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,36 +29,6 @@ LLM_MAX_RETRIES = 3
 # Timeout for LLM HTTP calls (connect_timeout, read_timeout)
 LLM_CONNECT_TIMEOUT = 10  # seconds
 LLM_READ_TIMEOUT = 120  # seconds
-
-# ---------------------------------------------------------------------------
-# TLS adapter for servers with strict/complex SSL configurations
-# (e.g. opencode.ai which requires relaxed cipher settings on some platforms)
-# ---------------------------------------------------------------------------
-
-
-def _build_tls_adapter() -> requests.adapters.HTTPAdapter:
-    """Build a requests HTTPAdapter with a permissive TLS context.
-
-    Some LLM API endpoints use TLS configurations that trigger
-    ``SSLEOFError`` on Windows/Python combinations with stricter
-    default cipher suites.  This adapter relaxes verification to
-    ``CERT_NONE`` and lowers the OpenSSL security level to 1 so
-    that handshakes succeed.
-    """
-    import ssl
-
-    from requests.adapters import HTTPAdapter
-
-    class _TLSAdapter(HTTPAdapter):
-        def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
-            kwargs["ssl_context"] = ctx
-            return super().init_poolmanager(*args, **kwargs)
-
-    return _TLSAdapter()
 
 
 class LLMError(Exception):
@@ -87,16 +63,7 @@ class LLMClient:
         self.max_output_tokens = config.LLM_MAX_OUTPUT_TOKENS
         self.debug = config.DEBUG
 
-        # Two sessions: permissive TLS for opencode.ai, default for everything else
-        self._session_default = requests.Session()
-        self._session_permissive = requests.Session()
-        self._session_permissive.mount("https://", _build_tls_adapter())
-
-    def _get_session(self, endpoint: str) -> requests.Session:
-        """Return the appropriate session based on endpoint TLS requirements."""
-        if "opencode.ai" in endpoint:
-            return self._session_permissive
-        return self._session_default
+        self._session = requests.Session()
 
     def chat(
         self,
@@ -162,15 +129,13 @@ class LLMClient:
     # ------------------------------------------------------------------
 
     def masked_api_key(self) -> str:
-        """Return the primary API key with all but the last 4 characters masked.
+        """Return a non-identifying API-key state label.
 
         Returns ``"<not-set>"`` when no key is configured.
         """
         if not self.primary_api_key:
             return "<not-set>"
-        if len(self.primary_api_key) <= 4:
-            return "*" * len(self.primary_api_key)
-        return "*" * (len(self.primary_api_key) - 4) + self.primary_api_key[-4:]
+        return "<configured>"
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -209,10 +174,11 @@ class LLMClient:
         try:
             if self.debug:
                 logger.info(
-                    "LLM primary call | endpoint=%s | model=%s | api_key=***%s | messages=%d",
+                    "LLM primary call | endpoint=%s | model=%s | "
+                    "api_key_configured=%s | messages=%d",
                     self.primary_endpoint,
                     self.primary_model,
-                    self.masked_api_key(),
+                    bool(self.primary_api_key),
                     len(messages),
                 )
             return self._call_openai_compatible(
@@ -222,12 +188,19 @@ class LLMClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-        except requests.RequestException as exc:
+        except EndpointPolicyError:
+            raise
+        except LLMTransportError as exc:
             msg = f"Primary backend failed: {exc}"
             logger.warning(msg)
             errors.append(msg)
-        except Exception as exc:
-            msg = f"Primary backend unexpected error: {exc}"
+        except requests.RequestException as exc:
+            diagnostic = diagnose_transport_failure(self.primary_endpoint, exc)
+            msg = f"Primary backend failed: {diagnostic.message}"
+            logger.warning(msg)
+            errors.append(msg)
+        except Exception:
+            msg = "Primary backend failed with an unexpected internal error."
             logger.warning(msg)
             errors.append(msg)
 
@@ -248,12 +221,19 @@ class LLMClient:
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-            except requests.RequestException as exc:
+            except EndpointPolicyError:
+                raise
+            except LLMTransportError as exc:
                 msg = f"Fallback backend failed: {exc}"
                 logger.warning(msg)
                 errors.append(msg)
-            except Exception as exc:
-                msg = f"Fallback backend unexpected error: {exc}"
+            except requests.RequestException as exc:
+                diagnostic = diagnose_transport_failure(self.fallback_endpoint, exc)
+                msg = f"Fallback backend failed: {diagnostic.message}"
+                logger.warning(msg)
+                errors.append(msg)
+            except Exception:
+                msg = "Fallback backend failed with an unexpected internal error."
                 logger.warning(msg)
                 errors.append(msg)
 
@@ -300,39 +280,51 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        endpoint = require_secure_llm_endpoint(endpoint)
 
         max_retries = LLM_MAX_RETRIES
         for attempt in range(max_retries + 1):
             try:
-                response = self._get_session(endpoint).post(
+                response = self._session.post(
                     endpoint,
                     headers=headers,
                     json=payload,
                     timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),
+                    verify=True,
+                    allow_redirects=False,
                 )
+                if response.is_redirect is True:
+                    raise requests.HTTPError(response=response)
                 response.raise_for_status()
                 break  # success
             except requests.RequestException as exc:
+                diagnostic = diagnose_transport_failure(endpoint, exc)
                 # Don't retry 4xx client errors
                 if (
                     isinstance(exc, requests.HTTPError)
                     and exc.response is not None
                     and exc.response.status_code < 500
                 ):
-                    raise
+                    raise LLMTransportError(diagnostic) from exc
+                if not diagnostic.retryable:
+                    raise LLMTransportError(diagnostic) from exc
                 if attempt < max_retries:
                     wait = 2**attempt  # 1s, 2s, 4s
                     logger.warning(
-                        "LLM request failed (attempt %d/%d): %s. Retrying in %ds...",
+                        "LLM request failed (attempt %d/%d): %s Retrying in %ds...",
                         attempt + 1,
                         max_retries + 1,
-                        exc,
+                        diagnostic.message,
                         wait,
                     )
                     time.sleep(wait)
                 else:
-                    logger.error("LLM request failed after %d attempts: %s", max_retries + 1, exc)
-                    raise
+                    logger.error(
+                        "LLM request failed after %d attempts: %s",
+                        max_retries + 1,
+                        diagnostic.message,
+                    )
+                    raise LLMTransportError(diagnostic) from exc
         data = response.json()
 
         choices = data.get("choices", [])
@@ -392,38 +384,50 @@ class LLMClient:
                 "num_predict": max_tokens,
             },
         }
+        endpoint = require_secure_llm_endpoint(endpoint)
 
         max_retries = LLM_MAX_RETRIES
         for attempt in range(max_retries + 1):
             try:
-                response = self._get_session(endpoint).post(
+                response = self._session.post(
                     endpoint,
                     json=payload,
                     timeout=(LLM_CONNECT_TIMEOUT, LLM_READ_TIMEOUT),
+                    verify=True,
+                    allow_redirects=False,
                 )
+                if response.is_redirect is True:
+                    raise requests.HTTPError(response=response)
                 response.raise_for_status()
                 break  # success
             except requests.RequestException as exc:
+                diagnostic = diagnose_transport_failure(endpoint, exc)
                 # Don't retry 4xx client errors
                 if (
                     isinstance(exc, requests.HTTPError)
                     and exc.response is not None
                     and exc.response.status_code < 500
                 ):
-                    raise
+                    raise LLMTransportError(diagnostic) from exc
+                if not diagnostic.retryable:
+                    raise LLMTransportError(diagnostic) from exc
                 if attempt < max_retries:
                     wait = 2**attempt  # 1s, 2s, 4s
                     logger.warning(
-                        "LLM request failed (attempt %d/%d): %s. Retrying in %ds...",
+                        "LLM request failed (attempt %d/%d): %s Retrying in %ds...",
                         attempt + 1,
                         max_retries + 1,
-                        exc,
+                        diagnostic.message,
                         wait,
                     )
                     time.sleep(wait)
                 else:
-                    logger.error("LLM request failed after %d attempts: %s", max_retries + 1, exc)
-                    raise
+                    logger.error(
+                        "LLM request failed after %d attempts: %s",
+                        max_retries + 1,
+                        diagnostic.message,
+                    )
+                    raise LLMTransportError(diagnostic) from exc
         data = response.json()
 
         message = data.get("message", {})

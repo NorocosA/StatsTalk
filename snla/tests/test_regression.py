@@ -10,6 +10,7 @@ for real users.
 """
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -41,6 +42,13 @@ def reset_session():
     yield
 
 
+@pytest.fixture(autouse=True)
+def mock_spss_executor_factory():
+    """The airline regression exercises the Python path without requiring SPSS."""
+    with patch("snla.executor.spss.SPSSExecutor", return_value=MagicMock()):
+        yield
+
+
 @pytest.fixture
 def airline_meta():
     """Load airline.sav metadata (25,976 x 24)."""
@@ -59,10 +67,20 @@ def _setup_session(meta):
 
 def _call_analyze(text):
     """Call /api/analyze via Flask test client and return parsed JSON."""
+    from snla.ui.security import loopback_security
     from snla.ui.server import app
 
     with app.test_client() as client:
-        resp = client.post("/api/analyze", json={"text": text})
+        bootstrap_token = loopback_security.begin_launch("http://127.0.0.1:43125")
+        bootstrap = client.post(
+            "/api/bootstrap",
+            json={"bootstrap_token": bootstrap_token},
+        )
+        resp = client.post(
+            "/api/analyze",
+            json={"text": text},
+            headers={"Authorization": f"Bearer {bootstrap.get_json()['session_token']}"},
+        )
         return resp.status_code, json.loads(resp.data)
 
 

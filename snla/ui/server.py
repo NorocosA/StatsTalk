@@ -14,37 +14,54 @@ import json
 import logging
 import os
 import sys
-import threading
+from io import BytesIO
 from pathlib import Path
-from typing import Any
 
 # Ensure project root on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, got_request_exception, jsonify, request, send_file, send_from_directory
 
+from snla.analysis import (
+    AnalysisConfirmationRequest,
+    AnalysisRequest,
+    AnalysisSuccess,
+    analysis_service,
+)
+from snla.capabilities import get_public_capabilities_payload
 from snla.config import DEBUG, LLM_MOCK  # noqa: F401 — LLM_MOCK imported for test patching
-from snla.data.persistence import load_session, save_session
-from snla.data.reader import read_and_extract
+from snla.data.reader import (
+    ExcelImportError,
+    inspect_xlsx,
+    read_and_extract,
+    read_xlsx_and_extract,
+)
+from snla.data.retention import (
+    DatasetRetentionError,
+    create_dataset_retention,
+)
 from snla.data.sanitizer import filter_for_cloud
-from snla.orchestrator import NoPendingError, planner
+from snla.llm.transport import (
+    EndpointPolicyError,
+    NoRedirectHandler,
+    diagnose_transport_failure,
+    require_secure_llm_endpoint,
+)
+from snla.orchestrator import planner_instance
+from snla.secrets import BACKUP_MAX_BYTES, SecretProtectionError
 from snla.session import SessionState
+from snla.telemetry import crash_reporter
 from snla.trust import get_trusted_methods, trust_loaded_from
 from snla.ui._helpers import (
     RATE_LIMIT_MAX_REQUESTS,
     RATE_LIMIT_WINDOW,
     _check_rate_limit,
-    _make_executor,
     _spss_available,
 )
-from snla.ui._pipeline import (
-    _execute_and_parse,
-    _phase2_explain,
-    _prepare_syntax,
-    _run_python_backend,
-)
+from snla.ui.security import BootstrapError, loopback_security
 
+planner = planner_instance
 logger = logging.getLogger(__name__)
 
 # Ensure root logger has a basic config when running standalone
@@ -56,10 +73,76 @@ if not logging.getLogger().hasHandlers():
 
 app = Flask(__name__, static_folder=None)
 
+
+def _capture_unhandled_request_exception(_sender, exception, **_extra):
+    crash_reporter.capture_exception(exception)
+
+
+got_request_exception.connect(_capture_unhandled_request_exception, app)
+
+
+@app.before_request
+def _require_api_authentication():
+    """Reject unauthenticated control-plane requests by default."""
+
+    if not request.path.startswith("/api/"):
+        return None
+
+    if not loopback_security.is_origin_allowed(request.headers.get("Origin")):
+        return jsonify(
+            {
+                "error": "cross_origin_request",
+                "reason": "origin_not_allowed",
+            }
+        ), 403
+
+    if request.method == "OPTIONS":
+        return "", 204
+
+    if request.path == "/api/bootstrap":
+        return None
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return jsonify(
+            {
+                "error": "authentication_required",
+                "reason": "missing_token",
+            }
+        ), 401
+
+    failure_reason = loopback_security.validate_session(authorization.removeprefix("Bearer "))
+    if failure_reason is not None:
+        return jsonify(
+            {
+                "error": "authentication_required",
+                "reason": failure_reason,
+            }
+        ), 401
+
+    return None
+
+
+@app.after_request
+def _add_exact_origin_cors(response):
+    origin = request.headers.get("Origin")
+    if origin is not None and loopback_security.is_origin_allowed(origin):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        response.headers.add("Vary", "Origin")
+    return response
+
+
 # ── Upload limits ────────────────────────────────────────────────────
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB
-ALLOWED_EXTENSIONS = {".sav", ".csv"}
-ALLOWED_MIME_TYPES = {"application/octet-stream", "text/csv"}
+MAX_EXCEL_UPLOAD_SIZE = 100 * 1024 * 1024
+ALLOWED_EXTENSIONS = {".sav", ".csv", ".xlsx"}
+ALLOWED_MIME_TYPES = {
+    "application/octet-stream",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 # ── Query limits ──────────────────────────────────────────────────────
@@ -67,33 +150,30 @@ MAX_QUERY_LENGTH = 2000  # max characters per user query
 
 # In-memory session (one user, one session)
 session = SessionState()
-_load_ok = load_session(session)
-if _load_ok:
-    logger.info("Restored previous session from SQLite")
+dataset_retention = create_dataset_retention()
+dataset_retention.cleanup_startup()
 UI_DIR = Path(__file__).resolve().parent
-
-# ── Concurrency & state guards ───────────────────────────────────────
-_executing: bool = False  # True while /api/analyze is running
-_active_executor: Any = None  # for cancellation
-_was_cancelled: bool = False  # True when user requested cancellation
 
 # ── Rate limiting ─────────────────────────────────────────────────────
 _rate_limit_store: dict[str, list[float]] = {}
-
-
-# ── CORS for local WebView ────────────────────────────────────────────
-@app.after_request
-def _cors(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    return response
 
 
 # ── Static frontend ───────────────────────────────────────────────────
 @app.route("/")
 def index():
     return send_from_directory(str(UI_DIR), "index.html")
+
+
+@app.route("/api/bootstrap", methods=["POST"])
+def bootstrap():
+    """Exchange the one-time launch credential for a session token."""
+
+    data = request.get_json(silent=True) or {}
+    try:
+        session_token = loopback_security.exchange_bootstrap(str(data.get("bootstrap_token", "")))
+    except BootstrapError as exc:
+        return jsonify({"error": "bootstrap_failed", "reason": exc.reason}), 401
+    return jsonify({"ok": True, "session_token": session_token})
 
 
 # ── Health ────────────────────────────────────────────────────────────
@@ -104,15 +184,141 @@ def status():
     return jsonify(
         {
             "ok": True,
-            "has_data": session.dataset_meta is not None,
+            "has_data": session.has_data,
             "variable_count": len(session.variables),
-            "executing": _executing,
+            "executing": analysis_service.is_active("default"),
             "spss_available": _spss_available(),
             "current_backend": cfg.STATS_BACKEND,
+            "api_key_status": cfg.api_key_public_status(),
+            "capabilities": get_public_capabilities_payload(),
             "trusted_methods": list(get_trusted_methods()),
-            "trust_source": trust_loaded_from(),  # "json" or "embedded"
+            "trust_source": trust_loaded_from(),
+            "restore": dataset_retention.restore_status(),
         }
     )
+
+
+def _load_dataset_path(path: Path, *, filename: str) -> dict[str, object]:
+    """Load one local dataset into memory without persisting its contents."""
+
+    if path.suffix.lower() == ".xlsx":
+        if path.stat().st_size > MAX_EXCEL_UPLOAD_SIZE:
+            raise ExcelImportError(
+                "EXCEL_FILE_TOO_LARGE", "Excel workbooks must be 100 MB or smaller."
+            )
+        structure = inspect_xlsx(path)
+        session.reset()
+        session.pending_workbook = {
+            "file_path": str(path),
+            "filename": filename,
+            "structure": structure,
+        }
+        return {
+            "ok": True,
+            "filename": filename,
+            "format": "xlsx",
+            "requires_worksheet_selection": True,
+            "sheets": structure["sheets"],
+            "total_effective_cells": structure["total_effective_cells"],
+        }
+
+    meta = read_and_extract(str(path))
+    meta["file_path"] = str(path)
+    meta["filename"] = filename
+    session.reset()
+    session.dataset_meta = meta
+    session.variables = meta.get("variables", [])
+    cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
+    return {
+        "ok": True,
+        "filename": filename,
+        "variables": cloud_vars,
+        "row_count": meta.get("row_count", 0),
+    }
+
+
+@app.post("/api/restore-dataset")
+def restore_dataset():
+    """Reopen the remembered original only after explicit confirmation."""
+
+    data = request.get_json(silent=True) or {}
+    if data.get("consent") is not True:
+        return jsonify({"ok": True, "restored": False})
+    try:
+        source = dataset_retention.restore(consent=True)
+        if source is None:
+            return jsonify({"ok": True, "restored": False})
+        payload = _load_dataset_path(source, filename=source.name)
+    except DatasetRetentionError as exc:
+        return jsonify({"error": exc.code, "code": exc.code, "message": str(exc)}), 409
+    except Exception:
+        logger.exception("Dataset restore failed")
+        return jsonify(
+            {
+                "error": "restore_read_failed",
+                "code": "restore_read_failed",
+                "message": "The original dataset could not be read. Choose it again.",
+            }
+        ), 422
+    payload["restored"] = True
+    return jsonify(payload)
+
+
+@app.post("/api/open-local-dataset")
+def open_local_dataset():
+    """Open an original path selected by the trusted desktop file dialog."""
+
+    data = request.get_json(silent=True) or {}
+    try:
+        source = Path(str(data.get("path", ""))).expanduser().resolve(strict=True)
+        if not source.is_file() or source.suffix.lower() not in ALLOWED_EXTENSIONS:
+            raise ValueError
+    except (OSError, ValueError):
+        return jsonify(
+            {
+                "error": "local_dataset_invalid",
+                "code": "local_dataset_invalid",
+                "message": "Choose an existing .sav, .csv, or .xlsx dataset.",
+            }
+        ), 400
+    try:
+        restore = dataset_retention.remember(source)
+        payload = _load_dataset_path(source, filename=source.name)
+    except DatasetRetentionError as exc:
+        return jsonify({"error": exc.code, "code": exc.code, "message": str(exc)}), 409
+    except Exception:
+        dataset_retention.forget()
+        logger.exception("Local dataset open failed")
+        return jsonify(
+            {
+                "error": "local_dataset_read_failed",
+                "code": "local_dataset_read_failed",
+                "message": "The selected dataset could not be read.",
+            }
+        ), 422
+    payload["restore"] = restore
+    return jsonify(payload)
+
+
+@app.route("/api/local-data", methods=["GET", "DELETE"])
+def local_data():
+    """Inspect or clear locally retained dataset artifacts."""
+
+    if request.method == "GET":
+        return jsonify(
+            {
+                "ok": True,
+                "retained": dataset_retention.inspect_local_data(),
+                "current_session": {
+                    "has_data": session.has_data,
+                    "history_entries": len(session.history),
+                },
+            }
+        )
+    analysis_service.cancel("default")
+    session.reset()
+    dataset_retention.clear_local_data()
+    return jsonify({"ok": True})
 
 
 # ── File Upload ───────────────────────────────────────────────────────
@@ -129,45 +335,64 @@ def upload():
     # Extension validation
     suffix = Path(f.filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
-        return jsonify({"error": "不支持的文件类型，仅支持 .sav 和 .csv"}), 400
+        return jsonify({"error": "不支持的文件类型，仅支持 .sav、.csv 和 .xlsx"}), 400
 
     # MIME validation (allow octet-stream since .sav has no standard MIME)
     mime = f.content_type or ""
     if mime not in ALLOWED_MIME_TYPES and mime != "":
         return jsonify({"error": "文件类型无效"}), 400
 
-    # Save to persistent location so SPSS can access it later
-    from snla.config import P0_OUTPUT_DIR
-
-    os.makedirs(P0_OUTPUT_DIR, exist_ok=True)
-    dest = os.path.join(P0_OUTPUT_DIR, f"uploaded_{os.urandom(4).hex()}{suffix}")
+    dest = dataset_retention.allocate_upload(f.filename)
     f.save(dest)
 
+    if suffix == ".xlsx" and dest.stat().st_size > MAX_EXCEL_UPLOAD_SIZE:
+        dest.unlink(missing_ok=True)
+        return jsonify({"error": "Excel 文件大小超过限制（最大 100MB）"}), 413
+
     try:
-        meta = read_and_extract(dest)
-        meta["file_path"] = dest  # Store path for SPSS execution
-        meta["filename"] = f.filename
+        payload = _load_dataset_path(dest, filename=f.filename)
+        session.register_temp_file(str(dest))
+        dataset_retention.forget()
+        return jsonify(payload)
+    except ExcelImportError as exc:
+        dest.unlink(missing_ok=True)
+        return jsonify({"error": str(exc), "code": exc.code, "message": str(exc)}), 422
+    except Exception as e:
+        dest.unlink(missing_ok=True)
+        logger.exception("Upload failed")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/select-worksheet")
+def select_worksheet():
+    """Load one explicitly selected worksheet from the pending workbook."""
+
+    pending = session.pending_workbook
+    worksheet = (request.get_json(silent=True) or {}).get("worksheet")
+    if pending is None:
+        return jsonify(
+            {"error": "no_pending_workbook", "message": "Upload an .xlsx file first."}
+        ), 409
+    if not isinstance(worksheet, str) or not worksheet:
+        return jsonify({"error": "worksheet_required", "message": "Choose a worksheet."}), 400
+    try:
+        meta = read_xlsx_and_extract(pending["file_path"], worksheet)
+        meta["filename"] = pending["filename"]
         session.dataset_meta = meta
         session.variables = meta.get("variables", [])
-
-        # Persist so a desktop restart doesn't lose the uploaded dataset
-        save_session(session)
-
-        # Sanitize for cloud safety
-        cloud_safe = filter_for_cloud(meta)
-        cloud_vars = cloud_safe.get("variables", session.variables)
-
+        session.pending_workbook = None
+        cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
         return jsonify(
             {
                 "ok": True,
-                "filename": f.filename,
+                "filename": meta["filename"],
+                "worksheet": worksheet,
                 "variables": cloud_vars,
                 "row_count": meta.get("row_count", 0),
             }
         )
-    except Exception as e:
-        logger.exception("Upload failed")
-        return jsonify({"error": str(e)}), 500
+    except ExcelImportError as exc:
+        return jsonify({"error": str(exc), "code": exc.code, "message": str(exc)}), 422
 
 
 # ── Cancel ────────────────────────────────────────────────────────────
@@ -179,28 +404,45 @@ def cancel():
     subprocess (if any).  Returns ``{ok: True}`` even if nothing was
     running — the frontend can safely call this at any time.
     """
-    global _executing, _active_executor, _was_cancelled
-    session.cancellation_token = True
-    _was_cancelled = True
-    if _active_executor is not None:
-        try:
-            _active_executor.terminate()
-        except Exception:
-            logger.exception("Failed to terminate executor")
-    _executing = False
-    planner.cancel_pending("default")
+    analysis_service.cancel("default")
     session.reset_cancellation()
     return jsonify({"ok": True})
+
+
+# ── Local suggestion ─────────────────────────────────────────────────
+@app.route("/api/suggest", methods=["POST"])
+def suggest():
+    """Return a deterministic, network-free method and variable suggestion."""
+
+    data = request.get_json(silent=True) or {}
+    user_input = data.get("text", "")
+    if not isinstance(user_input, str):
+        return jsonify({"error": "输入类型无效"}), 400
+    if not session.variables or not session.dataset_meta:
+        return jsonify({"error": "请先上传数据文件"}), 400
+
+    from snla.orchestrator.planner import suggest_local
+
+    plan = suggest_local(
+        user_input.strip(),
+        session.variables,
+        last_analysis=session.last_analysis,
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "source": "local_suggestion",
+            "method": plan.method,
+            "grouping_variable": plan.grouping_variable,
+            "test_variable": plan.test_variable,
+            "label": "本地建议",
+        }
+    )
 
 
 # ── Analyze ───────────────────────────────────────────────────────────
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
-    global _executing, _active_executor, _was_cancelled
-
-    if _executing:
-        return jsonify({"error": "An analysis is already running"}), 409
-
     if _check_rate_limit():
         return (
             jsonify(
@@ -212,19 +454,26 @@ def analyze():
         )
 
     data = request.get_json(force=True)
-    user_input = data.get("text", "").strip()
+    method = data.get("method")
+    if method is not None and not isinstance(method, str):
+        return jsonify({"error": "分析方法类型无效"}), 400
+    raw_text = data.get("text", "")
+    if not isinstance(raw_text, str):
+        return jsonify({"error": "输入类型无效"}), 400
+    user_input = raw_text.strip()
+    if method and not user_input:
+        user_input = f"使用结构化控件运行 {method}"
     confirm_greylist = data.get("confirm_greylist", False)
 
-    if not isinstance(data.get("text"), str):
-        return jsonify({"error": "输入类型无效"}), 400
     if len(user_input) > MAX_QUERY_LENGTH:
         return jsonify({"error": f"输入文本过长（最大 {MAX_QUERY_LENGTH} 字符）"}), 400
-
-    if not user_input:
-        return jsonify({"error": "Empty input"}), 400
-
-    if not session.variables:
-        return jsonify({"error": "Please upload a data file first"}), 400
+    try:
+        alpha = float(data.get("alpha", 0.05))
+    except (TypeError, ValueError):
+        return jsonify({"error": "显著性水平必须是数字"}), 400
+    selection_source = str(data.get("selection_source", "planner"))
+    if selection_source not in {"planner", "local_suggestion", "user_selection"}:
+        return jsonify({"error": "分析选择来源无效"}), 400
 
     # ── Range expansion (Q1-Q10 → Q1, Q2, ..., Q10) ────────────────
     try:
@@ -238,154 +487,52 @@ def analyze():
     except Exception:
         logger.warning("Range expansion failed, continuing with original input", exc_info=True)
 
-    _executing = True
-    _was_cancelled = False
     session.reset_cancellation()
-    executor = _make_executor()
-    _active_executor = executor
-    _degradation: dict | None = None  # populated on template fallback
-
-    # Watchdog: auto-release _executing after 180s even if thread dies
-    _watchdog = threading.Timer(180, lambda: _release_executing())
-    _watchdog.daemon = True
-    _watchdog.start()
-
     try:
-        # ── Phase 1: Analysis Planning (intent + method + vars, 1 LLM call) ──
-        plan_result = planner.plan(
-            "default",
-            user_input,
-            variables=session.variables,
-            dataset_meta=session.dataset_meta,
-            last_analysis=session.last_analysis,
+        outcome = analysis_service.analyze(
+            AnalysisRequest(
+                session_id="default",
+                query=user_input,
+                variables=session.variables,
+                dataset_meta=session.dataset_meta,
+                last_analysis=session.last_analysis,
+                confirm_greylist=confirm_greylist,
+                method=method,
+                grouping_variable=data.get("grouping_variable"),
+                test_variable=data.get("test_variable"),
+                alpha=alpha,
+                selection_source=selection_source,
+            )
         )
-        method = plan_result.method
-        plan_explanation = plan_result.plan_explanation
-        gvar = plan_result.grouping_variable
-        tvar = plan_result.test_variable
-
-        # ── Python backend fast path ───────────────────────────────
-        py_response = _run_python_backend(plan_result, user_input)
-        if py_response is not None:
-            save_session(session)
-            return jsonify(py_response)
-
-        # ── Syntax generation + validation + greylist gate ────────
-        prep = _prepare_syntax(method, gvar, tvar, confirm_greylist, user_input)
-        if prep.get("error"):
-            return jsonify(
+        payload = outcome.to_payload()
+        if isinstance(outcome, AnalysisSuccess):
+            session.history.append({"role": "user", "content": outcome.user_query})
+            session.history.append(
                 {
-                    "error": prep["error"],
-                    "syntax": prep["syntax"],
-                    "validation_errors": prep["validation_errors"],
-                }
-            ), 422
-        if prep.get("_greylist"):
-            return jsonify(
-                {
-                    "ok": False,
-                    "requires_confirmation": True,
-                    "greylist_warnings": prep["greylist_warnings"],
-                    "message": (
-                        "此操作将修改数据（如 COMPUTE / RECODE / SELECT IF），"
-                        "需要在临时副本上执行。请确认是否继续。"
-                    ),
-                    "syntax": prep["syntax"],
+                    "role": "assistant",
+                    "content": outcome.explanation,
+                    "method": outcome.method,
+                    "syntax": outcome.syntax,
+                    "result": outcome.result,
+                    "parameters": outcome.parameters or {},
+                    "selection_source": outcome.selection_source,
+                    "backend": outcome.backend,
+                    "analysis_record": payload["analysis_record"],
                 }
             )
-        syntax = prep["syntax"]
-        greylist_warnings = prep["greylist_warnings"]
-        used_template = prep["used_template"]
-
-        # ── Build degradation info if template was used ────────────
-        if used_template:
-            _degradation = {
-                "method": method,
-                "note": (
-                    "语法自动修正已用尽，已切换至标准模板语法，可能无法完全匹配您的原始意图。"
-                ),
-            }
-
-        # 5+6. Execute + cancel check + parse
-        result = _execute_and_parse(syntax, executor, method)
-        if result is None:
-            _was_cancelled = False
-            session.reset_cancellation()
-            return jsonify({"ok": False, "cancelled": True}), 200
-        exec_result, parsed = result
-
-        if not exec_result.get("success"):
-            return jsonify(
-                {
-                    "error": exec_result.get("error", "SPSS execution failed"),
-                    "syntax": syntax,
-                    "degradation": _degradation,
-                }
-            ), 500
-
-        # ── Phase 2: Report Interpretation (LLM explains SPSS output) ──
-        explanation = _phase2_explain(parsed, method, user_input)
-
-        # Store in history
-        session.history.append(
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        )
-        session.history.append(
-            {
-                "role": "assistant",
-                "content": explanation,
-                "method": method,
-                "syntax": syntax,
-                "result": parsed,
-            }
-        )
-        session.last_analysis = {
-            "method": method,
-            "syntax": syntax,
-        }
-
-        save_session(session)
-
-        return jsonify(
-            {
-                "ok": True,
-                "method": method,
-                "syntax": syntax,
-                "plan_explanation": plan_explanation,
-                "greylist_warnings": greylist_warnings,
-                "result": parsed,
-                "explanation": explanation,
-                "degradation": _degradation,
-                "last_analysis": session.last_analysis,
-            }
-        )
-
-    except Exception as e:
+            session.last_analysis = payload["last_analysis"]
+        return jsonify(payload), getattr(outcome, "http_status", 200)
+    except Exception:
         logger.exception("Analysis failed")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Analysis failed"}), 500
     finally:
-        _watchdog.cancel()
-        _executing = False
-        _active_executor = None
         session.reset_cancellation()
-
-
-def _release_executing():
-    """Watchdog callback: force-release _executing if the request thread died."""
-    global _executing, _active_executor
-    if _executing:
-        logger.warning("Watchdog: force-releasing _executing after timeout")
-        _executing = False
-        _active_executor = None
 
 
 # ── Confirm Greylist ──────────────────────────────────────────────────
 @app.route("/api/confirm", methods=["POST"])
 def confirm_greylist():
-    """Execute a previously-pending greylist operation after user confirmation.
+    """Resolve a pending greylist operation or method correction.
 
     The frontend calls this after the user clicks "Yes, execute" on the
     greylist confirmation dialog.  The pending greylist details are
@@ -394,93 +541,40 @@ def confirm_greylist():
     Execution happens on a **temporary copy** of the data file so the
     original is never modified.
     """
-    global _executing, _active_executor, _was_cancelled
-
-    if _executing:
-        return jsonify({"error": "An analysis is already running"}), 409
-
-    try:
-        pg = planner.pop_pending("default")
-    except NoPendingError:
-        return jsonify({"error": "No pending greylist operation"}), 400
-
-    _executing = True
-    _was_cancelled = False
     session.reset_cancellation()
-    executor = _make_executor()
-    _active_executor = executor
-
     try:
-        syntax = pg.syntax
-        method = pg.method
-        user_input = pg.user_input
-
-        # Execute on temp copy (normalize ExecutionResult → dict for _execute_and_parse)
-        data_path = session.dataset_meta.get("file_path", "")
-        if data_path:
-            raw = executor.execute_on_temp_copy(
-                syntax=syntax,
-                data_path=data_path,
-                cancellation_token=session.cancellation_token,
+        data = request.get_json(silent=True) or {}
+        outcome = analysis_service.confirm(
+            AnalysisConfirmationRequest(
+                session_id="default",
+                variables=session.variables,
+                dataset_meta=session.dataset_meta,
+                decision=str(data.get("decision", "accept")),
+                correction_id=data.get("correction_id"),
             )
-            exec_result_dict = {
-                "success": raw.success,
-                "exit_code": raw.exit_code,
-                "xml_path": raw.xml_path,
-                "lst_text": "",
-                "error": raw.error_message or None,
-            }
-        else:
-            exec_result_dict = None
-
-        result = _execute_and_parse(syntax, executor, method, exec_result=exec_result_dict)
-        if result is None:
-            _was_cancelled = False
-            return jsonify({"ok": False, "cancelled": True}), 200
-        exec_result, parsed = result
-
-        if not exec_result.get("success"):
-            return jsonify(
+        )
+        payload = outcome.to_payload()
+        if isinstance(outcome, AnalysisSuccess):
+            session.history.append({"role": "user", "content": outcome.user_query})
+            session.history.append(
                 {
-                    "error": exec_result.get("error", "SPSS execution failed"),
-                    "syntax": syntax,
+                    "role": "assistant",
+                    "content": outcome.explanation,
+                    "method": outcome.method,
+                    "syntax": outcome.syntax,
+                    "result": outcome.result,
+                    "parameters": outcome.parameters or {},
+                    "selection_source": outcome.selection_source,
+                    "backend": outcome.backend,
+                    "analysis_record": payload["analysis_record"],
                 }
-            ), 500
-        explanation = _phase2_explain(parsed, method, user_input)
-
-        session.history.append({"role": "user", "content": user_input})
-        session.history.append(
-            {
-                "role": "assistant",
-                "content": explanation,
-                "method": method,
-                "syntax": syntax,
-                "result": parsed,
-            }
-        )
-        session.last_analysis = {"method": method, "syntax": syntax}
-
-        save_session(session)
-
-        return jsonify(
-            {
-                "ok": True,
-                "method": method,
-                "syntax": syntax,
-                "greylist_warnings": pg.warnings,
-                "result": parsed,
-                "explanation": explanation,
-                "temp_copy_note": ("此操作已在数据的临时副本上执行，您的原始数据文件未被修改。"),
-                "last_analysis": session.last_analysis,
-            }
-        )
-
-    except Exception as e:
-        logger.exception("Greylist confirmation failed")
-        return jsonify({"error": str(e)}), 500
+            )
+            session.last_analysis = payload["last_analysis"]
+        return jsonify(payload), getattr(outcome, "http_status", 200)
+    except Exception:
+        logger.exception("Analysis confirmation failed")
+        return jsonify({"error": "Analysis confirmation failed"}), 500
     finally:
-        _executing = False
-        _active_executor = None
         session.reset_cancellation()
 
 
@@ -521,7 +615,6 @@ def load_demo():
         session.dataset_meta = meta
         session.variables = meta.get("variables", [])
         cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
-        save_session(session)
         return jsonify(
             {
                 "ok": True,
@@ -533,6 +626,14 @@ def load_demo():
     except Exception as e:
         logger.exception("Demo load failed")
         return jsonify({"error": str(e)}), 500
+
+
+def cleanup_runtime_data() -> None:
+    """Clear in-memory history and all session-owned working copies."""
+
+    analysis_service.cancel("default")
+    session.reset()
+    dataset_retention.cleanup_session()
 
 
 # ── Startup Warnings ────────────────────────────────────────────────────
@@ -552,7 +653,7 @@ def startup_warnings():
                     "action": None,
                 }
             )
-        elif "LLM_API_KEY" in w:
+        elif "LLM_API_KEY" in w or "API key" in w or "API Key" in w:
             guidance.append(
                 {
                     "level": "warning",
@@ -585,15 +686,30 @@ def startup_warnings():
 # ── Settings ──────────────────────────────────────────────────────────
 @app.route("/api/settings", methods=["GET", "POST"])
 def settings():
-    """GET: return current settings.  POST: update + persist to .env."""
+    """Read settings or update them without exposing API-key material."""
     if request.method == "GET":
         import snla.config as cfg
+        from snla.explainer.naturalize import POLISH_AGGREGATE_FIELDS
 
+        api_key_status = cfg.api_key_public_status()
         return jsonify(
             {
                 "LLM_ENDPOINT": cfg.LLM_ENDPOINT,
-                "LLM_API_KEY": cfg.LLM_API_KEY,
+                "LLM_API_KEY": "",
+                "LLM_API_KEY_CONFIGURED": api_key_status["configured"],
+                "LLM_API_KEY_STATE": api_key_status["state"],
+                "LLM_CLOUD_AVAILABLE": api_key_status["cloud_available"],
+                "LLM_API_KEY_ACTION": api_key_status["action"],
+                "LLM_API_KEY_MESSAGE": api_key_status["message"],
                 "LLM_MODEL": cfg.LLM_MODEL,
+                "AI_POLISH_ENABLED": cfg.AI_POLISH_ENABLED,
+                "AI_POLISH_FIELDS": list(POLISH_AGGREGATE_FIELDS),
+                "SESSION_RESTORE_ENABLED": cfg.SESSION_RESTORE_ENABLED,
+                "MCP_ENABLED": cfg.MCP_ENABLED,
+                "CRASH_REPORTING_ENABLED": cfg.CRASH_REPORTING_ENABLED,
+                "CRASH_REPORTING_DECIDED": cfg.CRASH_REPORTING_DECIDED,
+                "CRASH_REPORTING_AVAILABLE": bool(cfg.SENTRY_DSN),
+                "SPSS_PATH": cfg.SPSS_EXECUTABLE,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
             }
@@ -603,26 +719,229 @@ def settings():
     data = request.get_json(force=True)
     import snla.config as cfg
 
+    endpoint = data.get("LLM_ENDPOINT")
+    if endpoint:
+        try:
+            data["LLM_ENDPOINT"] = require_secure_llm_endpoint(str(endpoint).strip())
+        except EndpointPolicyError as exc:
+            return jsonify(
+                {
+                    "error": "invalid_llm_endpoint",
+                    "code": exc.code,
+                    "message": str(exc),
+                }
+            ), 400
+
     changed = []
+    if data.get("DELETE_LLM_API_KEY") is True:
+        try:
+            cfg.delete_api_key()
+        except (OSError, SecretProtectionError):
+            return jsonify(
+                {
+                    "error": "api_key_delete_failed",
+                    "code": "secret_delete_failed",
+                    "message": "The encrypted API key could not be deleted.",
+                    "api_key_status": cfg.api_key_public_status(),
+                }
+            ), 500
+        changed.append("LLM_API_KEY")
+
+    if data.get("MIGRATE_LLM_API_KEY") is True:
+        try:
+            cfg.migrate_legacy_api_key(consent=True)
+        except SecretProtectionError as exc:
+            return jsonify(
+                {
+                    "error": "api_key_migration_failed",
+                    "code": exc.code,
+                    "message": str(exc),
+                    "api_key_status": cfg.api_key_public_status(),
+                }
+            ), 409
+        changed.append("LLM_API_KEY")
+
+    api_key = data.get("LLM_API_KEY")
+    if api_key:
+        try:
+            cfg.replace_api_key(str(api_key))
+        except SecretProtectionError as exc:
+            return jsonify(
+                {
+                    "error": "api_key_storage_failed",
+                    "code": exc.code,
+                    "message": str(exc),
+                    "api_key_status": cfg.api_key_public_status(),
+                }
+            ), 500
+        changed.append("LLM_API_KEY")
 
     # ── Update in-memory config ────────────────────────────
-    for key in ("LLM_ENDPOINT", "LLM_API_KEY", "LLM_MODEL", "SPSS_PYTHON_PATH", "STATS_BACKEND"):
+    for key in ("LLM_ENDPOINT", "LLM_MODEL", "SPSS_PYTHON_PATH", "STATS_BACKEND"):
         if key in data and data[key]:
             setattr(cfg, key, data[key])
             changed.append(key)
+    if data.get("SPSS_PATH"):
+        cfg.SPSS_EXECUTABLE = str(data["SPSS_PATH"])
+        changed.append("SPSS_PATH")
+    if "AI_POLISH_ENABLED" in data:
+        cfg.AI_POLISH_ENABLED = data["AI_POLISH_ENABLED"] is True
+        changed.append("AI_POLISH_ENABLED")
+    if "SESSION_RESTORE_ENABLED" in data:
+        cfg.SESSION_RESTORE_ENABLED = data["SESSION_RESTORE_ENABLED"] is True
+        if not cfg.SESSION_RESTORE_ENABLED:
+            dataset_retention.forget()
+        changed.append("SESSION_RESTORE_ENABLED")
+    if "MCP_ENABLED" in data:
+        cfg.MCP_ENABLED = data["MCP_ENABLED"] is True
+        changed.append("MCP_ENABLED")
+    if "CRASH_REPORTING_ENABLED" in data:
+        requested = data["CRASH_REPORTING_ENABLED"] is True
+        if requested and data.get("CRASH_REPORTING_CONSENT") is not True:
+            return jsonify(
+                {
+                    "error": "crash_reporting_consent_required",
+                    "message": "Explicit consent is required before crash reporting can be enabled.",
+                }
+            ), 400
+        cfg.CRASH_REPORTING_DECIDED = True
+        cfg.CRASH_REPORTING_ENABLED = requested
+        if requested:
+            crash_reporter.initialize(consented=True, dsn=cfg.SENTRY_DSN)
+        else:
+            crash_reporter.withdraw()
+        changed.extend(["CRASH_REPORTING_ENABLED", "CRASH_REPORTING_DECIDED"])
 
     # ── Persist to local .env file (never uploaded) ────────
     if changed:
         _save_env_file()
 
-    return jsonify({"ok": True, "changed": changed})
+    return jsonify(
+        {
+            "ok": True,
+            "changed": changed,
+            "api_key_status": cfg.api_key_public_status(),
+            "crash_reporting": crash_reporter.status(),
+        }
+    )
+
+
+@app.get("/api/crash-reporting")
+def crash_reporting_status():
+    """Preview only the sanitized event that would be sent."""
+
+    return jsonify(
+        {
+            "ok": True,
+            "status": crash_reporter.status(),
+            "latest_event": crash_reporter.preview_latest(),
+        }
+    )
+
+
+@app.delete("/api/crash-reporting/queue")
+def clear_crash_reporting_queue():
+    """Discard pending SDK events and the local sanitized preview."""
+
+    crash_reporter.clear_queued_reports()
+    return jsonify({"ok": True, "status": crash_reporter.status()})
+
+
+@app.delete("/api/crash-reporting")
+def withdraw_crash_reporting():
+    """Withdraw consent and delete the random installation identifier."""
+
+    import snla.config as cfg
+
+    cfg.CRASH_REPORTING_ENABLED = False
+    cfg.CRASH_REPORTING_DECIDED = True
+    crash_reporter.withdraw()
+    _save_env_file()
+    return jsonify({"ok": True, "status": crash_reporter.status()})
+
+
+def _backup_error_response(exc: SecretProtectionError):
+    client_error_codes = {
+        "backup_authentication_failed",
+        "backup_invalid",
+        "backup_invalid_secret",
+        "backup_password_mismatch",
+        "backup_password_required",
+        "backup_password_too_long",
+        "backup_password_weak",
+        "backup_too_large",
+        "backup_unsupported_parameters",
+        "backup_unsupported_version",
+    }
+    status_code = 400 if exc.code in client_error_codes else 409
+    return jsonify(
+        {
+            "error": "api_key_backup_failed",
+            "code": exc.code,
+            "message": str(exc),
+        }
+    ), status_code
+
+
+@app.post("/api/api-key-backup/export")
+def export_api_key_backup():
+    """Download a portable password-protected backup of the current API key."""
+
+    import snla.config as cfg
+
+    data = request.get_json(silent=True) or {}
+    try:
+        payload = cfg.export_api_key_backup(
+            str(data.get("password") or ""),
+            str(data.get("password_confirmation") or ""),
+        )
+    except SecretProtectionError as exc:
+        return _backup_error_response(exc)
+    response = send_file(
+        BytesIO(payload),
+        mimetype="application/vnd.statstalk.key-backup+json",
+        as_attachment=True,
+        download_name="StatsTalk-api-key-backup.stkb",
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@app.post("/api/api-key-backup/import")
+def import_api_key_backup():
+    """Restore a portable backup into the current user's DPAPI store."""
+
+    import snla.config as cfg
+
+    backup_file = request.files.get("backup")
+    if backup_file is None or not backup_file.filename:
+        return jsonify(
+            {
+                "error": "api_key_backup_failed",
+                "code": "backup_file_required",
+                "message": "Choose a StatsTalk API-key backup file.",
+            }
+        ), 400
+    payload = backup_file.stream.read(BACKUP_MAX_BYTES + 1)
+    try:
+        api_key_status = cfg.import_api_key_backup(
+            payload,
+            str(request.form.get("password") or ""),
+        )
+    except SecretProtectionError as exc:
+        return _backup_error_response(exc)
+    return jsonify({"ok": True, "api_key_status": api_key_status})
 
 
 def _save_env_file():
     """Write current config values back to .env file for persistence."""
     import snla.config as cfg
 
-    env_path = os.path.join(str(PROJECT_ROOT), ".env")
+    env_path = cfg.CONFIG_PATH
+    env_path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
     # Read existing .env, preserving comments and non-managed keys
     if os.path.isfile(env_path):
@@ -632,12 +951,17 @@ def _save_env_file():
         existing = []
 
     managed = {
-        "SPSS_PYTHON_PATH",
-        "LLM_ENDPOINT",
-        "LLM_API_KEY",
-        "LLM_MODEL",
-        "STATS_BACKEND",
-        "LLM_MOCK",
+        "SPSS_PATH": "SPSS_EXECUTABLE",
+        "SPSS_PYTHON_PATH": "SPSS_PYTHON_PATH",
+        "LLM_ENDPOINT": "LLM_ENDPOINT",
+        "LLM_MODEL": "LLM_MODEL",
+        "AI_POLISH_ENABLED": "AI_POLISH_ENABLED",
+        "SESSION_RESTORE_ENABLED": "SESSION_RESTORE_ENABLED",
+        "MCP_ENABLED": "MCP_ENABLED",
+        "CRASH_REPORTING_ENABLED": "CRASH_REPORTING_ENABLED",
+        "CRASH_REPORTING_DECIDED": "CRASH_REPORTING_DECIDED",
+        "STATS_BACKEND": "STATS_BACKEND",
+        "LLM_MOCK": "LLM_MOCK",
     }
     updated = set()
     for line in existing:
@@ -648,7 +972,7 @@ def _save_env_file():
         if "=" in stripped:
             k = stripped.split("=", 1)[0].strip()
             if k in managed:
-                v = getattr(cfg, k, "")
+                v = getattr(cfg, managed[k], "")
                 # Mask sensitive values
                 lines.append(f"{k}={v}")
                 updated.add(k)
@@ -658,8 +982,8 @@ def _save_env_file():
             lines.append(line)
 
     # Append any managed keys not found in existing file
-    for k in managed - updated:
-        v = getattr(cfg, k, "")
+    for k in set(managed) - updated:
+        v = getattr(cfg, managed[k], "")
         if v:
             lines.append(f"{k}={v}")
 
@@ -702,7 +1026,31 @@ def list_models():
     if not endpoint:
         return jsonify({"error": "LLM endpoint is required"}), 400
     if not api_key:
-        return jsonify({"error": "API key is required"}), 400
+        import snla.config as cfg
+
+        api_key_status = cfg.api_key_public_status()
+        if api_key_status["state"] == "reenter_required":
+            return jsonify(
+                {
+                    "error": "cloud_features_disabled",
+                    "code": "api_key_reentry_required",
+                    "message": api_key_status["message"],
+                    "api_key_status": api_key_status,
+                }
+            ), 409
+        api_key = cfg.LLM_API_KEY
+        if not api_key:
+            return jsonify({"error": "API key is required"}), 400
+    try:
+        endpoint = require_secure_llm_endpoint(endpoint)
+    except EndpointPolicyError as exc:
+        return jsonify(
+            {
+                "error": "invalid_llm_endpoint",
+                "code": exc.code,
+                "message": str(exc),
+            }
+        ), 400
 
     # Normalise endpoint to /models path
     base = endpoint.rstrip("/")
@@ -717,44 +1065,35 @@ def list_models():
         models_url = base.rstrip("/") + "/v1/models"
 
     try:
+        import ssl
         import urllib.request
 
         req = urllib.request.Request(models_url)
         req.add_header("Authorization", f"Bearer {api_key}")
         req.add_header("Content-Type", "application/json")
-        resp = urllib.request.urlopen(req, timeout=10)
+        opener = urllib.request.build_opener(
+            NoRedirectHandler(),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        )
+        resp = opener.open(req, timeout=10)
         body = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        # Read error body for diagnostics
-        try:
-            err_body = e.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            err_body = ""
-        # Friendly messages for common failures
-        if e.code == 403:
-            return jsonify(
-                {
-                    "error": "API 端点返回 403 禁止访问。该服务可能不支持列出模型，请手动输入模型名称。",
-                    "detail": err_body or None,
-                }
-            ), 502
-        if e.code == 404:
-            return jsonify(
-                {
-                    "error": "该 API 端点不支持 /models 接口，请手动输入模型名称。",
-                }
-            ), 502
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        diagnostic = diagnose_transport_failure(models_url, exc)
+        logger.warning("Failed to list models: %s", diagnostic.message)
         return jsonify(
             {
-                "error": f"获取模型列表失败 (HTTP {e.code})。请手动输入模型名称。",
-                "detail": err_body or None,
+                "error": "model_endpoint_failed",
+                "code": diagnostic.code,
+                "message": diagnostic.message,
             }
         ), 502
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to list models")
         return jsonify(
             {
-                "error": f"无法连接到 API 端点。请检查端点和网络。({e})",
+                "error": "model_endpoint_failed",
+                "code": "transport_failed",
+                "message": "The model list request failed before a valid response was received.",
             }
         ), 502
 
@@ -771,39 +1110,52 @@ def list_models():
 # ── SPSS Auto-detect ───────────────────────────────────────────────────
 @app.route("/api/detect-spss")
 def detect_spss():
-    """Auto-detect SPSS Python path by scanning common install locations."""
+    """Detect SPSS executables without inspecting license state."""
 
-    candidates = []
-    # Common SPSS install roots
-    search_roots = [
+    return jsonify({"ok": True, "candidates": _find_spss_candidates()})
+
+
+def _find_spss_candidates(search_roots=None):
+    """Return installed ``stats.com`` commands and optional Python runtimes."""
+
+    roots = search_roots or [
         r"C:\Program Files\IBM\SPSS\Statistics",
         r"C:\Program Files (x86)\IBM\SPSS\Statistics",
     ]
-
-    for root in search_roots:
-        if os.path.isdir(root):
-            try:
-                for entry in os.scandir(root):
-                    if entry.is_dir():
-                        py_path = os.path.join(entry.path, "Python3", "python.exe")
-                        if os.path.isfile(py_path):
-                            candidates.append(
-                                {
-                                    "version": entry.name,
-                                    "path": os.path.abspath(py_path),
-                                }
-                            )
-            except PermissionError:
-                pass
-
+    candidates = []
+    seen = set()
+    for root in roots:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            continue
+        try:
+            version_dirs = [entry for entry in root_path.iterdir() if entry.is_dir()]
+        except PermissionError:
+            continue
+        for version_dir in version_dirs:
+            executable = version_dir / "stats.com"
+            if not executable.is_file():
+                continue
+            normalized = str(executable.resolve()).casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            candidate = {
+                "version": version_dir.name,
+                "path": str(executable.resolve()),
+            }
+            python_path = version_dir / "Python3" / "python.exe"
+            if python_path.is_file():
+                candidate["python_path"] = str(python_path.resolve())
+            candidates.append(candidate)
     candidates.sort(key=lambda c: c["version"], reverse=True)
-    return jsonify({"ok": True, "candidates": candidates})
+    return candidates
 
 
 # ── Export ────────────────────────────────────────────────────────────
 @app.route("/api/export")
 def export():
-    """Generate and download Word report."""
+    """Download the last analysis as a Word report or allowlisted JSON record."""
     if not session.history:
         return jsonify({"error": "No analysis to export"}), 400
 
@@ -817,6 +1169,27 @@ def export():
         last = next((m for m in reversed(session.history) if m["role"] == "assistant"), None)
         if not last:
             return jsonify({"error": "No analysis found"}), 400
+        last_user = next((m for m in reversed(session.history) if m["role"] == "user"), None)
+        analysis_record = last.get("analysis_record")
+        export_format = request.args.get("format", "docx").lower()
+        if export_format == "json":
+            if not analysis_record:
+                return jsonify({"error": "Analysis record is unavailable"}), 409
+            payload = json.dumps(
+                analysis_record, ensure_ascii=False, indent=2, allow_nan=False
+            ).encode("utf-8")
+            response = send_file(
+                BytesIO(payload),
+                mimetype="application/json",
+                as_attachment=True,
+                download_name="statstalk_analysis.json",
+                max_age=0,
+            )
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+            return response
+        if export_format != "docx":
+            return jsonify({"error": "Unsupported export format"}), 400
 
         # export_to_docx writes to a file path — use a temp file
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
@@ -824,18 +1197,19 @@ def export():
 
         export_word_report(
             output_path=tmp_path,
-            user_query=session.history[-2]["content"] if len(session.history) >= 2 else "",
+            user_query=last_user["content"] if last_user else "",
             method=last.get("method", "unknown"),
             analysis_result=last.get("result"),
             explanation=last.get("content", ""),
             data_file=session.dataset_meta.get("filename", ""),
+            parameters=last.get("parameters", {}),
+            backend=last.get("backend", ""),
+            analysis_record=analysis_record,
         )
 
         with open(tmp_path, "rb") as f:
             buf = io.BytesIO(f.read())
         os.unlink(tmp_path)
-
-        from flask import send_file
 
         return send_file(
             buf,
@@ -849,6 +1223,12 @@ def export():
 
 # ── Main ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    from waitress import serve
+    from snla.ui.launch import prepare_loopback_server
 
-    serve(app, host="127.0.0.1", port=8501, threads=4)
+    waitress_server, launch = prepare_loopback_server(app)
+    print(f"StatsTalk API bootstrap URL (one use only): {launch.bootstrap_url}")
+    try:
+        waitress_server.run()
+    finally:
+        cleanup_runtime_data()
+        waitress_server.close()

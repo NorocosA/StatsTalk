@@ -6,7 +6,11 @@ types, labels, and value_labels reach the LLM — never raw data or
 identifiers.
 """
 
-from snla.data.sanitizer import CLOUD_SAFE_FIELDS, filter_for_cloud, sanitize_variables
+from snla.data.sanitizer import (
+    CLOUD_SAFE_FIELDS,
+    build_cloud_planning_context,
+    filter_for_cloud,
+)
 from snla.session import SessionState
 
 # =========================================================================
@@ -26,24 +30,8 @@ def test_full_privacy_pipeline(sensitive_variables):
     6. map_to_local → restore original names for SPSS execution
     7. Verify restored syntax references original variable names
     """
-    # ── Step 1: Sanitize ────────────────────────────────────────────────
-    sanitized, count = sanitize_variables(sensitive_variables)
-    assert count == 3, f"Expected 3 sensitive variables (患者姓名, 手机号, email_addr), got {count}"
-
-    # ── Step 2: Populate session (mirrors handle_file_upload in UI) ──────
-    session = SessionState()
-    session.variables = sanitized
-    for v in sanitized:
-        if v.get("desensitized") and v.get("original_name"):
-            session.var_name_map[v["name"]] = v["original_name"]
-            session.reverse_var_name_map[v["original_name"]] = v["name"]
-
-    # ── Step 3: map_to_cloud (mirrors _get_cloud_vars in UI) ────────────
-    cloud_vars = session.map_to_cloud() if session.var_name_map else session.variables
-    # Strip to cloud-safe fields only (what actually goes to LLM)
-    safe_vars = []
-    for v in cloud_vars:
-        safe_vars.append({k: v[k] for k in ("name", "type", "label", "value_labels") if k in v})
+    context = build_cloud_planning_context(sensitive_variables)
+    safe_vars = context.variables
     assert len(safe_vars) == len(sensitive_variables), (
         f"Expected {len(sensitive_variables)} safe vars, got {len(safe_vars)}"
     )
@@ -67,6 +55,12 @@ def test_full_privacy_pipeline(sensitive_variables):
     assert "email_addr" not in all_cloud_names, (
         "Sensitive name 'email_addr' leaked into cloud-safe variable list"
     )
+    serialized = str(safe_vars)
+    for original in sensitive_variables:
+        if original["name"] == "score":
+            continue
+        assert original["name"] not in serialized
+        assert original["label"] not in serialized
 
     # Normal (non-sensitive) variable must retain its original name
     normal_names = {v["name"] for v in safe_vars if not v["name"].startswith("var_")}
@@ -77,7 +71,7 @@ def test_full_privacy_pipeline(sensitive_variables):
     # Every cloud-safe variable dict must ONLY contain safe fields
     for v in safe_vars:
         for key in v:
-            assert key in ("name", "type", "label", "value_labels"), (
+            assert key in ("name", "type", "label", "role_type"), (
                 f"Unsafe key '{key}' in cloud variable dict: {v}"
             )
         # No raw data, identifiers, or internal fields
@@ -85,27 +79,8 @@ def test_full_privacy_pipeline(sensitive_variables):
         assert "original_name" not in v
         assert "desensitized" not in v
 
-    # ── Step 5: Simulate LLM returning syntax with var_NN names ─────────
-    llm_syntax = "T-TEST GROUPS=var_01(1 2) /VARIABLES=var_02."
-    assert "患者姓名" not in llm_syntax
-    assert "手机号" not in llm_syntax
-    assert "var_01" in llm_syntax
-
-    # ── Step 6: map_to_local (restore for SPSS execution) ────────────────
-    restored = session.map_to_local(llm_syntax)
-    assert "患者姓名" in restored, f"map_to_local should restore '患者姓名', got: {restored}"
-    assert "手机号" in restored, f"map_to_local should restore '手机号', got: {restored}"
-    assert "var_01" not in restored, (
-        f"Desensitized name 'var_01' should NOT appear after restoration, got: {restored}"
-    )
-    assert "var_02" not in restored, (
-        f"Desensitized name 'var_02' should NOT appear after restoration, got: {restored}"
-    )
-
-    # ── Step 7: Verify restored syntax is valid SPSS ────────────────────
-    assert "T-TEST" in restored
-    assert "GROUPS=患者姓名" in restored
-    assert "VARIABLES=手机号" in restored
+    assert context.restore_reference("var_01") == "患者姓名"
+    assert context.restore_reference("var_02") == "手机号"
 
 
 # =========================================================================
@@ -119,8 +94,10 @@ def test_filter_for_cloud_strips_unsafe():
     Only keys listed in CLOUD_SAFE_FIELDS should survive filtering.
     """
     metadata = {
-        "name": ["gender", "score"],
-        "type": {"gender": "Numeric"},
+        "variables": [
+            {"name": "gender", "type": "Numeric", "label": "Gender"},
+            {"name": "score", "type": "Numeric", "label": "Score"},
+        ],
         "row_count": 200,
         "raw_data": [[1, 85.5], [2, 92.0]],
         "identifiers": ["P001", "P002"],
@@ -131,8 +108,7 @@ def test_filter_for_cloud_strips_unsafe():
     filtered = filter_for_cloud(metadata)
 
     # Safe keys survive
-    assert "name" in filtered
-    assert "type" in filtered
+    assert "variables" in filtered
     assert "row_count" in filtered
 
     # Unsafe keys are dropped
@@ -142,7 +118,7 @@ def test_filter_for_cloud_strips_unsafe():
     assert "unknown_key" not in filtered, "unknown keys should be filtered out"
 
     # Exactly the safe keys remain
-    expected = {"name", "type", "row_count"}
+    expected = {"variables", "row_count"}
     assert set(filtered.keys()) == expected, f"Expected only {expected}, got {set(filtered.keys())}"
 
 
@@ -186,15 +162,24 @@ def test_cloud_safe_fields_definition():
     assert "name" in CLOUD_SAFE_FIELDS
     assert "type" in CLOUD_SAFE_FIELDS
     assert "label" in CLOUD_SAFE_FIELDS
+    assert "role_type" in CLOUD_SAFE_FIELDS
     # value_labels intentionally excluded — contains actual value mappings
     # like {1:"Male"} that could leak private information to cloud LLM
     assert "value_labels" not in CLOUD_SAFE_FIELDS
-    assert "aggregate_stats" in CLOUD_SAFE_FIELDS
+    assert "aggregate_stats" not in CLOUD_SAFE_FIELDS
     assert "row_count" in CLOUD_SAFE_FIELDS
     assert "variables" in CLOUD_SAFE_FIELDS
 
     # These must NEVER be in the safe set
-    dangerous = {"raw_data", "identifiers", "free_text_responses", "value_labels"}
+    dangerous = {
+        "aggregate_stats",
+        "filename",
+        "file_path",
+        "raw_data",
+        "identifiers",
+        "free_text_responses",
+        "value_labels",
+    }
     for key in dangerous:
         assert key not in CLOUD_SAFE_FIELDS, f"DANGER: '{key}' must NOT be in CLOUD_SAFE_FIELDS"
 

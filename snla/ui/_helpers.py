@@ -9,7 +9,6 @@ These helpers are stateless or access shared state via the server module
 from __future__ import annotations
 
 import logging
-import os
 import time
 
 logger = logging.getLogger(__name__)
@@ -27,69 +26,6 @@ def _spss_available() -> bool:
     from snla.config import check_spss_available
 
     return check_spss_available()
-
-
-def _can_full_interpret(method: str) -> bool:
-    """Can we produce a full plain-language explanation for this method?
-
-    Returns True if:
-    - SPSS is available (always trust SPSS output), OR
-    - The method is in the trusted whitelist (no-SPSS mode)
-    """
-    if _spss_available():
-        return True
-    from snla.trust import is_method_trusted
-
-    return is_method_trusted(method)
-
-
-# ── Executor factory ─────────────────────────────────────────────────────────
-
-
-def _make_executor():
-    """Create a new SPSSExecutor instance (avoids repeated imports)."""
-    from snla.executor.spss import SPSSExecutor
-
-    return SPSSExecutor()
-
-
-# ── LLM availability ─────────────────────────────────────────────────────────
-
-
-def _has_llm() -> bool:
-    from snla.config import LLM_API_KEY
-
-    return bool(LLM_API_KEY)
-
-
-# ── Data loading ─────────────────────────────────────────────────────────────
-
-
-def _load_dataframe():
-    """Load the uploaded dataset as a pandas DataFrame for Python backend."""
-    import snla.ui.server as _server
-
-    file_path = _server.session.dataset_meta.get("file_path", "")
-    if not file_path or not os.path.isfile(file_path):
-        return None
-    suffix = os.path.splitext(file_path)[1].lower()
-    try:
-        if suffix in (".sav",):
-            import pyreadstat
-
-            df, _ = pyreadstat.read_sav(file_path)
-            return df
-        elif suffix == ".csv":
-            import pandas as pd
-
-            return pd.read_csv(file_path)
-        else:
-            import pandas as pd
-
-            return pd.read_csv(file_path)
-    except Exception:
-        logger.exception("Failed to load dataframe")
-        return None
 
 
 # ── Rate limit helper ────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from snla.config import (
     P0_OUTPUT_DIR,
@@ -29,6 +29,8 @@ from snla.config import (
 
 logger = logging.getLogger(__name__)
 
+OMS_COMPLETION_GRACE_SECONDS = 3.0
+
 # ---------------------------------------------------------------------------
 # OMS XML wrapper
 # ---------------------------------------------------------------------------
@@ -38,6 +40,20 @@ OMS /SELECT TABLES /DESTINATION FORMAT=OXML OUTFILE='{output_xml}'.
 {user_syntax}
 OMSEND.
 """
+
+
+def _oms_output_complete(xml_path: str) -> bool:
+    """Return whether SPSS has flushed a complete OMS document to disk."""
+
+    try:
+        with open(xml_path, "rb") as output:
+            output.seek(0, os.SEEK_END)
+            size = output.tell()
+            output.seek(max(0, size - 256))
+            return b"</outputTree>" in output.read()
+    except OSError:
+        return False
+
 
 # Dataset preamble — loads the source .sav into an active dataset named SNLA_Temp
 GET_FILE_PREAMBLE = "GET FILE='{data_path}'.\nDATASET NAME SNLA_Temp.\n"
@@ -167,7 +183,7 @@ class SPSSExecutor:
         start_time: float = time.perf_counter()
         run_dir: str = os.path.join(
             self.output_dir,
-            f"run_{output_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}",
+            f"run_{output_name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')}",
         )
         os.makedirs(run_dir, exist_ok=True)
 
@@ -246,6 +262,18 @@ class SPSSExecutor:
                 if retcode is not None:
                     exit_code = retcode
                     stdout, stderr = proc.communicate(timeout=5)
+                    break
+
+                if (
+                    time.perf_counter() - start_time >= OMS_COMPLETION_GRACE_SECONDS
+                    and _oms_output_complete(xml_path)
+                ):
+                    # SPSS 26 can finish OMS output but leave its bundled
+                    # Python host blocked during interpreter shutdown.
+                    proc.terminate()
+                    exit_code = -1
+                    stdout, stderr = proc.communicate(timeout=5)
+                    logger.info("[SPSSExecutor] Complete OMS output detected; host terminated")
                     break
 
                 if time.perf_counter() >= deadline:
@@ -448,7 +476,7 @@ class SPSSExecutor:
         """
         data_dir: str = os.path.dirname(os.path.abspath(data_path))
         base_name: str = os.path.splitext(os.path.basename(data_path))[0]
-        timestamp: str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        timestamp: str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
         temp_sav: str = os.path.join(data_dir, f"{base_name}_temp_{timestamp}.sav")
 
         shutil.copy2(data_path, temp_sav)

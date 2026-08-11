@@ -27,8 +27,10 @@ import sys
 import tempfile
 import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,10 +39,8 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 if sys.platform == "win32":
-    try:
+    with suppress(AttributeError, OSError):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError):
-        pass
 
 # ---------------------------------------------------------------------------
 # Project root & import setup
@@ -73,6 +73,18 @@ DEFAULT_TIMEOUT = 120  # seconds per test case
 DEFAULT_TRUST_THRESHOLD = 0.98
 OUTPUT_DIR = PROJECT_ROOT / "p0_output"
 YAML_PATH = PROJECT_ROOT / "data" / "fixtures" / "backend_test_cases.yaml"
+METHODS_REQUIRING_P_VALUE = {
+    "independent_t_test",
+    "paired_t_test",
+    "oneway_anova",
+    "simple_regression",
+    "pearson_correlation",
+    "spearman_correlation",
+    "correlations",
+    "chi_square",
+    "mann_whitney_u",
+    "kruskal_wallis",
+}
 
 
 # ===================================================================
@@ -119,6 +131,14 @@ def _pick_larger(a: float | None, b: float | None) -> float | None:
     return a if abs(a) > abs(b) else b
 
 
+def _missing_required_stats(method: str, stats: dict[str, Any] | None) -> bool:
+    """Return whether an inferential method lacks its required p-value."""
+
+    return method in METHODS_REQUIRING_P_VALUE and (
+        not stats or _safe_float(stats.get("p_value")) is None
+    )
+
+
 # ===================================================================
 # YAML loading
 # ===================================================================
@@ -154,7 +174,7 @@ def load_test_cases(
         print("[ERROR] PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
         sys.exit(1)
 
-    with open(yaml_path, "r", encoding="utf-8") as fh:
+    with open(yaml_path, encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
 
     if not data or "test_cases" not in data:
@@ -190,9 +210,7 @@ def _check_spss_available() -> bool:
     """Check if SPSS executable exists and env is configured."""
     from snla.config import SPSS_EXECUTABLE
 
-    if not SPSS_EXECUTABLE or not os.path.isfile(SPSS_EXECUTABLE):
-        return False
-    return True
+    return bool(SPSS_EXECUTABLE and os.path.isfile(SPSS_EXECUTABLE))
 
 
 def _create_adapter(output_dir: str, exec_mode: str = "python") -> Any:
@@ -206,8 +224,8 @@ def _create_adapter(output_dir: str, exec_mode: str = "python") -> Any:
         Configured ``BackendAdapter`` instance.
     """
     from snla.executor.adapter import BackendAdapter
-    from snla.executor.spss import SPSSExecutor
     from snla.executor.python import PythonStatsExecutor
+    from snla.executor.spss import SPSSExecutor
 
     spss_exec = SPSSExecutor(output_dir=output_dir)
     # Override exec mode after construction (SSPSExecutor reads from env by default)
@@ -241,7 +259,7 @@ def _prepare_data_copy(
     Returns:
         Path to the (possibly modified) data file.
     """
-    if not original_path.suffix.lower() == ".sav":
+    if original_path.suffix.lower() != ".sav":
         return original_path
 
     subset_size = params.get("subset_size")
@@ -291,21 +309,33 @@ def _prepare_data_copy(
 # ===================================================================
 
 
-def _run_with_timeout(func, *args, timeout: int = DEFAULT_TIMEOUT, **kwargs):
+def _run_with_timeout(
+    func,
+    *args,
+    timeout: int = DEFAULT_TIMEOUT,
+    on_timeout=None,
+    **kwargs,
+):
     """Execute *func* in a thread pool with a hard timeout.
 
     Returns:
         Tuple of ``(result, error_string)``.  Exactly one is non-None.
     """
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(func, *args, **kwargs)
-        try:
-            result = future.result(timeout=timeout)
-            return result, None
-        except FutureTimeoutError:
-            return None, f"Timed out after {timeout}s"
-        except Exception as exc:
-            return None, str(exc)
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(func, *args, **kwargs)
+    try:
+        result = future.result(timeout=timeout)
+        return result, None
+    except FutureTimeoutError:
+        if on_timeout is not None:
+            with suppress(Exception):
+                on_timeout()
+        future.cancel()
+        return None, f"Timed out after {timeout}s"
+    except Exception as exc:
+        return None, str(exc)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 # ===================================================================
@@ -385,6 +415,7 @@ def _run_single_case(
     tmpdir: str,
     alpha: float,
     backend_filter: str | None,
+    timeout: int = DEFAULT_TIMEOUT,
 ) -> dict[str, Any]:
     """Execute one test case on the requested backends and compare.
 
@@ -460,7 +491,8 @@ def _run_single_case(
             method=method,
             data_path=str(data_path),
             **kwargs,
-            timeout=DEFAULT_TIMEOUT,
+            timeout=timeout,
+            on_timeout=exec_adapter.spss.terminate,
         )
         spss_duration = round(time.perf_counter() - t0, 3)
 
@@ -469,6 +501,9 @@ def _run_single_case(
         elif spss_result and spss_result.parser_used != "adapter_error":
             spss_success = True
             spss_stats = exec_adapter.extract_comparable_stats(spss_result)
+            if _missing_required_stats(method, spss_stats):
+                spss_success = False
+                spss_error = "Inferential result is missing a p-value"
         else:
             spss_success = False
             spss_error = "; ".join(spss_result.notes) if spss_result else "Unknown error"
@@ -487,7 +522,7 @@ def _run_single_case(
             method=method,
             data_path=str(data_path),
             **kwargs,
-            timeout=DEFAULT_TIMEOUT,
+            timeout=timeout,
         )
         py_duration = round(time.perf_counter() - t0, 3)
 
@@ -496,6 +531,9 @@ def _run_single_case(
         elif py_result and py_result.parser_used != "adapter_error":
             py_success = True
             py_stats = adapter.extract_comparable_stats(py_result)
+            if _missing_required_stats(method, py_stats):
+                py_success = False
+                py_error = "Inferential result is missing a p-value"
         else:
             py_success = False
             py_error = "; ".join(py_result.notes) if py_result else "Unknown error"
@@ -565,9 +603,12 @@ def _compute_method_trust(
     for r in results:
         m = r["method"]
         by_method[m]["total"] += 1
-        if not r["spss_success"] and not r["py_success"]:
-            by_method[m]["failed"] += 1
-        elif not r["spss_success"] or not r["py_success"]:
+        if (
+            not r["spss_success"]
+            and not r["py_success"]
+            or not r["spss_success"]
+            or not r["py_success"]
+        ):
             by_method[m]["failed"] += 1
         else:
             by_method[m]["tested"] += 1
@@ -695,7 +736,7 @@ def _build_comparison_json(
 
     return {
         "meta": {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "alpha_threshold": alpha,
             "total_cases": len(results),
             "spss_available": spss_available,
@@ -717,7 +758,7 @@ def _build_trust_json(
 ) -> dict[str, Any]:
     """Build the ``method_trust.json`` payload."""
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "alpha_threshold": alpha,
         "trust_threshold": trust_threshold,
         "methods": method_trust,
@@ -729,7 +770,42 @@ def _build_trust_json(
 # ===================================================================
 
 
-def main() -> None:
+def _parse_filter(raw_value: str | None) -> list[str] | None:
+    """Parse a comma-separated CLI filter; ``all`` means no filtering."""
+
+    if raw_value is None or raw_value.strip().lower() == "all":
+        return None
+    values = [value.strip() for value in raw_value.split(",") if value.strip()]
+    return values or None
+
+
+def _release_cases(
+    cases: list[dict[str, Any]],
+    *,
+    include_diagnostics: bool,
+    ids_filter: list[str] | None,
+) -> list[dict[str, Any]]:
+    """Exclude legacy diagnostics from the release gate unless requested."""
+
+    if include_diagnostics or ids_filter:
+        return cases
+    return [case for case in cases if not case.get("diagnostic_only", False)]
+
+
+def _release_gate_failed(results: list[dict[str, Any]], backend_filter: str | None) -> bool:
+    """Return whether any requested backend or conclusion check failed."""
+
+    for entry in results:
+        if backend_filter in (None, "spss") and not entry.get("spss_success"):
+            return True
+        if backend_filter in (None, "python") and not entry.get("py_success"):
+            return True
+        if backend_filter is None and entry.get("conclusion_conflict"):
+            return True
+    return False
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(
         description="P5-3 Backend Comparison: SPSS vs Python (pingouin) validation",
     )
@@ -775,15 +851,25 @@ def main() -> None:
         default=DEFAULT_TIMEOUT,
         help=f"Max seconds per test case (default: {DEFAULT_TIMEOUT})",
     )
+    parser.add_argument(
+        "--include-diagnostics",
+        action="store_true",
+        help="Include legacy execution-mode diagnostics outside the release gate",
+    )
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
     # --list mode
     # ------------------------------------------------------------------
     if args.list:
-        methods_filter = args.methods.split(",") if args.methods else None
-        ids_filter = args.ids.split(",") if args.ids else None
+        methods_filter = _parse_filter(args.methods)
+        ids_filter = _parse_filter(args.ids)
         cases = load_test_cases(YAML_PATH, methods_filter=methods_filter, ids_filter=ids_filter)
+        cases = _release_cases(
+            cases,
+            include_diagnostics=args.include_diagnostics,
+            ids_filter=ids_filter,
+        )
         print(f"Test cases ({len(cases)}):")
         print(f"{'ID':<35} {'Method':<25} {'Description'}")
         print(f"{'—' * 35} {'—' * 25} {'—' * 40}")
@@ -811,9 +897,14 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Load test cases
     # ------------------------------------------------------------------
-    methods_filter = args.methods.split(",") if args.methods else None
-    ids_filter = args.ids.split(",") if args.ids else None
+    methods_filter = _parse_filter(args.methods)
+    ids_filter = _parse_filter(args.ids)
     test_cases = load_test_cases(YAML_PATH, methods_filter=methods_filter, ids_filter=ids_filter)
+    test_cases = _release_cases(
+        test_cases,
+        include_diagnostics=args.include_diagnostics,
+        ids_filter=ids_filter,
+    )
 
     if not test_cases:
         print("[ERROR] No test cases matched the filter.", file=sys.stderr)
@@ -871,6 +962,7 @@ def main() -> None:
                     tmpdir=tmpdir_obj,
                     alpha=args.alpha,
                     backend_filter=args.backend,
+                    timeout=args.timeout,
                 )
             except KeyboardInterrupt:
                 interrupted = True
@@ -935,22 +1027,20 @@ def main() -> None:
 
         if interrupted:
             print("\n[WARNING] Execution was interrupted. Partial results saved.")
-            sys.exit(2)
+            return 2
+
+        return 1 if _release_gate_failed(results, args.backend) else 0
 
     finally:
         # Cleanup temp directory
-        try:
+        with suppress(Exception):
             shutil.rmtree(tmpdir_obj, ignore_errors=True)
-        except Exception:
-            pass
 
         # Adapter cleanup
         if adapter is not None:
-            try:
+            with suppress(Exception):
                 adapter.cleanup()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

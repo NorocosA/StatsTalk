@@ -122,6 +122,34 @@ def test_build_polish_prompt_forbids_phrases(analysis_result_not_sig):
     )
 
 
+def test_polish_prompt_excludes_names_labels_rows_and_paths(analysis_result_ttest):
+    analysis_result_ttest.statistics.update(
+        {
+            "variable_name": "patient_id",
+            "variable_label": "Patient Identifier",
+            "raw_rows": [["P001", 80]],
+            "file_path": r"C:\private\student-data.sav",
+        }
+    )
+    constraints = apply_constraints(analysis_result_ttest)
+
+    payload = str(build_polish_prompt(constraints, analysis_result_ttest))
+
+    for forbidden in (
+        "patient_id",
+        "Patient Identifier",
+        "P001",
+        "student-data.sav",
+        r"C:\private",
+        "gender",
+        "男",
+        "女",
+    ):
+        assert forbidden not in payload
+    assert "t=2.34" in payload
+    assert "p=0.021" in payload
+
+
 # =========================================================================
 # Test 5: explain() — template fallback on LLM failure
 # =========================================================================

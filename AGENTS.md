@@ -22,7 +22,7 @@ User natural-language request
 
 | Task | Command |
 | --- | --- |
-| Setup | `python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt` |
+| Setup | `uv venv --python 3.12 .venv && uv pip sync --python .venv\Scripts\python.exe --require-hashes requirements.lock` |
 | Desktop run | `python launcher.py` |
 | API only | `python snla/ui/server.py` |
 | MCP server | `python snla/mcp_server.py` |
@@ -45,6 +45,7 @@ STATS_BACKEND=python        # python | spss
 SPSS_PATH=...
 SPSS_PYTHON_PATH=...
 LLM_MOCK=true
+MCP_ENABLED=false           # experimental; opt in before starting MCP
 ```
 
 ## Server Notes
@@ -55,7 +56,8 @@ LLM_MOCK=true
 - Single-user guard: concurrent `/api/analyze` returns 409.
 - Rate limit: 10 `/api/analyze` requests per 60 seconds.
 - Upload limit: 500 MB, `.sav` and `.csv` only.
-- Session shadow persistence: `snla/data/persistence.py`.
+- Dataset working copies and history are session-only by default.
+- Optional restore stores only a purpose-separated DPAPI-encrypted original-file reference.
 - Config hot reload: `/api/reload-config`.
 
 ## API Endpoints
@@ -64,16 +66,23 @@ LLM_MOCK=true
 | --- | --- | --- |
 | GET | `/` | Frontend HTML |
 | GET | `/api/status` | Health and session state |
-| POST | `/api/upload` | Upload `.sav` or `.csv` |
+| POST | `/api/upload` | Upload `.sav`, `.csv`, or inspect `.xlsx` |
+| POST | `/api/select-worksheet` | Load one explicitly selected `.xlsx` worksheet |
+| POST | `/api/suggest` | Network-free local method suggestion |
 | POST | `/api/analyze` | Main analysis pipeline |
 | POST | `/api/cancel` | Cancel running analysis |
 | POST | `/api/confirm` | Execute pending greylist operation |
 | GET | `/api/variables` | Cloud-safe variable list |
 | GET/POST | `/api/settings` | Read/update config |
+| POST | `/api/open-local-dataset` | Open a path selected by the desktop file dialog |
+| POST | `/api/restore-dataset` | Reopen an encrypted reference after consent |
+| GET/DELETE | `/api/local-data` | Inspect/clear retained dataset artifacts |
+| POST | `/api/api-key-backup/export` | Download a password-protected key backup |
+| POST | `/api/api-key-backup/import` | Restore and rebind a key backup to DPAPI |
 | POST | `/api/reload-config` | Reload `.env` |
 | POST | `/api/models` | List LLM models |
 | GET | `/api/detect-spss` | Detect SPSS installations |
-| GET | `/api/export` | Download Word report |
+| GET | `/api/export` | Download Word report or `?format=json` analysis record |
 
 ## Module Map
 
@@ -81,10 +90,12 @@ LLM_MOCK=true
 | --- | --- |
 | `snla/config.py` | Env config, validation, hot reload |
 | `snla/session.py` | Single-user session state |
+| `snla/secrets.py` | DPAPI storage and portable password-protected key backups |
 | `snla/trust.py` | Trusted method whitelist |
 | `snla/data/reader.py` | `.sav`/`.csv` readers |
 | `snla/data/sanitizer.py` | Privacy filtering and variable desensitization |
-| `snla/data/persistence.py` | SQLite session shadow persistence |
+| `snla/data/retention.py` | Ephemeral workspaces and encrypted restore references |
+| `snla/data/persistence.py` | Legacy no-op/cleanup compatibility |
 | `snla/data/range_expander.py` | `Q1-Q10` style expansion |
 | `snla/llm/client.py` | LLM API wrapper and retry logic |
 | `snla/llm/prompts/` | Planner/syntax prompt builders |
@@ -96,6 +107,7 @@ LLM_MOCK=true
 | `snla/parser/` | OMS XML, LST, and schema layers |
 | `snla/explainer/naturalize.py` | Statistical explanation layer |
 | `snla/explainer/export.py` | Word report export |
+| `snla/explainer/record.py` | Privacy-safe reproducibility record and result layers |
 | `snla/explainer/charts.py` | Chart generation |
 | `snla/orchestrator/` | Planner and greylist state machine |
 | `snla/rag/` | SPSS documentation retrieval support |

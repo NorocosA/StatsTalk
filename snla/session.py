@@ -1,9 +1,8 @@
 """
 StatsTalk session state manager.
 
-Maintains the in-memory state for the single-user desktop session. The Flask
-server mirrors selected state to SQLite through snla.data.persistence so the
-latest dataset/session can survive a desktop restart.
+Maintains session-only state for the single-user desktop process. Dataset
+metadata and analysis history are not persisted across launches.
 """
 
 from dataclasses import dataclass, field
@@ -24,6 +23,9 @@ class SessionState:
 
     variables: list[dict] = field(default_factory=list)
     # [{"name": str, "type": str, "label": str, "value_labels": dict|None, "desensitized": bool|None, "original_name": str|None}]
+
+    pending_workbook: dict | None = None
+    # Safe structure and local path while an .xlsx workbook awaits explicit sheet selection.
 
     # ===== Variable Name Mapping (Privacy) =====
     var_name_map: dict[str, str] = field(default_factory=dict)
@@ -181,6 +183,7 @@ class SessionState:
         self.cleanup()
         self.dataset_meta = {}
         self.variables = []
+        self.pending_workbook = None
         self.var_name_map = {}
         self.reverse_var_name_map = {}
         self.history = []

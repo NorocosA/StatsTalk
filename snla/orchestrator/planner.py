@@ -15,7 +15,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from snla.data.sanitizer import filter_for_cloud
+from snla.capabilities import canonicalize_method, get_capability, get_public_capabilities
+from snla.data.sanitizer import build_cloud_planning_context, filter_for_cloud
 
 from . import PlanResult
 
@@ -57,64 +58,38 @@ def _plan(
         return result
 
     if LLM_MOCK or not _has_llm():
-        method = _mock_intent(user_input, last_analysis)
-        valid = {
-            "independent_t_test",
-            "paired_t_test",
-            "oneway_anova",
-            "simple_regression",
-            "pearson_correlation",
-            "spearman_correlation",
-            "chi_square",
-            "crosstabs",
-            "frequencies",
-            "descriptives",
-            "mann_whitney_u",
-            "kruskal_wallis",
-        }
-        if method not in valid:
-            method = "descriptives"
-        cat, num = _auto_detect_vars(variables)
-        return _rag(
-            PlanResult(
-                method=method,
-                plan_explanation=f"（MOCK 模式）{method}",
-                grouping_variable=cat,
-                test_variable=num,
-            )
+        return suggest_local(
+            user_input,
+            variables,
+            last_analysis=last_analysis,
         )
 
     # ── Real LLM path ─────────────────────────────────────────────────
     from snla.llm.client import LLMClient
 
-    cloud_vars = _cloud_vars(variables)
-    ds = dataset_meta or {}
-    row_count = ds.get("row_count", 0)
+    cloud_context = build_cloud_planning_context(variables)
+    cloud_vars = cloud_context.variables
+    cloud_question = cloud_context.sanitize_text(user_input)
+    safe_dataset_meta = filter_for_cloud(dataset_meta or {})
+    row_count = safe_dataset_meta.get("row_count", 0)
 
     # Build variable catalog for semantic matching
     var_lines = []
     for v in cloud_vars[:30]:
         lbl = v.get("label", "")
-        vl = v.get("value_labels", {})
-        vl_str = ""
-        if vl:
-            items = list(vl.items())[:5]
-            vl_str = " [" + " ".join(f"{k}={v}" for k, v in items) + "]"
         var_lines.append(
-            f"  - {v.get('name', '?')} ({v.get('type', '?')}){': ' + lbl if lbl else ''}{vl_str}"
+            f"  - {v.get('name', '?')} ({v.get('type', '?')}){': ' + lbl if lbl else ''}"
         )
     var_catalog = "\n".join(var_lines)
 
+    available_methods = ", ".join(capability.name for capability in get_public_capabilities())
     prompt = [
         {
             "role": "system",
             "content": (
                 "你是 SPSS 统计分析专家。根据用户的自然语言问题，选择最合适的"
                 "统计方法，并确定对应的变量。\n\n"
-                "可用方法: independent_t_test, paired_t_test, oneway_anova, "
-                "mann_whitney_u, kruskal_wallis, pearson_correlation, "
-                "spearman_correlation, simple_regression, chi_square, "
-                "frequencies, descriptives\n\n"
+                f"可用方法: {available_methods}\n\n"
                 "规则:\n"
                 "- 分组变量(grouping_variable): 必须是分类变量（有值标签的Numeric或String）\n"
                 "- 检验变量(test_variable): 必须是连续变量（无值标签的Numeric）\n"
@@ -136,7 +111,7 @@ def _plan(
             "content": (
                 f"数据集: {row_count} 条记录, {len(cloud_vars)} 个变量\n"
                 f"{var_catalog}\n\n"
-                f"用户问题: {user_input}\n\n"
+                f"用户问题: {cloud_question}\n\n"
                 f"请分析用户问题中的关键词，匹配到正确的变量，返回 JSON。"
             ),
         },
@@ -146,55 +121,11 @@ def _plan(
     try:
         result = client.chat(prompt)
         parsed = json.loads(result.get("content", "{}"))
-        method = parsed.get("method", "descriptives")
-        plan = parsed.get("plan_explanation", "")
-        gvar = parsed.get("grouping_variable")
-        tvar = parsed.get("test_variable")
-        valid_methods = {
-            "independent_t_test",
-            "paired_t_test",
-            "oneway_anova",
-            "mann_whitney_u",
-            "kruskal_wallis",
-            "pearson_correlation",
-            "spearman_correlation",
-            "simple_regression",
-            "chi_square",
-            "frequencies",
-            "descriptives",
-            "crosstabs",
-        }
-        # Normalize LLM output: strip underscores, lowercase, common aliases
-        _ALIASES = {
-            "independent_samples_t_test": "independent_t_test",
-            "independentsamplesttest": "independent_t_test",
-            "t_test": "independent_t_test",
-            "ttest": "independent_t_test",
-            "independent": "independent_t_test",
-            "paired_t_test": "paired_t_test",
-            "pairedsamplesttest": "paired_t_test",
-            "paired": "paired_t_test",
-            "one_way_anova": "oneway_anova",
-            "oneway_anova": "oneway_anova",
-            "anova": "oneway_anova",
-            "mannwhitney": "mann_whitney_u",
-            "mann_whitney": "mann_whitney_u",
-            "kruskalwallis": "kruskal_wallis",
-            "kruskal_wallis": "kruskal_wallis",
-            "correlation": "pearson_correlation",
-            "corr": "pearson_correlation",
-            "regression": "simple_regression",
-            "regress": "simple_regression",
-            "chi": "chi_square",
-            "crosstab": "crosstabs",
-            "cross_tab": "crosstabs",
-            "freq": "frequencies",
-            "describe": "descriptives",
-        }
-        method_key = method.lower().replace(" ", "").replace("-", "_")
-        if method_key in _ALIASES:
-            method = _ALIASES[method_key]
-        if method not in valid_methods:
+        method = canonicalize_method(parsed.get("method", "descriptives"))
+        plan = cloud_context.restore_text(parsed.get("plan_explanation", ""))
+        gvar = cloud_context.restore_reference(parsed.get("grouping_variable"))
+        tvar = cloud_context.restore_reference(parsed.get("test_variable"))
+        if get_capability(method) is None:
             method = "descriptives"
         return _rag(
             PlanResult(
@@ -222,7 +153,27 @@ def _plan(
 
 def _cloud_vars(variables: list[dict]) -> list[dict]:
     """Return cloud-safe variable metadata (strips raw values)."""
-    return filter_for_cloud({"variables": variables}).get("variables", [])
+    return build_cloud_planning_context(variables).variables
+
+
+def suggest_local(
+    user_input: str,
+    variables: list[dict],
+    *,
+    last_analysis: dict | None = None,
+) -> PlanResult:
+    """Build a deterministic method suggestion without network or RAG access."""
+
+    method = canonicalize_method(_mock_intent(user_input, last_analysis))
+    if get_capability(method) is None:
+        method = "descriptives"
+    first, second = _auto_detect_roles(method, variables)
+    return PlanResult(
+        method=method,
+        plan_explanation=f"本地建议：{method}",
+        grouping_variable=first,
+        test_variable=second,
+    )
 
 
 def _auto_detect_vars(variables: list[dict]) -> tuple[str | None, str | None]:
@@ -238,11 +189,53 @@ def _auto_detect_vars(variables: list[dict]) -> tuple[str | None, str | None]:
             continue
         if v.get("value_labels") and not cat_var:
             cat_var = name
-        elif v.get("type") == "Numeric" and not num_var:
+        elif v.get("type") == "Numeric" and not v.get("value_labels") and not num_var:
             num_var = name
         if cat_var and num_var:
             break
     return cat_var, num_var
+
+
+def _auto_detect_roles(method: str, variables: list[dict]) -> tuple[str | None, str | None]:
+    """Choose deterministic local variables that match the method roles."""
+
+    skip = {"id", "ID", "Id", "customerid", "customer_id", "row", "ROW", "case", "CASE"}
+    usable = [item for item in variables if item.get("name") and item.get("name") not in skip]
+    categorical = [
+        item["name"]
+        for item in usable
+        if item.get("type") == "String" or bool(item.get("value_labels"))
+    ]
+    continuous = [
+        item["name"]
+        for item in usable
+        if item.get("type") == "Numeric" and not item.get("value_labels")
+    ]
+
+    if method in {
+        "paired_t_test",
+        "pearson_correlation",
+        "spearman_correlation",
+        "simple_regression",
+    }:
+        return (
+            continuous[0] if continuous else None,
+            continuous[1] if len(continuous) > 1 else None,
+        )
+    if method == "chi_square":
+        return (
+            categorical[0] if categorical else None,
+            categorical[1] if len(categorical) > 1 else None,
+        )
+    if method == "descriptives":
+        return None, continuous[0] if continuous else None
+    if method == "frequencies":
+        fallback = usable[0]["name"] if usable else None
+        return categorical[0] if categorical else fallback, None
+    return (
+        categorical[0] if categorical else None,
+        continuous[0] if continuous else None,
+    )
 
 
 def _has_llm() -> bool:

@@ -34,9 +34,12 @@ Use this only when a valid API key is configured:
 
 ```ini
 LLM_MOCK=false
-LLM_API_KEY=...
+LLM_API_KEY_STORAGE=dpapi
 STATS_BACKEND=python
 ```
+
+Enter the API key through the StatsTalk settings panel before running this
+check. Do not place plaintext API keys in `.env`.
 
 Then run:
 
@@ -50,7 +53,7 @@ SPSS checks require Windows and an installed IBM SPSS Statistics distribution:
 
 ```ini
 STATS_BACKEND=spss
-SPSS_PATH=C:\Program Files\IBM\SPSS\Statistics\29\stats.exe
+SPSS_PATH=C:\Program Files\IBM\SPSS\Statistics\29\stats.com
 SPSS_PYTHON_PATH=C:\Program Files\IBM\SPSS\Statistics\29\Python3\python.exe
 ```
 

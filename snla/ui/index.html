@@ -19,6 +19,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #upload-btn { width: 100%; margin-top: 8px; padding: 8px; background: #409eff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
 #upload-btn:hover { background: #337ecc; }
 #upload-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+#worksheet-picker { display: none; margin-top: 9px; }
+#worksheet-picker.show { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+#worksheet-select { min-width: 0; height: 34px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 7px; }
+#worksheet-load-btn { height: 34px; border: 0; border-radius: 4px; padding: 0 10px; background: #409eff; color: #fff; cursor: pointer; }
 #var-list { font-size: 13px; max-height: 200px; overflow-y: auto; }
 #var-list .var-item { padding: 4px 0; display: flex; justify-content: space-between; }
 #var-list .var-name { font-weight: 600; }
@@ -35,14 +39,39 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #fetch-models-btn, #detect-spss-btn { width: 100%; padding: 6px; background: #409eff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 8px; }
 #fetch-models-btn:hover, #detect-spss-btn:hover { background: #337ecc; }
 #fetch-models-btn:disabled, #detect-spss-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+#api-key-status { display: none; padding: 6px 8px; margin: 0 0 8px; border-left: 3px solid #909399; background: #f5f7fa; color: #606266; font-size: 12px; line-height: 1.5; }
+#api-key-status.warning { display: block; border-left-color: #e6a23c; background: #fdf6ec; color: #8a5a00; }
+#api-key-status.success { display: block; border-left-color: #67c23a; background: #f0f9eb; color: #39751e; }
+#api-key-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+#api-key-actions button { min-width: 0; padding: 6px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; color: #606266; cursor: pointer; font-size: 12px; }
+#api-key-actions button[hidden] { display: none; }
+#api-key-backup-note { margin-bottom: 8px; color: #909399; font-size: 11px; line-height: 1.45; }
+#ai-polish-setting { margin: 4px 0 10px; padding: 8px 0; border-top: 1px solid #ebeef5; border-bottom: 1px solid #ebeef5; }
+#ai-polish-setting label { display: flex; align-items: center; gap: 7px; color: #303133; }
+#ai-polish-setting input { width: auto; margin: 0; }
+#ai-polish-disclosure { margin-top: 6px; color: #606266; font-size: 11px; line-height: 1.5; }
+.ai-polish-result { margin-top: 10px; padding-top: 9px; border-top: 1px solid #d9ecff; color: #337ecc; }
+.ai-polish-result strong { display: block; margin-bottom: 4px; font-size: 12px; }
+#session-restore-setting { margin: 4px 0 10px; padding: 8px 0; border-top: 1px solid #ebeef5; border-bottom: 1px solid #ebeef5; }
+#session-restore-setting label { display: flex; align-items: center; gap: 7px; color: #303133; }
+#session-restore-setting input { width: auto; margin: 0; }
+#session-restore-setting p { margin: 6px 0; color: #606266; font-size: 11px; line-height: 1.5; }
+#local-data-actions { display: flex; gap: 6px; }
+#local-data-actions button { flex: 1; }
+#crash-reporting-setting { margin: 4px 0 10px; padding: 8px 0; border-top: 1px solid #ebeef5; border-bottom: 1px solid #ebeef5; }
+#crash-reporting-setting label { display: flex; align-items: center; gap: 7px; color: #303133; }
+#crash-reporting-setting input { width: auto; margin: 0; }
+#crash-reporting-setting p { margin: 6px 0; color: #606266; font-size: 11px; line-height: 1.5; }
+#crash-reporting-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#crash-reporting-actions button { min-width: 0; }
 
 /* Main chat */
 #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #header { padding: 16px 24px; background: #fff; border-bottom: 1px solid #e4e7ed; font-size: 16px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
 .header-actions { display: flex; gap: 8px; align-items: center; }
-#export-btn { padding: 6px 14px; background: #e6a23c; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
-#export-btn:hover { background: #cf9236; }
-#export-btn:disabled { background: #f0c78e; cursor: not-allowed; }
+.export-btn { padding: 6px 14px; background: #e6a23c; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.export-btn:hover { background: #cf9236; }
+.export-btn:disabled { background: #f0c78e; cursor: not-allowed; }
 #stop-btn { padding: 6px 14px; background: #f56c6c; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; display: none; }
 #stop-btn:hover { background: #e04848; }
 
@@ -58,6 +87,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .msg pre { display: none; background: #f5f7fa; padding: 10px; border-radius: 6px; font-size: 12px; overflow-x: auto; margin-top: 6px; white-space: pre-wrap; }
 .msg pre.show { display: block; }
 .msg .stats { margin-top: 8px; font-size: 13px; color: #606266; }
+.result-warnings { margin: 10px 0 0; padding: 9px 12px 9px 28px; background: #fdf6ec; border-left: 3px solid #e6a23c; color: #7d5b16; }
+.result-warnings li { margin: 3px 0; }
+.advanced-results { margin-top: 12px; border-top: 1px solid #e4e7ed; padding-top: 8px; }
+.advanced-results summary { cursor: pointer; color: #409eff; font-size: 13px; }
+.advanced-results table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+.advanced-results th, .advanced-results td { border: 1px solid #dcdfe6; padding: 5px; text-align: left; vertical-align: top; }
+.advanced-results .advanced-meta { margin-top: 8px; font-size: 12px; color: #606266; }
+.advanced-results pre { display: block; }
 .loading { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #409eff; animation: blink 1.4s infinite both; margin-right: 4px; }
 .loading:nth-child(2) { animation-delay: 0.2s; }
 .loading:nth-child(3) { animation-delay: 0.4s; }
@@ -78,6 +115,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #context-hint { display: none; padding: 8px 24px; background: #ecf5ff; border-top: 1px solid #d9ecff; border-bottom: 1px solid #d9ecff; font-size: 13px; color: #409eff; }
 
 /* Input area */
+#analysis-controls { display: none; padding: 10px 24px; background: #fff; border-top: 1px solid #e4e7ed; gap: 10px; align-items: end; grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 1fr) minmax(130px, 1fr) 92px auto; }
+#analysis-controls.show { display: grid; }
+.analysis-control { min-width: 0; }
+.analysis-control label { display: block; color: #606266; font-size: 12px; margin-bottom: 4px; }
+.analysis-control select, .analysis-control input { width: 100%; height: 34px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; padding: 0 8px; font-size: 13px; }
+#local-suggest-btn { height: 34px; padding: 0 14px; border: 1px solid #409eff; border-radius: 4px; background: #fff; color: #337ecc; cursor: pointer; }
+#local-suggest-btn:disabled { border-color: #c0c4cc; color: #909399; cursor: not-allowed; }
+#suggestion-source { min-height: 18px; padding: 0 24px 6px; background: #fff; color: #39751e; font-size: 12px; }
 #input-area { padding: 16px 24px; background: #fff; border-top: 1px solid #e4e7ed; display: flex; gap: 10px; }
 #user-input { flex: 1; padding: 10px 16px; border: 1px solid #dcdfe6; border-radius: 20px; font-size: 14px; outline: none; }
 #user-input:focus { border-color: #409eff; }
@@ -85,6 +130,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 #send-btn { width: 44px; height: 44px; background: #409eff; color: #fff; border: none; border-radius: 50%; cursor: pointer; font-size: 18px; flex-shrink: 0; }
 #send-btn:hover { background: #337ecc; }
 #send-btn:disabled { background: #a0cfff; cursor: not-allowed; }
+@media (max-width: 900px) {
+    #analysis-controls { grid-template-columns: 1fr 1fr; }
+    #local-suggest-btn { width: 100%; }
+}
 
 .status { text-align: center; color: #909399; font-size: 13px; padding: 10px; }
 
@@ -123,12 +172,37 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .greylist-card .gl-warnings li { padding: 6px 0; font-size: 13px; color: #e6a23c; border-bottom: 1px solid #f0f0f0; }
 .greylist-card .gl-warnings li:last-child { border-bottom: none; }
 .greylist-card .gl-warnings li::before { content: "(!) "; }
+.greylist-card .gl-options { list-style: none; margin-bottom: 20px; }
+.greylist-card .gl-options li { padding: 7px 0; font-size: 13px; color: #303133; }
+.greylist-card .gl-options label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .greylist-card .gl-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .greylist-card .gl-btn { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .gl-btn-cancel { background: #f5f7fa; color: #606266; }
 .gl-btn-cancel:hover { background: #e4e7ed; }
 .gl-btn-confirm { background: #409eff; color: #fff; }
 .gl-btn-confirm:hover { background: #337ecc; }
+
+/* Secret backup modal */
+#secret-backup-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1100; justify-content: center; align-items: center; }
+#secret-backup-modal.open { display: flex; }
+.secret-backup-dialog { width: min(420px, 90vw); background: #fff; border-radius: 8px; padding: 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.secret-backup-dialog h2 { font-size: 17px; margin-bottom: 8px; }
+.secret-backup-dialog p { color: #606266; font-size: 13px; line-height: 1.55; margin-bottom: 14px; }
+.secret-backup-dialog label { display: block; color: #606266; font-size: 12px; margin: 10px 0 4px; }
+.secret-backup-dialog input { width: 100%; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 9px; }
+.secret-backup-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.secret-backup-actions button { min-width: 76px; padding: 8px 14px; border: 0; border-radius: 4px; cursor: pointer; }
+#secret-backup-cancel { background: #f5f7fa; color: #606266; }
+#secret-backup-submit { background: #409eff; color: #fff; }
+#secret-backup-submit:disabled { background: #a0cfff; cursor: not-allowed; }
+#crash-consent-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1200; justify-content: center; align-items: center; }
+#crash-consent-modal.open { display: flex; }
+.crash-consent-dialog { width: min(480px, 92vw); background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.22); }
+.crash-consent-dialog h2 { font-size: 18px; margin-bottom: 10px; }
+.crash-consent-dialog p { color: #606266; font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+.crash-consent-dialog label { display: flex; align-items: flex-start; gap: 8px; color: #303133; font-size: 13px; line-height: 1.5; margin: 14px 0; }
+.crash-consent-dialog input { margin-top: 3px; }
+#crash-consent-submit { width: 100%; padding: 9px; border: 0; border-radius: 4px; background: #409eff; color: #fff; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -138,8 +212,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <h2>StatsTalk</h2>
     <div class="section">
         <h3>数据文件</h3>
-        <input type="file" id="file-input" accept=".sav,.csv">
+        <button id="choose-dataset-btn" type="button">选择本地数据文件</button>
+        <input type="file" id="file-input" accept=".sav,.csv,.xlsx">
         <button id="upload-btn">上传并分析</button>
+        <div id="worksheet-picker">
+            <select id="worksheet-select" aria-label="选择 Excel 工作表"></select>
+            <button id="worksheet-load-btn" type="button">加载工作表</button>
+        </div>
         <div id="upload-status" class="status"></div>
     </div>
     <div class="section" id="var-section" style="display:none">
@@ -153,12 +232,60 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
             <input id="s-endpoint" placeholder="https://opencode.ai/zen/go/v1/chat/completions">
             <label>API Key</label>
             <input id="s-key" type="password" placeholder="sk-...">
+            <div id="api-key-status" role="status"></div>
+            <div id="api-key-actions">
+                <button id="migrate-api-key" type="button" hidden>安全迁移现有密钥</button>
+                <button id="delete-api-key" type="button" hidden>删除密钥</button>
+                <button id="export-api-key-backup" type="button" hidden>导出密钥备份</button>
+                <button id="import-api-key-backup" type="button">恢复密钥备份</button>
+            </div>
+            <p id="api-key-backup-note">备份密码无法找回。请将备份文件和密码分开保管。</p>
+            <input id="api-key-backup-file" type="file" accept=".stkb,application/vnd.statstalk.key-backup+json" hidden>
             <label>模型</label>
             <input id="s-model" placeholder="deepseek-v4-flash">
             <button id="fetch-models-btn">获取模型列表</button>
             <select id="s-model-select"></select>
+            <div id="ai-polish-setting">
+                <label for="s-ai-polish">
+                    <input id="s-ai-polish" type="checkbox">
+                    启用可选 AI 语言润色
+                </label>
+                <p id="ai-polish-disclosure">启用后仅发送分析类型、显著性判定、显著性水平、检验统计量、p 值、均值、效应量、R² 和样本计数。不会发送原始数据、变量名、标签或文件路径。</p>
+            </div>
+            <div id="session-restore-setting">
+                <label for="s-session-restore">
+                    <input id="s-session-restore" type="checkbox">
+                    下次启动时提示恢复原数据文件
+                </label>
+                <p>默认关闭。仅保存由当前 Windows 账户加密的原文件路径和最少元数据，不保存数据副本或分析历史。</p>
+                <div id="local-data-actions">
+                    <button id="inspect-local-data" type="button">检查本地数据</button>
+                    <button id="clear-local-data" type="button">清除本地数据</button>
+                </div>
+            </div>
+            <div id="mcp-setting">
+                <label for="s-mcp-enabled">
+                    <input id="s-mcp-enabled" type="checkbox">
+                    启用实验性 MCP 接口
+                </label>
+                <p id="mcp-disclosure">默认关闭。启用后，连接到本机 MCP 服务的客户端可以读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。更改后需重启 MCP 服务；桌面本地 API 的令牌与来源校验保持不变。</p>
+            </div>
+            <div id="crash-reporting-setting">
+                <label for="s-crash-reporting">
+                    <input id="s-crash-reporting" type="checkbox">
+                    允许发送匿名崩溃报告
+                </label>
+                <p id="crash-reporting-disclosure">仅发送错误类型、函数名和行号、应用版本、Windows 版本、实际后端和随机安装标识。不发送异常消息、数据、变量名、分析问题、API Key、文件路径、环境变量、请求或响应。</p>
+                <div id="crash-reporting-actions">
+                    <button id="preview-crash-report" type="button">查看最近报告</button>
+                    <button id="clear-crash-reports" type="button">清空待发送报告</button>
+                    <button id="withdraw-crash-consent" type="button">关闭并删除标识</button>
+                </div>
+            </div>
+            <label>SPSS 可执行文件</label>
+            <input id="s-spss" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\stats.com">
             <label>SPSS Python 路径</label>
-            <input id="s-spss" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe">
+            <input id="s-spss-python" placeholder="C:\Program Files\IBM\SPSS\Statistics\26\Python3\python.exe">
             <button id="detect-spss-btn">自动检测</button>
             <select id="s-spss-select"></select>
             <label>统计后端</label>
@@ -177,7 +304,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <span>StatsTalk</span>
         <div class="header-actions">
             <button id="stop-btn">停止</button>
-            <button id="export-btn" disabled>导出 Word 报告</button>
+            <button id="export-btn" class="export-btn" disabled>导出 Word 报告</button>
+            <button id="export-json-btn" class="export-btn" disabled>导出 JSON</button>
         </div>
     </div>
     <div id="messages">
@@ -207,6 +335,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     </div>
     <div id="context-hint"></div>
     <div id="backend-notice"></div>
+    <div id="analysis-controls">
+        <div class="analysis-control">
+            <label for="method-select">分析方法</label>
+            <select id="method-select"></select>
+        </div>
+        <div class="analysis-control" id="first-role-control">
+            <label for="first-variable-select" id="first-role-label">变量 1</label>
+            <select id="first-variable-select"></select>
+        </div>
+        <div class="analysis-control" id="second-role-control">
+            <label for="second-variable-select" id="second-role-label">变量 2</label>
+            <select id="second-variable-select"></select>
+        </div>
+        <div class="analysis-control">
+            <label for="alpha-input">显著性水平</label>
+            <input id="alpha-input" type="number" value="0.05" min="0.001" max="0.2" step="0.01">
+        </div>
+        <button id="local-suggest-btn" type="button">本地建议</button>
+    </div>
+    <div id="suggestion-source" role="status"></div>
     <div id="input-area">
         <input id="user-input" type="text" placeholder="输入你的分析需求，例如：比较男女成绩差异" disabled>
         <button id="send-btn">→</button>
@@ -218,14 +366,48 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="greylist-card">
         <div class="gl-header">
             <span class="gl-icon">(!)</span>
-            <span class="gl-title">操作确认</span>
+            <span class="gl-title" id="gl-title">操作确认</span>
         </div>
         <p class="gl-message" id="gl-message"></p>
         <ul class="gl-warnings" id="gl-warnings"></ul>
+        <ul class="gl-options" id="gl-options"></ul>
         <div class="gl-actions">
             <button class="gl-btn gl-btn-cancel" id="gl-cancel">取消</button>
             <button class="gl-btn gl-btn-confirm" id="gl-confirm">确认执行</button>
         </div>
+    </div>
+</div>
+
+<!-- API-key Backup Modal -->
+<div id="secret-backup-modal" role="dialog" aria-modal="true" aria-labelledby="secret-backup-title">
+    <div class="secret-backup-dialog">
+        <h2 id="secret-backup-title">导出密钥备份</h2>
+        <p id="secret-backup-description">使用至少 12 位密码保护备份。StatsTalk 无法找回此密码。</p>
+        <label for="secret-backup-password">备份密码</label>
+        <input id="secret-backup-password" type="password" autocomplete="new-password" maxlength="1024">
+        <div id="secret-backup-confirm-row">
+            <label for="secret-backup-confirmation">确认备份密码</label>
+            <input id="secret-backup-confirmation" type="password" autocomplete="new-password" maxlength="1024">
+        </div>
+        <div class="secret-backup-actions">
+            <button id="secret-backup-cancel" type="button">取消</button>
+            <button id="secret-backup-submit" type="button">导出</button>
+        </div>
+    </div>
+</div>
+
+<!-- First-run crash-report consent -->
+<div id="crash-consent-modal" role="dialog" aria-modal="true" aria-labelledby="crash-consent-title">
+    <div class="crash-consent-dialog">
+        <h2 id="crash-consent-title">帮助 StatsTalk 改进</h2>
+        <p>当 StatsTalk 崩溃时，是否允许自动发送匿名错误报告？</p>
+        <p>报告仅包含：错误类型、函数名和行号、程序版本、Windows 版本、实际后端、随机安装标识。</p>
+        <p>报告不包含：你的数据、变量名、分析问题、异常消息、API Key、文件路径、环境变量、请求或响应。</p>
+        <label for="crash-consent-checkbox">
+            <input id="crash-consent-checkbox" type="checkbox">
+            允许发送匿名崩溃报告（可随时在设置中撤回）
+        </label>
+        <button id="crash-consent-submit" type="button">开始使用</button>
     </div>
 </div>
 
@@ -236,11 +418,21 @@ let hasAnalysis = false;
 let isExecuting = false;
 let lastUserInput = "";
 let lastAnalysis = null;
+let pendingConfirmation = null;
+let availableCapabilities = [];
+let localVariables = [];
+let selectionSource = "user_selection";
+let spssAvailable = false;
+let secretBackupMode = "export";
+let pendingSecretBackupFile = null;
 
 // ── DOM ──────────────────────────────────────────────────
 const fileInput = document.getElementById("file-input");
 const uploadBtn = document.getElementById("upload-btn");
 const uploadStatus = document.getElementById("upload-status");
+const worksheetPicker = document.getElementById("worksheet-picker");
+const worksheetSelect = document.getElementById("worksheet-select");
+const worksheetLoadBtn = document.getElementById("worksheet-load-btn");
 const varSection = document.getElementById("var-section");
 const varList = document.getElementById("var-list");
 const rowCount = document.getElementById("row-count");
@@ -248,22 +440,149 @@ const messagesEl = document.getElementById("messages");
 const userInput = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const exportBtn = document.getElementById("export-btn");
+const exportJsonBtn = document.getElementById("export-json-btn");
 const stopBtn = document.getElementById("stop-btn");
 const settingsToggle = document.getElementById("settings-toggle");
 const settingsPanel = document.getElementById("settings-panel");
 const contextHint = document.getElementById("context-hint");
 const greylistModal = document.getElementById("greylist-modal");
+const glTitle = document.getElementById("gl-title");
 const glMessage = document.getElementById("gl-message");
 const glWarnings = document.getElementById("gl-warnings");
+const glOptions = document.getElementById("gl-options");
 const glCancel = document.getElementById("gl-cancel");
 const glConfirm = document.getElementById("gl-confirm");
 const welcomeSection = document.getElementById("welcome-section");
+const analysisControls = document.getElementById("analysis-controls");
+const methodSelect = document.getElementById("method-select");
+const firstRoleControl = document.getElementById("first-role-control");
+const secondRoleControl = document.getElementById("second-role-control");
+const firstRoleLabel = document.getElementById("first-role-label");
+const secondRoleLabel = document.getElementById("second-role-label");
+const firstVariableSelect = document.getElementById("first-variable-select");
+const secondVariableSelect = document.getElementById("second-variable-select");
+const alphaInput = document.getElementById("alpha-input");
+const localSuggestBtn = document.getElementById("local-suggest-btn");
+const suggestionSource = document.getElementById("suggestion-source");
+const secretBackupModal = document.getElementById("secret-backup-modal");
+const secretBackupPassword = document.getElementById("secret-backup-password");
+const secretBackupConfirmation = document.getElementById("secret-backup-confirmation");
+const secretBackupSubmit = document.getElementById("secret-backup-submit");
+const crashConsentModal = document.getElementById("crash-consent-modal");
+const crashConsentCheckbox = document.getElementById("crash-consent-checkbox");
+
+// ── Per-launch authentication ───────────────────────────
+const SESSION_TOKEN_KEY = "statstalk.session-token";
+let sessionToken = sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
+
+async function establishAuthenticatedSession() {
+    const query = new URLSearchParams(window.location.hash.slice(1));
+    const bootstrapToken = query.get("bootstrap_token");
+    if (!bootstrapToken) {
+        if (sessionToken) return;
+        throw new Error("缺少启动凭据，请重新启动 StatsTalk");
+    }
+
+    history.replaceState(null, document.title, window.location.pathname);
+    const response = await window.fetch("/api/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bootstrap_token: bootstrapToken }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.session_token) {
+        throw new Error("启动凭据已失效，请重新启动 StatsTalk");
+    }
+
+    sessionToken = data.session_token;
+    sessionStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
+}
+
+const authReady = establishAuthenticatedSession();
+
+async function apiFetch(resource, options = {}) {
+    await authReady;
+    const headers = new Headers(options.headers || {});
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+    const response = await window.fetch(resource, { ...options, headers });
+    if (response.status === 401) {
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        sessionToken = "";
+    }
+    return response;
+}
 
 // ── File upload enable ───────────────────────────────────
 fileInput.addEventListener("change", () => {
     uploadBtn.disabled = !fileInput.files.length;
 });
 uploadBtn.addEventListener("click", uploadFile);
+document.getElementById("choose-dataset-btn").addEventListener("click", async () => {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.choose_dataset) {
+        const path = await window.pywebview.api.choose_dataset();
+        if (!path) return;
+        uploadStatus.textContent = "正在打开...";
+        const resp = await apiFetch("/api/open-local-dataset", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({path}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) return uploadStatus.textContent = data.message || "打开失败";
+        handleDatasetPayload(data);
+        return;
+    }
+    fileInput.click();
+});
+
+function applyDatasetPayload(data) {
+    worksheetPicker.classList.remove("show");
+    hasData = true;
+    uploadStatus.textContent = `${data.filename} (${data.row_count} 行)`;
+    userInput.disabled = false;
+    sendBtn.disabled = false;
+    renderVariables(data.variables, data.row_count);
+    hideWelcome();
+    lastAnalysis = null;
+    hasAnalysis = false;
+    exportBtn.disabled = true;
+    exportJsonBtn.disabled = true;
+    contextHint.style.display = "none";
+}
+
+function handleDatasetPayload(data) {
+    if (!data.requires_worksheet_selection) {
+        applyDatasetPayload(data);
+        return;
+    }
+    hasData = false;
+    userInput.disabled = true;
+    sendBtn.disabled = true;
+    worksheetSelect.innerHTML = data.sheets.map(sheet =>
+        `<option value="${esc(sheet.name)}">${esc(sheet.name)} (${sheet.row_count} x ${sheet.column_count})</option>`
+    ).join("");
+    worksheetPicker.classList.add("show");
+    uploadStatus.textContent = `${data.filename}：请选择一个工作表`;
+}
+
+worksheetLoadBtn.addEventListener("click", async () => {
+    worksheetLoadBtn.disabled = true;
+    try {
+        const response = await apiFetch("/api/select-worksheet", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({worksheet: worksheetSelect.value}),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            uploadStatus.textContent = data.message || data.error || "工作表加载失败";
+            return;
+        }
+        applyDatasetPayload(data);
+    } finally {
+        worksheetLoadBtn.disabled = false;
+    }
+});
 
 // ── Upload ───────────────────────────────────────────────
 async function uploadFile() {
@@ -277,20 +596,10 @@ async function uploadFile() {
     form.append("file", file);
 
     try {
-        const resp = await fetch("/api/upload", { method: "POST", body: form });
+        const resp = await apiFetch("/api/upload", { method: "POST", body: form });
         const data = await resp.json();
         if (data.ok) {
-            hasData = true;
-            uploadStatus.textContent = `${data.filename} (${data.row_count} 行)`;
-            userInput.disabled = false;
-            sendBtn.disabled = false;
-            renderVariables(data.variables, data.row_count);
-            hideWelcome();
-            // Clear multi-turn context and analysis state on new file upload
-            lastAnalysis = null;
-            hasAnalysis = false;
-            exportBtn.disabled = true;
-            contextHint.style.display = "none";
+            handleDatasetPayload(data);
         } else {
             uploadStatus.textContent = `错误: ${data.error}`;
         }
@@ -302,6 +611,9 @@ async function uploadFile() {
 
 // ── Variables ─────────────────────────────────────────────
 function renderVariables(vars, rows) {
+    localVariables = vars;
+    selectionSource = "user_selection";
+    suggestionSource.textContent = "";
     varSection.style.display = "block";
     rowCount.textContent = `(${rows} 条记录)`;
     varList.innerHTML = vars.map(v => `
@@ -310,14 +622,117 @@ function renderVariables(vars, rows) {
             <span class="var-type">${esc(v.type)}</span>
         </div>
     `).join("");
+    analysisControls.classList.add("show");
+    populateMethodOptions();
 }
+
+const roleLabels = {
+    grouping_variable: "分组变量",
+    test_variable: "检验变量",
+    first_variable: "变量 1",
+    second_variable: "变量 2",
+    dependent_variable: "因变量",
+    independent_variable: "自变量",
+    row_variable: "行变量",
+    column_variable: "列变量",
+    variable: "分析变量",
+};
+
+function selectedCapability() {
+    return availableCapabilities.find(item => item.name === methodSelect.value) || null;
+}
+
+function populateMethodOptions() {
+    if (!availableCapabilities.length || !localVariables.length) return;
+    const previous = methodSelect.value;
+    methodSelect.innerHTML = availableCapabilities.map(item => {
+        const label = item.display_name && item.display_name.zh ? item.display_name.zh : item.name;
+        return `<option value="${esc(item.name)}">${esc(label)}</option>`;
+    }).join("");
+    methodSelect.value = availableCapabilities.some(item => item.name === previous)
+        ? previous
+        : "descriptives";
+    updateRoleControls();
+}
+
+function roleAcceptsVariable(role, variable, method) {
+    const categorical = variable.role_type === "categorical";
+    const continuous = variable.role_type === "continuous";
+    if (["grouping_variable", "row_variable", "column_variable"].includes(role)) return categorical;
+    if (["test_variable", "first_variable", "second_variable", "dependent_variable", "independent_variable"].includes(role)) return continuous;
+    if (role === "variable" && method === "descriptives") return continuous;
+    return true;
+}
+
+function fillVariableSelect(select, role, preferred, method) {
+    const compatible = localVariables.filter(variable => roleAcceptsVariable(role, variable, method));
+    select.innerHTML = compatible.map(variable => (
+        `<option value="${esc(variable.name)}">${esc(variable.label || variable.name)}</option>`
+    )).join("");
+    if (preferred && compatible.some(variable => variable.name === preferred)) {
+        select.value = preferred;
+    }
+}
+
+function updateRoleControls(firstPreferred = null, secondPreferred = null) {
+    const capability = selectedCapability();
+    if (!capability) return;
+    const roles = capability.requirements.variable_roles || [];
+    const firstRole = roles[0];
+    const secondRole = roles[1];
+    firstRoleControl.style.display = firstRole ? "block" : "none";
+    secondRoleControl.style.display = secondRole ? "block" : "none";
+    if (firstRole) {
+        firstRoleLabel.textContent = roleLabels[firstRole] || firstRole;
+        fillVariableSelect(firstVariableSelect, firstRole, firstPreferred, capability.name);
+    }
+    if (secondRole) {
+        secondRoleLabel.textContent = roleLabels[secondRole] || secondRole;
+        fillVariableSelect(secondVariableSelect, secondRole, secondPreferred, capability.name);
+    }
+}
+
+function markUserSelection() {
+    selectionSource = "user_selection";
+    suggestionSource.textContent = "";
+}
+
+methodSelect.addEventListener("change", () => {
+    updateRoleControls();
+    markUserSelection();
+});
+firstVariableSelect.addEventListener("change", markUserSelection);
+secondVariableSelect.addEventListener("change", markUserSelection);
+alphaInput.addEventListener("change", markUserSelection);
+
+localSuggestBtn.addEventListener("click", async () => {
+    if (!hasData) return;
+    localSuggestBtn.disabled = true;
+    try {
+        const resp = await apiFetch("/api/suggest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: userInput.value.trim() }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "无法生成本地建议");
+        methodSelect.value = data.method;
+        updateRoleControls(data.grouping_variable, data.test_variable);
+        selectionSource = "local_suggestion";
+        suggestionSource.textContent = data.label;
+    } catch (e) {
+        suggestionSource.textContent = e.message;
+    } finally {
+        localSuggestBtn.disabled = false;
+    }
+});
 
 // ── Stop ─────────────────────────────────────────────────
 stopBtn.addEventListener("click", stopExecution);
 
 async function stopExecution() {
     try {
-        await fetch("/api/cancel", { method: "POST" });
+        await apiFetch("/api/cancel", { method: "POST" });
     } catch (e) {
         // Ignore cancel errors
     }
@@ -330,6 +745,11 @@ function setExecuting(executing) {
     stopBtn.style.display = executing ? "inline-block" : "none";
     userInput.disabled = executing;
     sendBtn.disabled = executing;
+    methodSelect.disabled = executing;
+    firstVariableSelect.disabled = executing;
+    secondVariableSelect.disabled = executing;
+    alphaInput.disabled = executing;
+    localSuggestBtn.disabled = executing;
 }
 
 // ── Send ─────────────────────────────────────────────────
@@ -337,8 +757,18 @@ sendBtn.addEventListener("click", sendMessage);
 userInput.addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
 
 async function sendMessage() {
-    const text = userInput.value.trim();
-    if (!text || !hasData) return;
+    if (!hasData) return;
+    const capability = selectedCapability();
+    if (!capability) return;
+    const text = userInput.value.trim() || `运行 ${capability.name}`;
+    const roles = capability.requirements.variable_roles || [];
+    const structuredSelection = {
+        method: capability.name,
+        grouping_variable: roles.length > 1 ? firstVariableSelect.value : null,
+        test_variable: roles.length > 1 ? secondVariableSelect.value : firstVariableSelect.value,
+        alpha: Number(alphaInput.value),
+        selection_source: selectionSource,
+    };
 
     lastUserInput = text;
     addMessage("user", text);
@@ -348,10 +778,10 @@ async function sendMessage() {
     const loadingId = addMessage("assistant", '<span class="loading"></span><span class="loading"></span><span class="loading"></span> 正在分析...');
 
     try {
-        const resp = await fetch("/api/analyze", {
+        const resp = await apiFetch("/api/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({ text, ...structuredSelection }),
         });
         const data = await resp.json();
         removeMessage(loadingId);
@@ -365,12 +795,14 @@ async function sendMessage() {
         if (data.ok) {
             hasAnalysis = true;
             exportBtn.disabled = false;
+            exportJsonBtn.disabled = false;
             addAnalysisResult(data);
         } else {
             if (data.cancelled) {
                 addMessage("assistant", `<span class="error-msg">分析已取消</span>`);
             } else {
-                addMessage("assistant", `<span class="error-msg">${esc(data.error)}</span>`);
+                addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
+                showCorrectionChoices(data.correction_choices);
             }
             if (data.syntax) {
                 addMessage("assistant", `<span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`);
@@ -387,15 +819,35 @@ async function sendMessage() {
 
 // ── Greylist Modal ───────────────────────────────────────
 function showGreylistModal(data) {
+    pendingConfirmation = data;
+    const isCorrection = data.confirmation_type === "method_correction";
+    glTitle.textContent = isCorrection ? "选择分析方法" : "操作确认";
     glMessage.textContent = data.message || "此操作可能需要确认。";
     glWarnings.innerHTML = "";
-    if (data.greylist_warnings && data.greylist_warnings.length) {
-        data.greylist_warnings.forEach(w => {
+    const warnings = isCorrection
+        ? (data.issues || []).map(issue => issue.message)
+        : (data.greylist_warnings || []);
+    warnings.forEach(w => {
+        const li = document.createElement("li");
+        li.textContent = w;
+        glWarnings.appendChild(li);
+    });
+    glOptions.innerHTML = "";
+    if (isCorrection && data.correction_options) {
+        data.correction_options.forEach((option, index) => {
             const li = document.createElement("li");
-            li.textContent = w;
-            glWarnings.appendChild(li);
+            const label = document.createElement("label");
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = "method-correction";
+            input.value = option.id;
+            input.checked = index === 0;
+            label.append(input, document.createTextNode(option.label));
+            li.appendChild(label);
+            glOptions.appendChild(li);
         });
     }
+    glConfirm.textContent = isCorrection ? "使用所选方法" : "确认执行";
     greylistModal.classList.add("open");
 }
 
@@ -403,32 +855,57 @@ function hideGreylistModal() {
     greylistModal.classList.remove("open");
 }
 
-glCancel.addEventListener("click", () => {
+glCancel.addEventListener("click", async () => {
+    const confirmation = pendingConfirmation;
     hideGreylistModal();
+    if (confirmation && confirmation.confirmation_type === "method_correction") {
+        try {
+            const resp = await apiFetch("/api/confirm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ decision: "reject" }),
+            });
+            const data = await resp.json();
+            if (data.message) addMessage("assistant", esc(data.message));
+        } catch (e) {
+            addMessage("assistant", `<span class="error-msg">${esc(e.message)}</span>`);
+        }
+    }
+    pendingConfirmation = null;
     setExecuting(false);
     userInput.focus();
 });
 
 glConfirm.addEventListener("click", async () => {
+    const confirmation = pendingConfirmation;
+    const isCorrection = confirmation && confirmation.confirmation_type === "method_correction";
+    const selected = glOptions.querySelector('input[name="method-correction"]:checked');
     hideGreylistModal();
     // Show loading in chat
     const loadingId = addMessage("assistant", '<span class="loading"></span><span class="loading"></span><span class="loading"></span> 确认中...');
 
     try {
-        const resp = await fetch("/api/confirm", {
+        const resp = await apiFetch("/api/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: lastUserInput, confirm_greylist: true }),
+            body: JSON.stringify(isCorrection
+                ? { decision: "accept", correction_id: selected ? selected.value : null }
+                : { text: lastUserInput, confirm_greylist: true }),
         });
         const data = await resp.json();
         removeMessage(loadingId);
 
-        if (data.ok) {
+        if (data.requires_confirmation) {
+            showGreylistModal(data);
+            return;
+        } else if (data.ok) {
             hasAnalysis = true;
             exportBtn.disabled = false;
+            exportJsonBtn.disabled = false;
             addAnalysisResult(data);
         } else {
-            addMessage("assistant", `<span class="error-msg">${esc(data.error)}</span>`);
+            addMessage("assistant", `<span class="error-msg">${esc(errorMessage(data.error))}</span>`);
+            showCorrectionChoices(data.correction_choices);
             if (data.syntax) {
                 addMessage("assistant", `<span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`);
             }
@@ -438,6 +915,7 @@ glConfirm.addEventListener("click", async () => {
         addMessage("assistant", `<span class="error-msg">确认请求失败: ${esc(e.message)}</span>`);
     }
 
+    pendingConfirmation = null;
     setExecuting(false);
     userInput.focus();
 });
@@ -460,6 +938,7 @@ function removeMessage(id) {
 }
 
 function addAnalysisResult(data) {
+    showBackendOutcome(data);
     let html = "";
 
     // Degradation card (Feature 3)
@@ -505,23 +984,36 @@ function addAnalysisResult(data) {
         }
     }
 
-    // Main result (suppress explanation when limited_mode)
-    if (!data.limited_mode) {
-        html += `<strong>${esc(data.method)}</strong>`;
-        if (data.explanation) {
-            html += `<br><br>${formatExplanation(data.explanation)}`;
-        }
+    const summary = data.summary || {
+        conclusion: data.explanation || "",
+        key_statistics: (data.result && data.result.statistics) || {},
+        warnings: data.warning ? [data.warning] : [],
+    };
+    html += `<strong>${esc(data.method)}</strong>`;
+    if (summary.conclusion) {
+        html += `<br><br>${formatExplanation(summary.conclusion)}`;
     }
-    if (data.syntax && !data.degradation) {
-        html += `<br><span class="syntax-toggle" onclick="this.nextElementSibling.classList.toggle('show')">[查看语法]</span><pre>${esc(data.syntax)}</pre>`;
-    }
-    if (data.result && data.result.statistics && !data.limited_mode) {
+    if (summary.key_statistics && Object.keys(summary.key_statistics).length) {
         html += '<div class="stats">';
-        for (const [k, v] of Object.entries(data.result.statistics)) {
-            html += `${esc(k)}: ${esc(String(v))}<br>`;
+        for (const [key, value] of Object.entries(summary.key_statistics)) {
+            html += `${esc(key)}: ${esc(String(value))}<br>`;
         }
         html += '</div>';
     }
+    if (summary.warnings && summary.warnings.length) {
+        html += '<ul class="result-warnings">';
+        summary.warnings.forEach(item => { html += `<li>${esc(item)}</li>`; });
+        html += '</ul>';
+    }
+    if (summary.fallback && summary.fallback.used) {
+        const reason = summary.fallback.reason || {};
+        html += `<div class="stats"><strong>后端回退:</strong> ${esc(reason.message || reason.code || "已使用备用后端")}</div>`;
+    }
+    if (data.ai_polish) {
+        html += '<div class="ai-polish-result"><strong>可选 AI 语言润色</strong>';
+        html += `${formatExplanation(data.ai_polish)}</div>`;
+    }
+    html += renderAdvancedResults(data.advanced || {});
     addMessage("assistant", html);
 
     // Multi-turn context (Feature 4)
@@ -529,6 +1021,75 @@ function addAnalysisResult(data) {
         lastAnalysis = data.last_analysis;
         updateContextHint();
     }
+}
+
+function renderAdvancedResults(advanced) {
+    const tables = advanced.tables || [];
+    const diagnostics = advanced.diagnostics || {};
+    const backend = advanced.backend || {};
+    let html = '<details class="advanced-results"><summary>高级结果</summary>';
+    tables.forEach(table => {
+        html += `<div class="advanced-meta"><strong>${esc(table.title || "结果表")}</strong></div>`;
+        const rows = table.rows || [];
+        const columns = [...new Set(rows.flatMap(row => Object.keys(row)))];
+        if (columns.length) {
+            html += '<table><thead><tr>';
+            columns.forEach(column => { html += `<th>${esc(column)}</th>`; });
+            html += '</tr></thead><tbody>';
+            rows.forEach(row => {
+                html += '<tr>';
+                columns.forEach(column => { html += `<td>${esc(String(row[column] ?? ""))}</td>`; });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+        }
+    });
+    if (advanced.syntax) {
+        html += `<div class="advanced-meta"><strong>执行语法</strong></div><pre>${esc(advanced.syntax)}</pre>`;
+    }
+    html += '<div class="advanced-meta">';
+    if (backend.effective) html += `实际后端: ${esc(backend.effective)}<br>`;
+    if (backend.preferred) html += `偏好后端: ${esc(backend.preferred)}<br>`;
+    for (const [key, value] of Object.entries(diagnostics)) {
+        if (value !== null && value !== "") html += `${esc(key)}: ${esc(String(value))}<br>`;
+    }
+    html += '</div></details>';
+    return html;
+}
+
+function showBackendOutcome(data) {
+    const notice = document.getElementById("backend-notice");
+    if (data.fallback_reason && data.fallback_reason.announce) {
+        notice.innerHTML = `${esc(data.fallback_reason.message)} ` +
+            '<span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">检查 SPSS 设置</span> ' +
+            '<span class="notice-link" onclick="switchBackendToPython()">改用 Python 引擎</span>';
+        notice.classList.add("show");
+    } else if (data.backend_restored) {
+        notice.textContent = "已检测到 SPSS，本次分析使用 SPSS 引擎完成。";
+        notice.classList.add("show");
+    }
+}
+
+function showCorrectionChoices(choices) {
+    if (!choices || choices.length === 0) return;
+    const items = choices.map(choice => `<li>${esc(choice)}</li>`).join("");
+    addMessage("assistant", `<ul>${items}</ul>`);
+}
+
+async function switchBackendToPython() {
+    const resp = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({STATS_BACKEND: "python"}),
+    });
+    if (!resp.ok) {
+        const data = await resp.json();
+        return alert(data.message || data.error || "后端设置保存失败");
+    }
+    document.getElementById("s-backend").value = "python";
+    const notice = document.getElementById("backend-notice");
+    notice.textContent = "已将统计后端设置为 Python。";
+    notice.classList.add("show");
 }
 
 function formatExplanation(text) {
@@ -551,7 +1112,7 @@ exportBtn.addEventListener("click", async () => {
     exportBtn.disabled = true;
     exportBtn.textContent = "生成中...";
     try {
-        const resp = await fetch("/api/export");
+        const resp = await apiFetch("/api/export");
         if (resp.ok) {
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
@@ -571,22 +1132,87 @@ exportBtn.addEventListener("click", async () => {
     exportBtn.textContent = "导出 Word 报告";
 });
 
+exportJsonBtn.addEventListener("click", async () => {
+    exportJsonBtn.disabled = true;
+    try {
+        const response = await apiFetch("/api/export?format=json");
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || "JSON 导出失败");
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "statstalk_analysis.json";
+        anchor.click();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert("导出失败: " + error.message);
+    }
+    exportJsonBtn.disabled = false;
+});
+
 // ── Settings ──────────────────────────────────────────────
 settingsToggle.addEventListener("click", () => settingsPanel.classList.toggle("open"));
+function updateApiKeyStatus(data) {
+    const status = data.api_key_status || {
+        state: data.LLM_API_KEY_STATE,
+        configured: data.LLM_API_KEY_CONFIGURED,
+        cloud_available: data.LLM_CLOUD_AVAILABLE,
+        action: data.LLM_API_KEY_ACTION,
+        message: data.LLM_API_KEY_MESSAGE,
+    };
+    const box = document.getElementById("api-key-status");
+    const migrate = document.getElementById("migrate-api-key");
+    const remove = document.getElementById("delete-api-key");
+    const exportBackup = document.getElementById("export-api-key-backup");
+    const keyInput = document.getElementById("s-key");
+    const labels = {
+        configured: "API Key 已使用 Windows 账户安全存储。",
+        migration_required: "检测到旧版明文 API Key，请确认安全迁移。",
+        reenter_required: "加密密钥无法解密，请重新输入 API Key。",
+        missing: "尚未配置 API Key。",
+    };
+    box.textContent = labels[status.state] || status.message || "";
+    box.className = status.state === "configured" ? "success" : "warning";
+    migrate.hidden = status.state !== "migration_required";
+    remove.hidden = !["configured", "reenter_required"].includes(status.state);
+    exportBackup.hidden = status.state !== "configured";
+    keyInput.placeholder = status.state === "configured" ? "已安全配置" : "输入新的 API Key";
+}
+
 document.getElementById("save-settings").addEventListener("click", async () => {
     const data = {
         LLM_ENDPOINT: document.getElementById("s-endpoint").value,
         LLM_API_KEY: document.getElementById("s-key").value,
         LLM_MODEL: document.getElementById("s-model").value,
-        SPSS_PYTHON_PATH: document.getElementById("s-spss").value,
+        AI_POLISH_ENABLED: document.getElementById("s-ai-polish").checked,
+        SESSION_RESTORE_ENABLED: document.getElementById("s-session-restore").checked,
+        MCP_ENABLED: document.getElementById("s-mcp-enabled").checked,
+        CRASH_REPORTING_ENABLED: document.getElementById("s-crash-reporting").checked,
+        CRASH_REPORTING_CONSENT: document.getElementById("s-crash-reporting").checked,
+        SPSS_PATH: document.getElementById("s-spss").value,
+        SPSS_PYTHON_PATH: document.getElementById("s-spss-python").value,
         STATS_BACKEND: document.getElementById("s-backend").value,
     };
+    if (data.STATS_BACKEND === "spss" && !spssAvailable && !confirm(
+        "当前未检测到 SPSS。若已安装，请确认路径设置正确。仍要保留 SPSS 偏好吗？"
+    )) return;
     try {
-        await fetch("/api/settings", {
+        const resp = await apiFetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data),
         });
+        const result = await resp.json();
+        if (resp.ok) {
+            document.getElementById("s-key").value = "";
+            updateApiKeyStatus(result);
+        }
+        if (!resp.ok) {
+            throw new Error(result.message || result.error || "服务器拒绝了设置");
+        }
         alert("设置已保存");
     } catch (e) {
         alert("保存失败: " + e.message);
@@ -594,17 +1220,217 @@ document.getElementById("save-settings").addEventListener("click", async () => {
 });
 
 // ── Model Fetch ───────────────────────────────────────────
+document.getElementById("migrate-api-key").addEventListener("click", async () => {
+    if (!confirm("将旧版明文 API Key 迁移到 Windows 安全存储？")) return;
+    const resp = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({MIGRATE_LLM_API_KEY: true}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return alert(data.message || "API Key 迁移失败");
+    updateApiKeyStatus(data);
+});
+
+document.getElementById("delete-api-key").addEventListener("click", async () => {
+    if (!confirm("删除已保存的 API Key？")) return;
+    const resp = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({DELETE_LLM_API_KEY: true}),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return alert(data.message || "API Key 删除失败");
+    updateApiKeyStatus(data);
+});
+
+document.getElementById("s-ai-polish").addEventListener("change", (event) => {
+    if (event.target.checked && !confirm(
+        "AI 润色会发送界面列出的汇总统计字段，但不会发送原始数据、变量名、标签或文件路径。是否启用？"
+    )) {
+        event.target.checked = false;
+    }
+});
+
+document.getElementById("s-session-restore").addEventListener("change", (event) => {
+    if (event.target.checked && !confirm(
+        "仅保存由当前 Windows 账户加密的原文件路径，不保存数据副本或分析历史。是否启用？"
+    )) event.target.checked = false;
+});
+
+document.getElementById("s-mcp-enabled").addEventListener("change", (event) => {
+    if (event.target.checked && !confirm(
+        "MCP 客户端可读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。是否启用？"
+    )) event.target.checked = false;
+});
+
+document.getElementById("s-crash-reporting").addEventListener("change", (event) => {
+    if (event.target.checked && !confirm(
+        "匿名报告仅含错误类型、函数名和行号、版本、实际后端及随机安装标识，不含数据、分析问题、API Key 或路径。是否启用？"
+    )) event.target.checked = false;
+});
+
+document.getElementById("preview-crash-report").addEventListener("click", async () => {
+    const response = await apiFetch("/api/crash-reporting");
+    const data = await response.json();
+    alert(data.latest_event ? JSON.stringify(data.latest_event, null, 2) : "暂无已清洗的崩溃报告。");
+});
+
+document.getElementById("clear-crash-reports").addEventListener("click", async () => {
+    const response = await apiFetch("/api/crash-reporting/queue", {method: "DELETE"});
+    if (!response.ok) alert("无法清空待发送报告。");
+    else alert("待发送报告和本地预览已清空。");
+});
+
+document.getElementById("withdraw-crash-consent").addEventListener("click", async () => {
+    if (!confirm("关闭崩溃报告并删除本机随机安装标识？")) return;
+    const response = await apiFetch("/api/crash-reporting", {method: "DELETE"});
+    if (!response.ok) return alert("无法关闭崩溃报告。");
+    document.getElementById("s-crash-reporting").checked = false;
+    alert("崩溃报告已关闭，随机安装标识已删除。");
+});
+
+document.getElementById("crash-consent-submit").addEventListener("click", async () => {
+    const enabled = crashConsentCheckbox.checked;
+    const response = await apiFetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            CRASH_REPORTING_ENABLED: enabled,
+            CRASH_REPORTING_CONSENT: enabled,
+        }),
+    });
+    if (!response.ok) return alert("无法保存崩溃报告选择。");
+    document.getElementById("s-crash-reporting").checked = enabled;
+    crashConsentModal.classList.remove("open");
+});
+
+document.getElementById("inspect-local-data").addEventListener("click", async () => {
+    const resp = await apiFetch("/api/local-data");
+    const data = await resp.json();
+    if (!resp.ok) return alert("无法检查本地数据");
+    const retained = data.retained;
+    alert(
+        `当前会话：${data.current_session.has_data ? "已加载数据" : "无数据"}，` +
+        `${data.current_session.history_entries} 条历史；工作副本：` +
+        `${retained.working_copies.files} 个 / ${retained.working_copies.bytes} 字节；` +
+        `加密恢复引用：${retained.restore_reference.exists ? "有" : "无"}。`
+    );
+});
+
+document.getElementById("clear-local-data").addEventListener("click", async () => {
+    if (!confirm("清除当前数据、分析历史、临时工作副本和加密恢复引用？原始数据文件不会被删除。")) return;
+    const resp = await apiFetch("/api/local-data", {method: "DELETE"});
+    if (!resp.ok) return alert("清除失败");
+    hasData = false;
+    localVariables = [];
+    messagesEl.innerHTML = "";
+    varSection.style.display = "none";
+    userInput.disabled = true;
+    sendBtn.disabled = true;
+    uploadStatus.textContent = "本地数据已清除";
+});
+
+function openSecretBackupModal(mode, backupFile = null) {
+    secretBackupMode = mode;
+    pendingSecretBackupFile = backupFile;
+    secretBackupPassword.value = "";
+    secretBackupConfirmation.value = "";
+    const exporting = mode === "export";
+    document.getElementById("secret-backup-title").textContent = exporting
+        ? "导出密钥备份"
+        : "恢复密钥备份";
+    document.getElementById("secret-backup-description").textContent = exporting
+        ? "使用至少 12 位密码保护备份。StatsTalk 无法找回此密码。"
+        : "输入创建备份时使用的密码。恢复成功后，密钥将绑定到当前 Windows 账户。";
+    document.getElementById("secret-backup-confirm-row").hidden = !exporting;
+    secretBackupSubmit.textContent = exporting ? "导出" : "恢复";
+    secretBackupModal.classList.add("open");
+    secretBackupPassword.focus();
+}
+
+function closeSecretBackupModal() {
+    secretBackupModal.classList.remove("open");
+    secretBackupPassword.value = "";
+    secretBackupConfirmation.value = "";
+    pendingSecretBackupFile = null;
+    document.getElementById("api-key-backup-file").value = "";
+}
+
+document.getElementById("export-api-key-backup").addEventListener("click", () => {
+    openSecretBackupModal("export");
+});
+
+document.getElementById("import-api-key-backup").addEventListener("click", () => {
+    document.getElementById("api-key-backup-file").click();
+});
+
+document.getElementById("api-key-backup-file").addEventListener("change", (event) => {
+    const backupFile = event.target.files && event.target.files[0];
+    if (backupFile) openSecretBackupModal("import", backupFile);
+});
+
+document.getElementById("secret-backup-cancel").addEventListener("click", closeSecretBackupModal);
+
+secretBackupSubmit.addEventListener("click", async () => {
+    const password = secretBackupPassword.value;
+    secretBackupSubmit.disabled = true;
+    try {
+        if (secretBackupMode === "export") {
+            const response = await apiFetch("/api/api-key-backup/export", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    password,
+                    password_confirmation: secretBackupConfirmation.value,
+                }),
+            });
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || "密钥备份导出失败");
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = "StatsTalk-api-key-backup.stkb";
+            anchor.click();
+            URL.revokeObjectURL(url);
+            closeSecretBackupModal();
+            alert("密钥备份已导出。请将备份文件和密码分开保管。");
+        } else {
+            if (!pendingSecretBackupFile) throw new Error("请选择密钥备份文件");
+            const form = new FormData();
+            form.append("backup", pendingSecretBackupFile);
+            form.append("password", password);
+            const response = await apiFetch("/api/api-key-backup/import", {
+                method: "POST",
+                body: form,
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || "密钥备份恢复失败");
+            updateApiKeyStatus(result);
+            closeSecretBackupModal();
+            alert("API Key 已恢复并绑定到当前 Windows 账户。");
+        }
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        secretBackupSubmit.disabled = false;
+    }
+});
+
 document.getElementById("fetch-models-btn").addEventListener("click", async () => {
     const btn = document.getElementById("fetch-models-btn");
     const endpoint = document.getElementById("s-endpoint").value.trim();
     const apiKey = document.getElementById("s-key").value.trim();
-    if (!endpoint || !apiKey) {
-        alert("请先输入 API 端点和 Key");
+    if (!endpoint) {
+        alert("请先输入 API 端点");
         return;
     }
     btn.disabled = true; btn.textContent = "获取中...";
     try {
-        const resp = await fetch("/api/models", {
+        const resp = await apiFetch("/api/models", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({endpoint, api_key: apiKey}),
@@ -621,7 +1447,7 @@ document.getElementById("fetch-models-btn").addEventListener("click", async () =
             });
             select.style.display = "block";
         } else {
-            alert("获取失败: " + (data.error || "未知错误"));
+            alert("获取失败: " + (data.message || data.error || "未知错误"));
         }
     } catch(e) { alert("请求失败: " + e.message); }
     btn.disabled = false; btn.textContent = "获取模型列表";
@@ -635,7 +1461,7 @@ document.getElementById("detect-spss-btn").addEventListener("click", async () =>
     const btn = document.getElementById("detect-spss-btn");
     btn.disabled = true; btn.textContent = "检测中...";
     try {
-        const resp = await fetch("/api/detect-spss");
+        const resp = await apiFetch("/api/detect-spss");
         const data = await resp.json();
         if (data.ok && data.candidates && data.candidates.length > 0) {
             const select = document.getElementById("s-spss-select");
@@ -644,13 +1470,18 @@ document.getElementById("detect-spss-btn").addEventListener("click", async () =>
                 const opt = document.createElement("option");
                 opt.value = c.path;
                 opt.textContent = `SPSS ${c.version} — ${c.path}`;
+                opt.dataset.pythonPath = c.python_path || "";
                 select.appendChild(opt);
             });
             select.style.display = "block";
             if (data.candidates.length === 1) {
                 select.value = data.candidates[0].path;
                 document.getElementById("s-spss").value = data.candidates[0].path;
+                if (data.candidates[0].python_path) {
+                    document.getElementById("s-spss-python").value = data.candidates[0].python_path;
+                }
             }
+            spssAvailable = true;
         } else {
             alert("未检测到 SPSS 安装，请手动输入路径");
         }
@@ -658,33 +1489,68 @@ document.getElementById("detect-spss-btn").addEventListener("click", async () =>
     btn.disabled = false; btn.textContent = "自动检测";
 });
 document.getElementById("s-spss-select").addEventListener("change", (e) => {
-    if (e.target.value) document.getElementById("s-spss").value = e.target.value;
+    if (!e.target.value) return;
+    document.getElementById("s-spss").value = e.target.value;
+    const option = Array.from(e.target.options).find(item => item.value === e.target.value);
+    if (option && option.dataset.pythonPath) {
+        document.getElementById("s-spss-python").value = option.dataset.pythonPath;
+    }
 });
 
 // ── Load saved settings + auto-detect SPSS on startup ────
 (async function loadSettings() {
     try {
-        const resp = await fetch("/api/settings");
+        const resp = await apiFetch("/api/settings");
         const data = await resp.json();
         if (data.LLM_ENDPOINT) document.getElementById("s-endpoint").value = data.LLM_ENDPOINT;
-        if (data.LLM_API_KEY) document.getElementById("s-key").value = data.LLM_API_KEY;
+        if (data.LLM_API_KEY_CONFIGURED) document.getElementById("s-key").placeholder = "已配置";
+        updateApiKeyStatus(data);
+        if (data.LLM_API_KEY_STATE === "reenter_required") {
+            settingsPanel.classList.add("open");
+            alert("您的 API Key 已丢失（可能因为系统重装或账户变更）。请重新输入 API Key。");
+        }
         if (data.LLM_MODEL) document.getElementById("s-model").value = data.LLM_MODEL;
-        if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss").value = data.SPSS_PYTHON_PATH;
+        document.getElementById("s-ai-polish").checked = data.AI_POLISH_ENABLED === true;
+        document.getElementById("s-session-restore").checked = data.SESSION_RESTORE_ENABLED === true;
+        document.getElementById("s-mcp-enabled").checked = data.MCP_ENABLED === true;
+        document.getElementById("s-crash-reporting").checked = data.CRASH_REPORTING_ENABLED === true;
+        if (data.CRASH_REPORTING_DECIDED !== true) crashConsentModal.classList.add("open");
+        if (data.SPSS_PATH) document.getElementById("s-spss").value = data.SPSS_PATH;
+        if (data.SPSS_PYTHON_PATH) document.getElementById("s-spss-python").value = data.SPSS_PYTHON_PATH;
         if (data.STATS_BACKEND) document.getElementById("s-backend").value = data.STATS_BACKEND;
     } catch(e) { /* ignore */ }
 
     // Auto-detect SPSS availability and auto-switch if needed
     try {
-        const statusResp = await fetch("/api/status");
+        const statusResp = await apiFetch("/api/status");
         const status = await statusResp.json();
+        spssAvailable = Boolean(status.spss_available);
+        availableCapabilities = status.capabilities || [];
+        populateMethodOptions();
         
-        // Note: session persistence restores data for backend use,
-        // but UI waits for explicit user upload or Demo click.
+        let restored = false;
+        if (status.restore && status.restore.state === "pending") {
+            const consent = confirm(`上次使用了 ${status.restore.filename}。是否重新打开原始数据文件？`);
+            const restoreResp = await apiFetch("/api/restore-dataset", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({consent}),
+            });
+            const restoreData = await restoreResp.json();
+            if (restoreResp.ok && restoreData.restored) {
+                handleDatasetPayload(restoreData);
+                restored = true;
+            } else if (consent && !restoreResp.ok) {
+                alert(restoreData.message || "原始数据文件无法恢复，请重新选择文件。");
+            }
+        } else if (status.restore && ["missing", "unavailable"].includes(status.restore.state)) {
+            alert(status.restore.message || "上次的数据文件已丢失或加密引用无法读取，请重新选择文件。");
+        }
 
-        // Auto-load Demo data on first launch (no data, no restored session)
-        if (!status.has_data) {
+        // Auto-load Demo data only when no restore was accepted.
+        if (!status.has_data && !restored) {
             try {
-                const demoResp = await fetch("/api/load-demo", { method: "POST" });
+                const demoResp = await apiFetch("/api/load-demo", { method: "POST" });
                 const demoData = await demoResp.json();
                 if (demoData.ok) {
                     hasData = true;
@@ -700,16 +1566,13 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
         const notice = document.getElementById("backend-notice");
         
         if (!status.spss_available && backendSelect.value === "spss") {
-            // SPSS not available but backend is set to SPSS — auto-switch to Python
-            backendSelect.value = "python";
-            const trustedCount = status.trusted_methods ? status.trusted_methods.length : 0;
-            notice.innerHTML = '未检测到 SPSS，已自动切换至 <strong>Python 引擎</strong>。' +
-                'Python 引擎可完成 ' + trustedCount + ' 种常用分析的完整解读（含白话结论）。' +
-                ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
-            notice.classList.add("show");
+            notice.classList.remove("show");
         } else if (!status.spss_available) {
             // Already on Python backend — show brief info
-            const trustedCount = status.trusted_methods ? status.trusted_methods.length : 0;
+            const trustedCount = (status.capabilities || []).filter(function(capability) {
+                return capability.backends && capability.backends.python &&
+                    capability.backends.python.validated;
+            }).length;
             notice.innerHTML = '当前使用 <strong>Python 引擎</strong>（' + trustedCount + ' 种方法已通过 SPSS 交叉验证）。' +
                 ' <span class="notice-link" onclick="document.getElementById(\'settings-toggle\').click()">查看设置</span>';
             notice.classList.add("show");
@@ -724,7 +1587,7 @@ document.getElementById("s-spss-select").addEventListener("change", (e) => {
 
     // Show config warnings on first launch
     try {
-        const wResp = await fetch("/api/startup-warnings");
+        const wResp = await apiFetch("/api/startup-warnings");
         const wData = await wResp.json();
         if (wData.warnings && wData.warnings.length > 0) {
             let container = document.getElementById("warnings") || document.createElement("div");
@@ -756,7 +1619,7 @@ function loadDemo() {
     let btn = document.getElementById('demoBtn');
     btn.disabled = true;
     btn.textContent = '正在加载...';
-    fetch('/api/load-demo', { method: 'POST' })
+    apiFetch('/api/load-demo', { method: 'POST' })
         .then(r => r.json())
         .then(data => {
             if (data.ok) {
@@ -793,6 +1656,13 @@ function hideWelcome() {
 }
 
 // ── Utils ─────────────────────────────────────────────────
+function errorMessage(error) {
+    if (error && typeof error === "object") {
+        return error.user_message || error.message || error.code || "未知错误";
+    }
+    return error || "未知错误";
+}
+
 function esc(s) {
     if (!s) return "";
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");

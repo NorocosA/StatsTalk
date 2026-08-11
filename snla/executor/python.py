@@ -361,6 +361,11 @@ class PythonStatsExecutor:
         res = pg.linear_regression(clean[ind], clean[dep])
         r2 = float(res["r2"].iloc[0])
         adj_r2 = float(res["adj_r2"].iloc[0])
+        predictor_rows = res[res["names"].astype(str) == str(ind)]
+        predictor = predictor_rows.iloc[0] if not predictor_rows.empty else res.iloc[-1]
+        coefficient = float(predictor["coef"])
+        t_value = float(predictor["T"])
+        p_value = float(predictor["pval"])
         coef_rows = []
         for _, row in res.iterrows():
             coef_rows.append(
@@ -389,7 +394,14 @@ class PythonStatsExecutor:
                 ),
                 TableResult(title="Coefficients", rows=coef_rows, source_format="python_pingouin"),
             ],
-            statistics={"r_squared": r2, "adj_r_squared": adj_r2, "n_valid": len(clean)},
+            statistics={
+                "r_squared": r2,
+                "adj_r_squared": adj_r2,
+                "coefficient": coefficient,
+                "t_value": t_value,
+                "p_value": p_value,
+                "n_valid": len(clean),
+            },
             n_valid=len(clean),
             parser_used="python_pingouin",
         )
@@ -488,21 +500,14 @@ class PythonStatsExecutor:
         test_var: str | None = None,
         **__: Any,
     ) -> AnalysisResult:
-        import pingouin as pg
+        from scipy.stats import chi2_contingency
 
         rv = grouping_var or data.columns[0]
         cv = test_var or data.columns[1]
         clean = data[[rv, cv]].dropna()
 
         ctab = pd.crosstab(clean[rv], clean[cv])
-        expected, observed, res = pg.chi2_independence(clean, rv, cv)
-        # Pick Pearson row
-        pearson = res[res["test"] == "pearson"]
-        if pearson.empty:
-            pearson = res.iloc[[0]]
-        chi2 = float(pearson["chi2"].iloc[0])
-        p_val = float(pearson["pval"].iloc[0])
-        dof = int(pearson["dof"].iloc[0])
+        chi2, p_val, dof, expected = chi2_contingency(ctab, correction=False)
 
         ctab_rows = []
         for idx, row in ctab.iterrows():
@@ -647,7 +652,7 @@ class PythonStatsExecutor:
         test_var: str | None = None,
         **__: Any,
     ) -> AnalysisResult:
-        import pingouin as pg
+        from scipy.stats import mannwhitneyu
 
         gv = grouping_var or data.columns[0]
         tv = test_var or data.columns[1]
@@ -663,10 +668,16 @@ class PythonStatsExecutor:
                 parser_used="python_pingouin",
             )
 
-        res = pg.mwu(g1, g2)
-        u_val = float(res["U_val"].iloc[0])
-        p_val = float(res["p_val"].iloc[0])
-        rbc = float(res.get("RBC", pd.Series([0])).iloc[0])
+        test = mannwhitneyu(
+            g1,
+            g2,
+            alternative="two-sided",
+            method="asymptotic",
+            use_continuity=False,
+        )
+        u_val = float(test.statistic)
+        p_val = float(test.pvalue)
+        rbc = (2 * u_val) / (len(g1) * len(g2)) - 1
 
         return AnalysisResult(
             analysis_type="MANN_WHITNEY",

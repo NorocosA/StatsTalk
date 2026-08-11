@@ -74,7 +74,7 @@ def parse(
                 )
             else:
                 try:
-                    result = parse_oms_xml(oms_xml_path)
+                    result = parse_oms_xml(oms_xml_path, analysis_type=analysis_type)
                     logger.info("Successfully parsed OMS XML: %s", oms_xml_path)
                     return result
                 except Exception as exc:

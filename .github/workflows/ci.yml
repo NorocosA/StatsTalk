@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLM_MOCK: "false"
+  STATS_BACKEND: python
+  PYTHONUTF8: "1"
+  UV_LINK_MODE: copy
+  UV_VERSION: 0.10.10
+
+jobs:
+  ubuntu-quality:
+    name: Ubuntu quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 x64
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+
+      - name: Verify lock file is current
+        run: |
+          uv pip compile --python-version 3.12 --universal --generate-hashes requirements.in -o requirements.lock
+          git diff --exit-code -- requirements.lock
+
+      - name: Sync exact hashed dependencies
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip sync --python .venv/bin/python --require-hashes requirements.lock
+
+      - name: Lint and format
+        run: |
+          .venv/bin/python -m ruff check snla launcher.py
+          .venv/bin/python -m ruff format --check launcher.py snla/tests snla/executor/spss.py
+
+      - name: Python backend regression
+        run: .venv/bin/python -m pytest snla/tests/test_python_backend.py snla/tests/test_capabilities.py -q
+
+      - name: Flask API regression
+        run: .venv/bin/python -m pytest snla/tests/test_server.py snla/tests/test_integration.py -q
+
+      - name: MCP eight-tool integration
+        run: .venv/bin/python -m pytest scripts/mcp_integration_test.py -q
+
+      - name: Security decision branches
+        run: >-
+          .venv/bin/python -m pytest
+          snla/tests/test_loopback_security.py
+          snla/tests/test_launcher_security.py
+          snla/tests/test_llm_transport.py
+          snla/tests/test_validator.py
+          --cov=snla.ui.security
+          --cov=snla.llm.transport
+          --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=100
+          -q
+
+      - name: Statistical decision branches
+        run: >-
+          .venv/bin/python -m pytest
+          snla/tests/test_capabilities.py
+          snla/tests/test_method_decisions.py
+          --cov=snla.capabilities
+          --cov=snla.syntax.templates
+          --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=100
+          -q
+
+      - name: Airline fixture regression
+        run: .venv/bin/python -m pytest snla/tests/test_regression.py -q
+
+      - name: Overall line coverage
+        run: >-
+          .venv/bin/python -m pytest snla/tests
+          -m "not slow"
+          --cov=snla
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-fail-under=70
+          -q
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-312-coverage
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  windows-package:
+    name: Windows package
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 x64
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+
+      - name: Sync exact hashed dependencies
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip sync --python .venv\Scripts\python.exe --require-hashes requirements.lock
+
+      - name: Build executable
+        run: .venv\Scripts\python.exe -m PyInstaller snla.spec --noconfirm --clean
+
+      - name: Check executable size and startup probe
+        shell: pwsh
+        run: |
+          $exe = Get-Item -LiteralPath dist\StatsTalk.exe
+          if ($exe.Length -lt 20MB -or $exe.Length -gt 500MB) {
+            throw "Unexpected executable size: $($exe.Length) bytes"
+          }
+          $output = & $exe.FullName --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "StatsTalk.exe --version exited with $LASTEXITCODE"
+          }
+          if ($output -notmatch '^StatsTalk 0\.9\.0-beta$') {
+            throw "Unexpected version output: $output"
+          }
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: StatsTalk-windows-x64
+          path: dist/StatsTalk.exe
+          if-no-files-found: error

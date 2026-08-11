@@ -6,20 +6,25 @@ Provides two functions:
     against SENSITIVE_VAR_PATTERNS) to generic var_NN placeholders.
 """
 
-CLOUD_SAFE_FIELDS: set[str] = {
-    # Top-level metadata keys
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+CLOUD_SAFE_METADATA_FIELDS: set[str] = {
     "variables",
     "row_count",
     "column_count",
-    "filename",
-    # Field names within variable dicts
+}
+
+CLOUD_SAFE_VARIABLE_FIELDS: set[str] = {
     "name",
     "type",
     "label",
-    # NOTE: value_labels intentionally excluded — contains actual value mappings
-    # (e.g., {1:"Male"}) that could leak sensitive information to cloud LLM.
-    "aggregate_stats",
+    "role_type",
 }
+
+CLOUD_SAFE_FIELDS = CLOUD_SAFE_METADATA_FIELDS | CLOUD_SAFE_VARIABLE_FIELDS
 
 SENSITIVE_VAR_PATTERNS: list[str] = [
     # Chinese patterns (clear semantic boundaries — safe for substring match)
@@ -60,6 +65,44 @@ SENSITIVE_VAR_PATTERNS: list[str] = [
 ]
 
 
+@dataclass(frozen=True)
+class CloudPlanningContext:
+    """Approved planning metadata plus reversible sensitive-name aliases."""
+
+    variables: list[dict]
+    cloud_to_local: dict[str, str]
+    sensitive_aliases: dict[str, str]
+
+    def sanitize_text(self, text: str) -> str:
+        result = text
+        for original, placeholder in sorted(
+            self.sensitive_aliases.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
+            if original:
+                result = re.sub(re.escape(original), placeholder, result, flags=re.IGNORECASE)
+        return result
+
+    def restore_reference(self, reference: object) -> str | None:
+        if not isinstance(reference, str) or not reference.strip():
+            return None
+        names = [item.strip() for item in reference.split(",")]
+        return ", ".join(self.cloud_to_local.get(name, name) for name in names if name)
+
+    def restore_text(self, text: object) -> str:
+        if not isinstance(text, str):
+            return ""
+        result = text
+        for placeholder, original in sorted(
+            self.cloud_to_local.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
+            result = re.sub(rf"\b{re.escape(placeholder)}\b", original, result)
+        return result
+
+
 def filter_for_cloud(metadata: dict) -> dict:
     """Return a new dict containing only CLOUD_SAFE_FIELDS keys present in *metadata*.
 
@@ -70,20 +113,31 @@ def filter_for_cloud(metadata: dict) -> dict:
     privacy leaks from actual value mappings (e.g., {1:"Male"}) being sent to cloud LLM.
     """
     result: dict = {}
-    for k, v in metadata.items():
-        if k in CLOUD_SAFE_FIELDS:
-            if k == "variables" and isinstance(v, list):
-                # Strip value_labels from each variable dict
-                cleaned_vars = []
-                for var in v:
-                    if isinstance(var, dict):
-                        cleaned = {fk: fv for fk, fv in var.items() if fk in CLOUD_SAFE_FIELDS}
-                        cleaned_vars.append(cleaned)
-                    else:
-                        cleaned_vars.append(var)
-                result[k] = cleaned_vars
+    for key in ("row_count", "column_count"):
+        value = metadata.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            result[key] = value
+    variables = metadata.get("variables")
+    if isinstance(variables, list):
+        cleaned_vars = []
+        for variable in variables:
+            if not isinstance(variable, dict):
+                continue
+            cleaned = {
+                key: value
+                for key, value in variable.items()
+                if key in CLOUD_SAFE_VARIABLE_FIELDS and isinstance(value, str)
+            }
+            if not cleaned.get("name") or not cleaned.get("type"):
+                continue
+            if variable.get("type") == "String" or bool(variable.get("value_labels")):
+                cleaned["role_type"] = "categorical"
+            elif variable.get("type") == "Numeric":
+                cleaned["role_type"] = "continuous"
             else:
-                result[k] = v
+                cleaned["role_type"] = "unsupported"
+            cleaned_vars.append(cleaned)
+        result["variables"] = cleaned_vars
     return result
 
 
@@ -102,8 +156,6 @@ def sanitize_variables(variables: list[dict]) -> tuple[list[dict], int]:
     Returns:
         Tuple of (desensitized list, count of sensitive variables found).
     """
-    import re
-
     result: list[dict] = []
     counter = 0
 
@@ -144,9 +196,36 @@ def sanitize_variables(variables: list[dict]) -> tuple[list[dict], int]:
             new_var = dict(var)
             new_var["name"] = f"var_{counter:02d}"
             new_var["original_name"] = var.get("name", "")
+            new_var["original_label"] = var.get("label", "")
+            new_var["label"] = f"Sensitive variable {counter:02d}"
             new_var["desensitized"] = True
             result.append(new_var)
         else:
             result.append(var)
 
     return result, counter
+
+
+def build_cloud_planning_context(variables: list[dict]) -> CloudPlanningContext:
+    """Create the only variable representation allowed in planning calls."""
+
+    sanitized, _count = sanitize_variables(variables)
+    cloud_to_local: dict[str, str] = {}
+    sensitive_aliases: dict[str, str] = {}
+    for variable in sanitized:
+        placeholder = variable.get("name")
+        original_name = variable.get("original_name")
+        if not isinstance(placeholder, str) or not isinstance(original_name, str):
+            continue
+        cloud_to_local[placeholder] = original_name
+        sensitive_aliases[original_name] = placeholder
+        original_label = variable.get("original_label")
+        if isinstance(original_label, str) and original_label:
+            sensitive_aliases[original_label] = placeholder
+
+    safe_variables = filter_for_cloud({"variables": sanitized}).get("variables", [])
+    return CloudPlanningContext(
+        variables=safe_variables,
+        cloud_to_local=cloud_to_local,
+        sensitive_aliases=sensitive_aliases,
+    )
