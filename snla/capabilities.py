@@ -62,8 +62,6 @@ def _tol(metric: str, absolute: float = 1e-4, relative: float = 1e-3) -> MetricT
         rationale = "Discrete counts and degrees of freedom must match exactly."
     elif metric == "p_value":
         rationale = "Allows SPSS display rounding and small tail-probability algorithm differences."
-    elif metric == "effect_size":
-        rationale = "Allows documented backend rounding in derived effect-size calculations."
     else:
         rationale = (
             "Allows floating-point and displayed-value rounding without changing interpretation."
