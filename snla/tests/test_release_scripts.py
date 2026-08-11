@@ -3,6 +3,10 @@ import time
 
 from scripts.compare_backends import (
     PROJECT_ROOT,
+    _build_comparison_json,
+    _build_trust_json,
+    _compare_method_stats,
+    _compute_method_trust,
     _missing_required_stats,
     _parse_filter,
     _release_cases,
@@ -10,6 +14,7 @@ from scripts.compare_backends import (
     _run_with_timeout,
 )
 from scripts.e2e_backend_smoke import SMOKE_CASES, validate_outcome
+from snla.capabilities import get_public_capabilities
 from snla.executor.spss import _oms_output_complete
 
 
@@ -35,11 +40,94 @@ def test_release_gate_excludes_diagnostics_unless_explicitly_requested():
 
 
 def test_release_gate_fails_for_requested_backend_failure_or_conflict():
-    success = {"spss_success": True, "py_success": True, "conclusion_conflict": False}
+    success = {
+        "spss_success": True,
+        "py_success": True,
+        "conclusion_conflict": False,
+        "comparison_passed": True,
+    }
     assert _release_gate_failed([success], None) is False
     assert _release_gate_failed([{**success, "spss_success": False}], None) is True
     assert _release_gate_failed([{**success, "py_success": False}], "python") is True
     assert _release_gate_failed([{**success, "conclusion_conflict": True}], None) is True
+    assert _release_gate_failed([{**success, "comparison_passed": False}], None) is True
+
+
+def test_all_11_capabilities_define_justified_comparison_tolerances():
+    capabilities = get_public_capabilities()
+
+    assert len(capabilities) == 11
+    assert len({capability.name for capability in capabilities}) == 11
+    for capability in capabilities:
+        assert capability.comparison_tolerances
+        for tolerance in capability.comparison_tolerances:
+            assert tolerance.metric
+            assert tolerance.absolute >= 0
+            assert tolerance.relative >= 0
+            assert tolerance.rationale.endswith(".")
+
+
+def test_method_comparison_requires_schema_and_numeric_tolerance():
+    exact = {"r": 0.5, "p_value": 0.02, "n_valid": 30}
+    passed = _compare_method_stats("pearson_correlation", exact, exact, 0.05)
+    missing = _compare_method_stats(
+        "pearson_correlation",
+        exact,
+        {"p_value": 0.02, "n_valid": 30},
+        0.05,
+    )
+    outside = _compare_method_stats(
+        "pearson_correlation",
+        exact,
+        {"r": 0.7, "p_value": 0.02, "n_valid": 30},
+        0.05,
+    )
+
+    assert passed["comparison_passed"] is True
+    assert missing["schema_complete"] is False
+    assert missing["missing_fields"] == ["r"]
+    assert outside["schema_complete"] is True
+    assert outside["numeric_match"] is False
+
+
+def test_method_trust_folds_aliases_and_never_ignores_failures():
+    base = {
+        "spss_success": True,
+        "py_success": True,
+        "conclusion_conflict": False,
+        "schema_complete": True,
+        "numeric_match": True,
+    }
+    results = [
+        {**base, "method": "pearson_correlation"},
+        {**base, "method": "correlations"},
+        {**base, "method": "descriptives", "py_success": False},
+    ]
+
+    trust = _compute_method_trust(results, 0.05, 0.98)
+
+    assert len(trust) == 11
+    assert "correlations" not in trust
+    assert trust["pearson_correlation"]["cases_total"] == 2
+    assert trust["pearson_correlation"]["trusted"] is True
+    assert trust["descriptives"]["trusted"] is False
+    assert trust["descriptives"]["cases_failed"] == 1
+
+
+def test_release_json_artifacts_are_evidence_only_and_cover_11_methods():
+    comparison = _build_comparison_json([], 0.05, False, True)
+    trust = _build_trust_json(
+        _compute_method_trust([], 0.05, 0.98),
+        0.05,
+        0.98,
+    )
+
+    assert comparison["meta"]["canonical_methods"] == 11
+    assert len(comparison["meta"]["comparison_schemas"]) == 11
+    assert trust["evidence_only"] is True
+    assert trust["runtime_trust_source"] == "capability_registry"
+    assert trust["canonical_methods"] == 11
+    assert len(trust["methods"]) == 11
 
 
 def test_inferential_methods_require_a_p_value_but_descriptives_do_not():
@@ -82,6 +170,8 @@ def test_smoke_cases_pin_method_and_variable_roles():
     assert len(SMOKE_CASES) == 5
     assert all(case["expected_method"] for case in SMOKE_CASES)
     assert all("test_variable" in case for case in SMOKE_CASES)
+    public_methods = {capability.name for capability in get_public_capabilities()}
+    assert {case["expected_method"] for case in SMOKE_CASES} <= public_methods
 
 
 def test_smoke_outcome_rejects_a_successful_response_with_the_wrong_method():
@@ -100,3 +190,23 @@ def test_package_spec_tracks_analysis_service_without_removed_pipeline():
     assert "snla.analysis.service" in spec
     assert "snla.analysis.applicability" in spec
     assert "snla.ui._pipeline" not in spec
+
+
+def test_spss_release_report_has_required_signoff_fields_and_no_account_judgment():
+    report = (PROJECT_ROOT / "docs" / "release" / "RELEASE_SPSS_VALIDATION.md").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "Validation date",
+        "Reviewer",
+        "Windows version",
+        "SPSS version: 26",
+        "Matrix summary",
+        "OMS parsing outcome",
+        "Reviewer signature",
+        "Release Decision",
+    ):
+        assert required in report
+    for forbidden in ("license", "licence", "正版", "授权", "许可证"):
+        assert forbidden.casefold() not in report.casefold()

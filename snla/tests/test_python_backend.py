@@ -401,15 +401,13 @@ class TestFrequencies:
     def test_frequencies_with_missing(self, executor):
         """Frequencies on column with NaN counts missing separately.
 
-        Note: value_counts(dropna=False) treats NaN as a "value", so n_valid
-        counts ALL rows.  n_missing reflects rows outside the counted set.
+        Missing values are excluded from valid percentages and reported separately.
         """
         df = pd.DataFrame({"category": ["X", "Y", "X", np.nan, "Y", "X", "Y", "Y"]})
         result = executor.execute("frequencies", df, test_var="category")
 
-        # dropna=False → NaN is counted as a category (not treated as missing)
-        assert result.statistics["n_valid"] == 8
-        assert result.statistics["n_missing"] == 0
+        assert result.statistics["n_valid"] == 7
+        assert result.statistics["n_missing"] == 1
 
 
 # ===================================================================

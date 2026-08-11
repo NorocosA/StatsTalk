@@ -624,7 +624,12 @@ def _extract_correlations_from_oms(xml_path: str) -> dict[str, float]:
                 tag = parent.tag.split("}")[-1] if "}" in (parent.tag or "") else (parent.tag or "")
                 if tag == "category":
                     txt = parent.get("text", "")
-                    if txt in ("Pearson Correlation", "Sig. (2-tailed)", "N"):
+                    if txt in (
+                        "Pearson Correlation",
+                        "Correlation Coefficient",
+                        "Sig. (2-tailed)",
+                        "N",
+                    ):
                         stat_name = txt
                         break
                 if tag == "pivotTable":
@@ -637,10 +642,13 @@ def _extract_correlations_from_oms(xml_path: str) -> dict[str, float]:
                 continue
 
             # Skip the diagonal (r=1.0 for self-correlation)
-            if stat_name == "Pearson Correlation" and abs(val - 1.0) < 0.001:
+            if (
+                stat_name in {"Pearson Correlation", "Correlation Coefficient"}
+                and abs(val - 1.0) < 0.001
+            ):
                 continue
 
-            if stat_name == "Pearson Correlation":
+            if stat_name in {"Pearson Correlation", "Correlation Coefficient"}:
                 stats["r"] = val
             elif stat_name == "Sig. (2-tailed)":
                 stats["p_value"] = val

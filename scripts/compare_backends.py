@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""P5-3 Backend Comparison Engine — SPSS vs Python (pingouin) validation.
+"""Release backend comparison engine — SPSS vs Python validation.
 
 Validates statistical consistency between SPSS and Python backends across
-all 12 analysis methods. Generates ``p0_output/backend_comparison.json``
+all 11 canonical public capabilities. Generates ``p0_output/backend_comparison.json``
 with per-case comparison data and ``p0_output/method_trust.json`` with
 per-method whitelist for P5-4 no-SPSS routing.
 
@@ -48,6 +48,12 @@ if sys.platform == "win32":
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from snla.capabilities import (  # noqa: E402
+    canonicalize_method,
+    get_capability,
+    get_public_capabilities,
+)
 
 # ---------------------------------------------------------------------------
 # Method name → filter short-names (for --methods flag)
@@ -404,6 +410,77 @@ def _compare_stats(
     return cmp
 
 
+def _compare_method_stats(
+    method: str,
+    spss_stats: dict[str, Any],
+    py_stats: dict[str, Any],
+    alpha: float,
+) -> dict[str, Any]:
+    """Compare every release field declared by the canonical capability."""
+
+    capability = get_capability(method)
+    if capability is None:
+        return {
+            "schema_complete": False,
+            "numeric_match": False,
+            "comparison_passed": False,
+            "missing_fields": ["unknown_capability"],
+            "metrics": [],
+            "conclusion_conflict": False,
+        }
+
+    missing_fields: list[str] = []
+    metrics: list[dict[str, Any]] = []
+    for tolerance in capability.comparison_tolerances:
+        metric = tolerance.metric
+        spss_value = _safe_float(spss_stats.get(metric))
+        python_value = _safe_float(py_stats.get(metric))
+        if spss_value is None or python_value is None:
+            missing_fields.append(metric)
+            metrics.append(
+                {
+                    "metric": metric,
+                    "spss": spss_value,
+                    "python": python_value,
+                    "within_tolerance": False,
+                    "absolute_tolerance": tolerance.absolute,
+                    "relative_tolerance": tolerance.relative,
+                    "rationale": tolerance.rationale,
+                }
+            )
+            continue
+        absolute_difference = abs(spss_value - python_value)
+        scale = max(abs(spss_value), abs(python_value))
+        allowed_difference = tolerance.absolute + tolerance.relative * scale
+        metrics.append(
+            {
+                "metric": metric,
+                "spss": spss_value,
+                "python": python_value,
+                "absolute_difference": absolute_difference,
+                "allowed_difference": allowed_difference,
+                "within_tolerance": absolute_difference <= allowed_difference,
+                "absolute_tolerance": tolerance.absolute,
+                "relative_tolerance": tolerance.relative,
+                "rationale": tolerance.rationale,
+            }
+        )
+
+    base = _compare_stats(spss_stats, py_stats, alpha)
+    schema_complete = not missing_fields
+    numeric_match = schema_complete and all(item["within_tolerance"] for item in metrics)
+    conclusion_conflict = bool(base["conclusion_conflict"])
+    return {
+        **base,
+        "canonical_method": capability.name,
+        "schema_complete": schema_complete,
+        "numeric_match": numeric_match,
+        "comparison_passed": numeric_match and not conclusion_conflict,
+        "missing_fields": missing_fields,
+        "metrics": metrics,
+    }
+
+
 # ===================================================================
 # Single case runner
 # ===================================================================
@@ -544,7 +621,7 @@ def _run_single_case(
     both_ok = spss_success and py_success
     comparison = {}
     if both_ok:
-        comparison = _compare_stats(spss_stats, py_stats, alpha)
+        comparison = _compare_method_stats(method, spss_stats, py_stats, alpha)
 
     # Determine notes
     notes_parts: list[str] = []
@@ -570,6 +647,12 @@ def _run_single_case(
         "effect_size_ratio": comparison.get("effect_size_ratio"),
         "df_diff": comparison.get("df_diff"),
         "conclusion_conflict": comparison.get("conclusion_conflict", False),
+        "canonical_method": canonicalize_method(method),
+        "schema_complete": comparison.get("schema_complete", False),
+        "numeric_match": comparison.get("numeric_match", False),
+        "comparison_passed": comparison.get("comparison_passed", False),
+        "missing_fields": comparison.get("missing_fields", []),
+        "metric_comparisons": comparison.get("metrics", []),
         "test_statistic_key": comparison.get("test_statistic_key"),
         "test_statistic_diff_rel": comparison.get("test_statistic_diff_rel"),
         "n_valid_spss": comparison.get("n_valid_spss"),
@@ -591,36 +674,57 @@ def _compute_method_trust(
     results: list[dict[str, Any]],
     alpha: float,
     trust_threshold: float,
+    backend_filter: str | None = None,
 ) -> dict[str, Any]:
     """Compute per-method trust scores from comparison results.
 
     Only considers cases where both backends succeeded.
     """
     by_method: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"tested": 0, "conflicts": 0, "failed": 0, "total": 0}
+        lambda: {
+            "tested": 0,
+            "conflicts": 0,
+            "failed": 0,
+            "schema_failures": 0,
+            "numeric_failures": 0,
+            "total": 0,
+        }
     )
+    for capability in get_public_capabilities():
+        by_method[capability.name]
 
     for r in results:
-        m = r["method"]
+        m = canonicalize_method(r["method"])
         by_method[m]["total"] += 1
-        if (
-            not r["spss_success"]
-            and not r["py_success"]
-            or not r["spss_success"]
-            or not r["py_success"]
-        ):
+        requested_failed = (
+            (backend_filter is None and (not r["spss_success"] or not r["py_success"]))
+            or (backend_filter == "python" and not r["py_success"])
+            or (backend_filter == "spss" and not r["spss_success"])
+        )
+        if requested_failed:
             by_method[m]["failed"] += 1
-        else:
+        elif r["spss_success"] and r["py_success"]:
             by_method[m]["tested"] += 1
             if r.get("conclusion_conflict"):
                 by_method[m]["conflicts"] += 1
+            if not r.get("schema_complete", False):
+                by_method[m]["schema_failures"] += 1
+            elif not r.get("numeric_match", False):
+                by_method[m]["numeric_failures"] += 1
 
     methods_out: dict[str, dict[str, Any]] = {}
     for method, stats in sorted(by_method.items()):
         tested = stats["tested"]
         conflicts = stats["conflicts"]
         rate = conflicts / tested if tested > 0 else 0.0
-        trusted = (1.0 - rate) >= trust_threshold if tested > 0 else False
+        trusted = bool(
+            tested > 0
+            and stats["failed"] == 0
+            and stats["schema_failures"] == 0
+            and stats["numeric_failures"] == 0
+            and (1.0 - rate) >= trust_threshold
+        )
+        capability = get_capability(method)
         methods_out[method] = {
             "trusted": trusted,
             "conflict_rate": round(rate, 4),
@@ -628,6 +732,14 @@ def _compute_method_trust(
             "cases_failed": stats["failed"],
             "cases_total": stats["total"],
             "conflicts": conflicts,
+            "schema_failures": stats["schema_failures"],
+            "numeric_failures": stats["numeric_failures"],
+            "comparison_fields": [
+                tolerance.metric for tolerance in capability.comparison_tolerances
+            ],
+            "qualification_state": "qualified"
+            if trusted
+            else ("failed" if stats["failed"] else "not_cross_validated"),
         }
 
     return methods_out
@@ -746,6 +858,19 @@ def _build_comparison_json(
             "both_succeeded": both_ok,
             "conclusion_conflicts": conflicts,
             "total_conflict_rate": round(conflicts / both_ok, 4) if both_ok > 0 else None,
+            "canonical_methods": len(get_public_capabilities()),
+            "comparison_schemas": {
+                capability.name: [
+                    {
+                        "metric": tolerance.metric,
+                        "absolute": tolerance.absolute,
+                        "relative": tolerance.relative,
+                        "rationale": tolerance.rationale,
+                    }
+                    for tolerance in capability.comparison_tolerances
+                ]
+                for capability in get_public_capabilities()
+            },
         },
         "results": clean_results,
     }
@@ -761,6 +886,9 @@ def _build_trust_json(
         "generated_at": datetime.now(UTC).isoformat(),
         "alpha_threshold": alpha,
         "trust_threshold": trust_threshold,
+        "evidence_only": True,
+        "runtime_trust_source": "capability_registry",
+        "canonical_methods": len(get_public_capabilities()),
         "methods": method_trust,
     }
 
@@ -801,6 +929,8 @@ def _release_gate_failed(results: list[dict[str, Any]], backend_filter: str | No
         if backend_filter in (None, "python") and not entry.get("py_success"):
             return True
         if backend_filter is None and entry.get("conclusion_conflict"):
+            return True
+        if backend_filter is None and not entry.get("comparison_passed"):
             return True
     return False
 
@@ -1004,7 +1134,12 @@ def main() -> int:
         # ------------------------------------------------------------------
         # Compute method trust
         # ------------------------------------------------------------------
-        method_trust = _compute_method_trust(results, args.alpha, args.trust_threshold)
+        method_trust = _compute_method_trust(
+            results,
+            args.alpha,
+            args.trust_threshold,
+            backend_filter=args.backend,
+        )
 
         # ------------------------------------------------------------------
         # Build & save outputs
