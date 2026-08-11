@@ -463,6 +463,34 @@ class TestCorrelationsOmsXml:
         finally:
             os.unlink(tmp_name)
 
+    def test_oms_spearman_correlation_coefficient_is_normalized(self):
+        xml_content = """<oms>
+  <command text="NONPAR CORR">
+    <pivotTable subType="Correlations">
+      <dimension axis="row"><category text="score" variable="true">
+        <dimension axis="column">
+          <category text="Correlation Coefficient"><cell number="1"/></category>
+          <category text="N"><cell number="30"/></category>
+          <category text="age" variable="true"><dimension axis="column">
+            <category text="Correlation Coefficient"><cell number="0.61"/></category>
+            <category text="Sig. (2-tailed)"><cell number="0.001"/></category>
+            <category text="N"><cell number="30"/></category>
+          </dimension></category>
+        </dimension>
+      </category></dimension>
+    </pivotTable>
+  </command>
+</oms>"""
+        tmp_name = _write_temp_xml(xml_content)
+        try:
+            result = parse_oms_xml(tmp_name, analysis_type="CORRELATIONS")
+
+            assert result.statistics["r"] == 0.61
+            assert result.statistics["p_value"] == 0.001
+            assert result.statistics["n_valid"] == 30
+        finally:
+            os.unlink(tmp_name)
+
 
 # =========================================================================
 # Test 9: OMS XML — ANOVA (dedicated extractor)

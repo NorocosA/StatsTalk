@@ -213,11 +213,10 @@ class PythonStatsExecutor:
                 ],
                 parser_used="python_pingouin",
             )
-        d1 = data[v1].dropna()
-        d2 = data[v2].dropna()
-        # Align lengths
-        n = min(len(d1), len(d2))
-        d1, d2 = d1.iloc[:n], d2.iloc[:n]
+        clean = data[[v1, v2]].dropna()
+        d1 = clean[v1]
+        d2 = clean[v2]
+        n = len(clean)
 
         res = pg.ttest(d1, d2, paired=True)
         t_val = float(res["T"].iloc[0])
@@ -553,11 +552,14 @@ class PythonStatsExecutor:
         **__: Any,
     ) -> AnalysisResult:
         tv = test_var or grouping_var or data.columns[0]
-        counts = data[tv].value_counts(dropna=False).reset_index()
+        series = data[tv]
+        counts = series.dropna().value_counts().reset_index()
         counts.columns = ["value", "Frequency"]
-        total = int(counts["Frequency"].sum())
+        n_valid = int(series.notna().sum())
+        n_missing = int(series.isna().sum())
+        total = len(series)
         counts["Percent"] = (counts["Frequency"] / total * 100).round(2)
-        counts["Valid_Percent"] = (counts["Frequency"] / counts["Frequency"].sum() * 100).round(2)
+        counts["Valid_Percent"] = (counts["Frequency"] / n_valid * 100).round(2)
         counts["Cumulative_Percent"] = counts["Percent"].cumsum().round(2)
 
         rows = []
@@ -575,9 +577,9 @@ class PythonStatsExecutor:
         return AnalysisResult(
             analysis_type="FREQUENCIES",
             tables=[TableResult(title="Frequencies", rows=rows, source_format="python_pingouin")],
-            statistics={"n_valid": total, "n_missing": int(len(data) - total)},
-            n_valid=total,
-            n_missing=int(len(data) - total),
+            statistics={"n_valid": n_valid, "n_missing": n_missing},
+            n_valid=n_valid,
+            n_missing=n_missing,
             parser_used="python_pingouin",
         )
 
@@ -746,7 +748,13 @@ class PythonStatsExecutor:
                     source_format="python_pingouin",
                 ),
             ],
-            statistics={"h": h_val, "p_value": p_val, "eta_sq": eta_sq, "n_valid": len(clean)},
+            statistics={
+                "h": h_val,
+                "df": int(clean[gv].nunique() - 1),
+                "p_value": p_val,
+                "eta_sq": eta_sq,
+                "n_valid": len(clean),
+            },
             n_valid=len(clean),
             parser_used="python_pingouin",
         )

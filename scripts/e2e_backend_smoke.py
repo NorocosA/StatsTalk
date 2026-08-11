@@ -33,6 +33,8 @@ import requests
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from snla.capabilities import get_public_capabilities  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Smoke test cases — 5 representative analyses
 # ---------------------------------------------------------------------------
@@ -126,7 +128,11 @@ def upload_file() -> bool:
             f"{BASE_URL}/api/upload",
             files={"file": (TEST_DATA.name, f, "application/octet-stream")},
         )
-    data = resp.json()
+    try:
+        data = resp.json()
+    except requests.JSONDecodeError:
+        print(f"  [FAIL] Upload returned HTTP {resp.status_code} with a non-JSON response")
+        return False
     if not data.get("ok"):
         print(f"  [FAIL] Upload failed: {data.get('error')}")
         return False
@@ -245,6 +251,11 @@ def main():
     args = parser.parse_args()
 
     cases = SMOKE_CASES[:3] if args.quick else SMOKE_CASES
+    public_methods = {capability.name for capability in get_public_capabilities()}
+    expected_methods = {case["expected_method"] for case in cases}
+    unknown_methods = expected_methods - public_methods
+    if unknown_methods:
+        raise RuntimeError(f"Smoke cases reference unknown methods: {sorted(unknown_methods)}")
 
     print("=" * 60)
     print("P5-3f: E2E Backend Smoke Test (API-layer validation)")
@@ -301,6 +312,9 @@ def main():
                 case_report["spss"] = {
                     "ok": valid,
                     "method": spss_result.get("method") if spss_result else None,
+                    "effective_backend": (
+                        spss_result.get("effective_backend") if spss_result else None
+                    ),
                     "error": error or None,
                 }
                 time.sleep(1.0)
@@ -326,6 +340,9 @@ def main():
                 case_report["python"] = {
                     "ok": valid,
                     "method": py_result.get("method") if py_result else None,
+                    "effective_backend": (
+                        py_result.get("effective_backend") if py_result else None
+                    ),
                     "error": error or None,
                 }
 
@@ -358,6 +375,8 @@ def main():
             "spss_version": Path(config.SPSS_EXECUTABLE).parent.name,
         },
         "backend_filter": args.backend,
+        "public_capability_count": len(public_methods),
+        "expected_methods": sorted(expected_methods),
         "cases": case_reports,
         "summary": {"backend_checks_passed": passed, "failed_checks": failed},
     }

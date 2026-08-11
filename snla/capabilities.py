@@ -31,6 +31,7 @@ class MetricTolerance:
     metric: str
     absolute: float
     relative: float
+    rationale: str
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,22 @@ class MethodCapability:
 
 
 def _tol(metric: str, absolute: float = 1e-4, relative: float = 1e-3) -> MetricTolerance:
-    return MetricTolerance(metric=metric, absolute=absolute, relative=relative)
+    if absolute == 0 and relative == 0:
+        rationale = "Discrete counts and degrees of freedom must match exactly."
+    elif metric == "p_value":
+        rationale = "Allows SPSS display rounding and small tail-probability algorithm differences."
+    elif metric == "effect_size":
+        rationale = "Allows documented backend rounding in derived effect-size calculations."
+    else:
+        rationale = (
+            "Allows floating-point and displayed-value rounding without changing interpretation."
+        )
+    return MetricTolerance(
+        metric=metric,
+        absolute=absolute,
+        relative=relative,
+        rationale=rationale,
+    )
 
 
 def _capability(
@@ -102,8 +118,6 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
             _tol("n_valid", 0, 0),
             _tol("mean"),
             _tol("std_dev"),
-            _tol("minimum"),
-            _tol("maximum"),
         ),
         minimum_sample_size=1,
     ),
@@ -112,7 +126,7 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         "频数分析",
         "Frequencies",
         ("variable",),
-        (_tol("n_valid", 0, 0), _tol("frequency", 0, 0)),
+        (_tol("n_valid", 0, 0),),
         minimum_sample_size=1,
     ),
     _capability(
@@ -122,10 +136,8 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         ("grouping_variable", "test_variable"),
         (
             _tol("t_value"),
-            _tol("df"),
+            _tol("df", 0, 0),
             _tol("p_value", 1e-4, 1e-2),
-            _tol("mean_difference"),
-            _tol("cohens_d", 1e-3, 1e-2),
         ),
         minimum_sample_size=4,
         minimum_groups=2,
@@ -139,10 +151,8 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         ("first_variable", "second_variable"),
         (
             _tol("t_value"),
-            _tol("df"),
+            _tol("df", 0, 0),
             _tol("p_value", 1e-4, 1e-2),
-            _tol("mean_difference"),
-            _tol("cohens_d", 1e-3, 1e-2),
         ),
         minimum_sample_size=2,
     ),
@@ -153,10 +163,7 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         ("grouping_variable", "test_variable"),
         (
             _tol("f_value"),
-            _tol("df_between", 0, 0),
-            _tol("df_within", 0, 0),
             _tol("p_value", 1e-4, 1e-2),
-            _tol("eta_squared", 1e-3, 1e-2),
         ),
         minimum_sample_size=4,
         minimum_groups=2,
@@ -167,7 +174,7 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         "皮尔逊相关",
         "Pearson correlation",
         ("first_variable", "second_variable"),
-        (_tol("r_value"), _tol("p_value", 1e-4, 1e-2), _tol("n_valid", 0, 0)),
+        (_tol("r"), _tol("p_value", 1e-4, 1e-2), _tol("n_valid", 0, 0)),
         aliases=("correlations",),
         minimum_sample_size=3,
     ),
@@ -176,7 +183,7 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         "斯皮尔曼相关",
         "Spearman correlation",
         ("first_variable", "second_variable"),
-        (_tol("r_value"), _tol("p_value", 1e-4, 1e-2), _tol("n_valid", 0, 0)),
+        (_tol("r"), _tol("p_value", 1e-4, 1e-2), _tol("n_valid", 0, 0)),
         minimum_sample_size=3,
     ),
     _capability(
@@ -200,9 +207,8 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         "Mann-Whitney U test",
         ("grouping_variable", "test_variable"),
         (
-            _tol("u_value"),
+            _tol("u_statistic"),
             _tol("p_value", 1e-4, 1e-2),
-            _tol("rank_biserial", 1e-3, 1e-2),
         ),
         minimum_sample_size=4,
         minimum_groups=2,
@@ -215,10 +221,9 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         "Kruskal-Wallis test",
         ("grouping_variable", "test_variable"),
         (
-            _tol("h_value"),
+            _tol("h_statistic"),
             _tol("df", 0, 0),
             _tol("p_value", 1e-4, 1e-2),
-            _tol("epsilon_squared", 1e-3, 1e-2),
         ),
         minimum_sample_size=3,
         minimum_groups=2,
@@ -230,10 +235,8 @@ _PUBLIC_CAPABILITIES: tuple[MethodCapability, ...] = (
         ("dependent_variable", "independent_variable"),
         (
             _tol("r_squared"),
-            _tol("adjusted_r_squared"),
-            _tol("coefficient"),
+            _tol("t_value"),
             _tol("p_value", 1e-4, 1e-2),
-            _tol("n_valid", 0, 0),
         ),
         minimum_sample_size=3,
     ),
@@ -310,6 +313,7 @@ def get_public_capabilities_payload() -> list[dict[str, object]]:
                         "metric": tolerance.metric,
                         "absolute": tolerance.absolute,
                         "relative": tolerance.relative,
+                        "rationale": tolerance.rationale,
                     }
                     for tolerance in capability.comparison_tolerances
                 ],
