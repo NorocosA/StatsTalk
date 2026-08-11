@@ -37,7 +37,7 @@ def test_validated_method_falls_back_without_changing_preference_or_method(tmp_p
             )
         ),
     )
-    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: "Done")
+    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: ("Done", None))
     service = AnalysisService(spss_available=lambda: False)
     request = AnalysisRequest(
         session_id="fallback-session",
@@ -116,7 +116,7 @@ def test_spss_availability_is_rechecked_for_each_analysis(tmp_path, monkeypatch)
             analysis_type="DESCRIPTIVES", parser_used="python_pingouin"
         ),
     )
-    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: "Done")
+    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: ("Done", None))
     service = AnalysisService(backend="spss", spss_available=lambda: available["value"])
     request = AnalysisRequest(
         session_id="restore-session",

@@ -208,6 +208,7 @@ class AnalysisSuccess:
     result: AnalysisResult
     explanation: str | None
     audit: AnalysisAudit
+    ai_polish: str | None = None
     syntax: str = ""
     greylist_warnings: tuple[str, ...] = ()
     limited_mode: bool = False
@@ -233,6 +234,8 @@ class AnalysisSuccess:
             "greylist_warnings": list(self.greylist_warnings),
             "result": result,
             "explanation": self.explanation,
+            "ai_polish": self.ai_polish,
+            "authoritative_explanation": "explanation",
             "markdown": _render_markdown(self.method, result, self.explanation),
             "limited_mode": self.limited_mode,
             "parameters": self.parameters or {},
@@ -701,6 +704,7 @@ class AnalysisService:
         limited_mode = effective_backend == "python" and not backend_capability.validated
         warning = None
         explanation = None
+        ai_polish = None
         if limited_mode:
             warning = (
                 f"Python 引擎下“{capability.name}”方法的可靠性尚未经 SPSS 交叉验证。"
@@ -708,7 +712,7 @@ class AnalysisService:
             )
         else:
             try:
-                explanation = _explain_result(result, request.alpha)
+                explanation, ai_polish = _explain_result(result, request.alpha)
             except Exception:
                 return _failure(
                     request_id=request_id,
@@ -737,6 +741,7 @@ class AnalysisService:
             plan_explanation=plan.plan_explanation,
             result=result,
             explanation=explanation,
+            ai_polish=ai_polish,
             syntax=syntax,
             limited_mode=limited_mode,
             warning=warning,
@@ -959,7 +964,7 @@ class AnalysisService:
                 suggestion="请检查 SPSS OMS 输出配置后重试。",
             )
         try:
-            explanation = _explain_result(result)
+            explanation, ai_polish = _explain_result(result)
         except Exception:
             return _failure(
                 request_id=request_id,
@@ -979,6 +984,7 @@ class AnalysisService:
             plan_explanation="",
             result=result,
             explanation=explanation,
+            ai_polish=ai_polish,
             syntax=pending.syntax,
             greylist_warnings=tuple(pending.warnings),
             temp_copy=True,
@@ -1093,16 +1099,18 @@ def _parse_execution(execution: Any, method: str) -> AnalysisResult:
     )
 
 
-def _explain_result(result: AnalysisResult, alpha: float = 0.05) -> str:
+def _explain_result(result: AnalysisResult, alpha: float = 0.05) -> tuple[str, str | None]:
     from snla import config
     from snla.explainer.naturalize import explain
 
-    use_llm = bool(config.LLM_API_KEY) and not config.LLM_MOCK
+    local_explanation = explain(result, use_llm_polish=False, alpha=alpha)
+    use_llm = config.AI_POLISH_ENABLED and bool(config.LLM_API_KEY) and not config.LLM_MOCK
     if use_llm:
         from snla.llm.client import LLMClient
 
-        return explain(result, use_llm_polish=True, llm_client=LLMClient(), alpha=alpha)
-    return explain(result, use_llm_polish=False, alpha=alpha)
+        polished = explain(result, use_llm_polish=True, llm_client=LLMClient(), alpha=alpha)
+        return local_explanation, polished if polished != local_explanation else None
+    return local_explanation, None
 
 
 def _now() -> str:

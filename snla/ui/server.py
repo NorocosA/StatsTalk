@@ -519,6 +519,7 @@ def settings():
     """Read settings or update them without exposing API-key material."""
     if request.method == "GET":
         import snla.config as cfg
+        from snla.explainer.naturalize import POLISH_AGGREGATE_FIELDS
 
         api_key_status = cfg.api_key_public_status()
         return jsonify(
@@ -531,6 +532,8 @@ def settings():
                 "LLM_API_KEY_ACTION": api_key_status["action"],
                 "LLM_API_KEY_MESSAGE": api_key_status["message"],
                 "LLM_MODEL": cfg.LLM_MODEL,
+                "AI_POLISH_ENABLED": cfg.AI_POLISH_ENABLED,
+                "AI_POLISH_FIELDS": list(POLISH_AGGREGATE_FIELDS),
                 "SPSS_PATH": cfg.SPSS_EXECUTABLE,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
@@ -606,6 +609,9 @@ def settings():
     if data.get("SPSS_PATH"):
         cfg.SPSS_EXECUTABLE = str(data["SPSS_PATH"])
         changed.append("SPSS_PATH")
+    if "AI_POLISH_ENABLED" in data:
+        cfg.AI_POLISH_ENABLED = data["AI_POLISH_ENABLED"] is True
+        changed.append("AI_POLISH_ENABLED")
 
     # ── Persist to local .env file (never uploaded) ────────
     if changed:
@@ -715,6 +721,7 @@ def _save_env_file():
         "SPSS_PYTHON_PATH": "SPSS_PYTHON_PATH",
         "LLM_ENDPOINT": "LLM_ENDPOINT",
         "LLM_MODEL": "LLM_MODEL",
+        "AI_POLISH_ENABLED": "AI_POLISH_ENABLED",
         "STATS_BACKEND": "STATS_BACKEND",
         "LLM_MOCK": "LLM_MOCK",
     }

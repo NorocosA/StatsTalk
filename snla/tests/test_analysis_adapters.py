@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from snla.analysis import AnalysisAudit, AnalysisCorrectionRejected, AnalysisSuccess
@@ -19,6 +20,141 @@ class _MCPContext:
 
     async def info(self, *args, **kwargs):
         return None
+
+
+def test_http_and_mcp_planning_payloads_enforce_cloud_privacy(tmp_path, monkeypatch):
+    from snla import config, mcp_server
+    from snla.llm.client import LLMClient
+    from snla.ui import server
+
+    data_path = tmp_path / "private_scores.csv"
+    data_path.write_text("patient_id,score\nP001,80\nP002,90\n", encoding="utf-8")
+    variables = [
+        {
+            "name": "patient_id",
+            "type": "String",
+            "label": "Patient Identifier",
+            "value_labels": {"P001": "Alice"},
+            "raw_values": ["P001", "P002"],
+        },
+        {"name": "score", "type": "Numeric", "label": "Score"},
+    ]
+    dataset_meta = {
+        "file_path": str(data_path),
+        "filename": data_path.name,
+        "row_count": 2,
+        "column_count": 2,
+        "raw_data": [["P001", 80]],
+        "aggregate_stats": {"private_metric": 12345},
+    }
+    captured_messages = []
+
+    def capture_chat(self, messages, **kwargs):
+        captured_messages.append(messages)
+        return {
+            "content": json.dumps(
+                {
+                    "method": "descriptives",
+                    "plan_explanation": "Use score while protecting var_01",
+                    "grouping_variable": None,
+                    "test_variable": "score",
+                }
+            )
+        }
+
+    monkeypatch.setattr(config, "LLM_MOCK", False)
+    monkeypatch.setattr(config, "LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "AI_POLISH_ENABLED", False)
+    monkeypatch.setattr(config, "STATS_BACKEND", "python")
+    monkeypatch.setattr(mcp_server, "STATS_BACKEND", "python")
+    monkeypatch.setattr(LLMClient, "chat", capture_chat)
+    monkeypatch.setattr(server, "_check_rate_limit", lambda: False)
+
+    server.session.reset()
+    server.session.variables = list(variables)
+    server.session.dataset_meta = dict(dataset_meta)
+    server._executing = False
+    mcp_server._session_states.clear()
+    mcp_server._session_states[_MCPContext.session_id] = mcp_server.MCPState(
+        variables=list(variables),
+        dataset_meta=dict(dataset_meta),
+        file_path=str(data_path),
+    )
+    planner._pending.clear()
+
+    query = "Describe score for patient_id Patient Identifier"
+    server.app.config["TESTING"] = True
+    with server.app.test_client() as client:
+        bootstrap_token = loopback_security.begin_launch("http://127.0.0.1:43125")
+        bootstrap = client.post("/api/bootstrap", json={"bootstrap_token": bootstrap_token})
+        client.environ_base["HTTP_AUTHORIZATION"] = (
+            f"Bearer {bootstrap.get_json()['session_token']}"
+        )
+        http_payload = client.post("/api/analyze", json={"text": query}).get_json()
+
+    mcp_payload = asyncio.run(mcp_server.snla_analyze(_MCPContext(), query))
+
+    assert http_payload["ok"] is True
+    assert mcp_payload["ok"] is True
+    assert len(captured_messages) == 2
+    for messages in captured_messages:
+        payload = json.dumps(messages, ensure_ascii=False)
+        for forbidden in (
+            "patient_id",
+            "Patient Identifier",
+            "P001",
+            "P002",
+            "Alice",
+            data_path.name,
+            str(data_path),
+            "private_metric",
+            "12345",
+        ):
+            assert forbidden not in payload
+        assert "var_01" in payload
+        assert "Sensitive variable 01" in payload
+        assert "2" in payload
+    assert http_payload["plan_explanation"] == "Use score while protecting patient_id"
+    assert mcp_payload["plan_explanation"] == "Use score while protecting patient_id"
+
+
+def test_mcp_restores_sensitive_aliases_for_explicit_method_inputs(monkeypatch):
+    from snla import mcp_server
+
+    captured = []
+
+    class FakeOutcome:
+        def to_payload(self):
+            return {"ok": False, "error": {"code": "CAPTURED"}}
+
+    def capture_request(request):
+        captured.append(request)
+        return FakeOutcome()
+
+    monkeypatch.setattr(mcp_server.analysis_service, "analyze", capture_request)
+    mcp_server._session_states.clear()
+    mcp_server._session_states[_MCPContext.session_id] = mcp_server.MCPState(
+        variables=[
+            {"name": "patient_id", "type": "String", "label": "Patient Identifier"},
+            {"name": "score", "type": "Numeric", "label": "Score"},
+        ],
+        dataset_meta={"file_path": "scores.csv"},
+        file_path="scores.csv",
+    )
+
+    asyncio.run(
+        mcp_server.snla_analyze(
+            _MCPContext(),
+            "compare groups",
+            method="independent_t_test",
+            grouping_variable="var_01",
+            test_variable="score",
+        )
+    )
+
+    assert len(captured) == 1
+    assert captured[0].grouping_variable == "patient_id"
+    assert captured[0].test_variable == "score"
 
 
 def _policy_view(payload):

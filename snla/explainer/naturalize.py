@@ -31,6 +31,28 @@ from typing import Any
 from snla.llm.client import LLMClient
 from snla.parser.schema import AnalysisResult
 
+POLISH_AGGREGATE_FIELDS = (
+    "analysis_type",
+    "significance_decision",
+    "alpha",
+    "t_value",
+    "f_value",
+    "chi2_value",
+    "p_value",
+    "correlation",
+    "mean_a",
+    "mean_b",
+    "mean_difference",
+    "effect_size",
+    "r_squared",
+    "u_value",
+    "h_value",
+    "rank_biserial_correlation",
+    "epsilon_squared",
+    "valid_count",
+    "missing_count",
+)
+
 # ===========================================================================
 # Public API
 # ===========================================================================
@@ -280,8 +302,6 @@ def build_polish_prompt(
     r_squared = details.get("r_squared")
     mean_a = details.get("mean_a")
     mean_b = details.get("mean_b")
-    label_a = details.get("label_a", "组A")
-    label_b = details.get("label_b", "组B")
     mean_diff = details.get("mean_diff")
 
     forbidden_str = "；".join(forbidden) if forbidden else "无"
@@ -297,6 +317,9 @@ def build_polish_prompt(
     # ---- Build STATISTICAL FACTS block ------------------------------------
     facts_lines = [
         "[STATISTICAL FACTS — 必须严格遵守以下事实，不得修改]",
+        f"- 分析类型: {analysis_result.analysis_type}",
+        f"- 判定状态: {constraints['significance']}",
+        f"- 显著性水平: {constraints.get('alpha', 0.05)}",
         f"- 显著性结论: {forced_phrase}",
     ]
 
@@ -305,11 +328,17 @@ def build_polish_prompt(
         num_parts.append(f"t={t_value}")
     if f_value is not None:
         num_parts.append(f"F={f_value}")
+    chi2_value = details.get("chi2_value")
+    if chi2_value is not None:
+        num_parts.append(f"chi2={chi2_value}")
     if p_value is not None:
         num_parts.append(f"p={p_value}")
+    correlation = details.get("r")
+    if correlation is not None:
+        num_parts.append(f"r={correlation}")
     if mean_a is not None and mean_b is not None:
-        num_parts.append(f"{label_a}={mean_a}")
-        num_parts.append(f"{label_b}={mean_b}")
+        num_parts.append(f"组A均值={mean_a}")
+        num_parts.append(f"组B均值={mean_b}")
     if mean_diff is not None:
         num_parts.append(f"均值差={mean_diff}")
     if d_value is not None:
@@ -328,6 +357,12 @@ def build_polish_prompt(
     eps_squared = details.get("eps_squared")
     if eps_squared is not None:
         num_parts.append(f"ε²={eps_squared}")
+    n_valid = details.get("n_valid")
+    if n_valid is not None:
+        num_parts.append(f"有效样本数={n_valid}")
+    n_missing = details.get("n_missing")
+    if n_missing is not None:
+        num_parts.append(f"缺失样本数={n_missing}")
 
     facts_lines.append(f"- 具体数值: {', '.join(num_parts)}")
     facts_lines.append(f"- 不允许使用的措辞: {forbidden_str}")

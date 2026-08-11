@@ -16,7 +16,7 @@ import json
 from typing import TYPE_CHECKING
 
 from snla.capabilities import canonicalize_method, get_capability, get_public_capabilities
-from snla.data.sanitizer import filter_for_cloud
+from snla.data.sanitizer import build_cloud_planning_context, filter_for_cloud
 
 from . import PlanResult
 
@@ -67,21 +67,18 @@ def _plan(
     # ── Real LLM path ─────────────────────────────────────────────────
     from snla.llm.client import LLMClient
 
-    cloud_vars = _cloud_vars(variables)
-    ds = dataset_meta or {}
-    row_count = ds.get("row_count", 0)
+    cloud_context = build_cloud_planning_context(variables)
+    cloud_vars = cloud_context.variables
+    cloud_question = cloud_context.sanitize_text(user_input)
+    safe_dataset_meta = filter_for_cloud(dataset_meta or {})
+    row_count = safe_dataset_meta.get("row_count", 0)
 
     # Build variable catalog for semantic matching
     var_lines = []
     for v in cloud_vars[:30]:
         lbl = v.get("label", "")
-        vl = v.get("value_labels", {})
-        vl_str = ""
-        if vl:
-            items = list(vl.items())[:5]
-            vl_str = " [" + " ".join(f"{k}={v}" for k, v in items) + "]"
         var_lines.append(
-            f"  - {v.get('name', '?')} ({v.get('type', '?')}){': ' + lbl if lbl else ''}{vl_str}"
+            f"  - {v.get('name', '?')} ({v.get('type', '?')}){': ' + lbl if lbl else ''}"
         )
     var_catalog = "\n".join(var_lines)
 
@@ -114,7 +111,7 @@ def _plan(
             "content": (
                 f"数据集: {row_count} 条记录, {len(cloud_vars)} 个变量\n"
                 f"{var_catalog}\n\n"
-                f"用户问题: {user_input}\n\n"
+                f"用户问题: {cloud_question}\n\n"
                 f"请分析用户问题中的关键词，匹配到正确的变量，返回 JSON。"
             ),
         },
@@ -125,9 +122,9 @@ def _plan(
         result = client.chat(prompt)
         parsed = json.loads(result.get("content", "{}"))
         method = canonicalize_method(parsed.get("method", "descriptives"))
-        plan = parsed.get("plan_explanation", "")
-        gvar = parsed.get("grouping_variable")
-        tvar = parsed.get("test_variable")
+        plan = cloud_context.restore_text(parsed.get("plan_explanation", ""))
+        gvar = cloud_context.restore_reference(parsed.get("grouping_variable"))
+        tvar = cloud_context.restore_reference(parsed.get("test_variable"))
         if get_capability(method) is None:
             method = "descriptives"
         return _rag(
@@ -156,7 +153,7 @@ def _plan(
 
 def _cloud_vars(variables: list[dict]) -> list[dict]:
     """Return cloud-safe variable metadata (strips raw values)."""
-    return filter_for_cloud({"variables": variables}).get("variables", [])
+    return build_cloud_planning_context(variables).variables
 
 
 def suggest_local(

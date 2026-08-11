@@ -26,7 +26,9 @@ class PlannerMustNotRun:
 def test_explicit_local_selection_bypasses_planner_but_uses_analysis_service(tmp_path, monkeypatch):
     data_path = tmp_path / "scores.csv"
     data_path.write_text("score\n70\n80\n90\n", encoding="utf-8")
-    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *args, **kwargs: "Done")
+    monkeypatch.setattr(
+        "snla.analysis.service._explain_result", lambda *args, **kwargs: ("Done", None)
+    )
 
     outcome = AnalysisService(backend="python", analysis_planner=PlannerMustNotRun()).analyze(
         AnalysisRequest(
@@ -75,7 +77,7 @@ def test_no_key_text_request_is_labeled_local_and_never_enters_rag(tmp_path, mon
             AssertionError("no-key planning must not enter RAG")
         ),
     )
-    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: "Done")
+    monkeypatch.setattr("snla.analysis.service._explain_result", lambda *_args: ("Done", None))
 
     outcome = AnalysisService(backend="python").analyze(
         AnalysisRequest(

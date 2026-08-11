@@ -52,7 +52,7 @@ from snla.analysis import (
 from snla.capabilities import get_public_capabilities_payload
 from snla.config import STATS_BACKEND
 from snla.data.reader import read_and_extract
-from snla.data.sanitizer import filter_for_cloud
+from snla.data.sanitizer import build_cloud_planning_context
 from snla.explainer.export import export_to_docx
 from snla.trust import get_trusted_methods, trust_loaded_from
 
@@ -246,7 +246,7 @@ async def snla_upload(
             "system", f"文件解析失败: {e}", "PARSE_ERROR", "请确认文件格式正确（.sav 或 .csv）。"
         )
 
-    cloud_vars = filter_for_cloud({"variables": state.variables}).get("variables", [])
+    cloud_vars = build_cloud_planning_context(state.variables).variables
     await ctx.info(
         f"已上传 {fp.name}（{len(state.variables)} 个变量，{meta.get('row_count', 0)} 条记录）"
     )
@@ -277,7 +277,7 @@ async def snla_variables(ctx: Context) -> dict:
         return _mk_error(
             "user", "请先上传数据文件", "NO_DATA", "使用 snla_upload 上传 .sav 或 .csv 文件后重试。"
         )
-    cloud_vars = filter_for_cloud({"variables": state.variables}).get("variables", [])
+    cloud_vars = build_cloud_planning_context(state.variables).variables
     return {
         "ok": True,
         "filename": state.dataset_meta.get("filename", "") if state.dataset_meta else "",
@@ -330,6 +330,7 @@ async def snla_analyze(
     dataset_meta = dict(state.dataset_meta or {})
     if state.file_path:
         dataset_meta["file_path"] = state.file_path
+    cloud_context = build_cloud_planning_context(state.variables)
     outcome = analysis_service.analyze(
         AnalysisRequest(
             session_id=sid,
@@ -339,8 +340,8 @@ async def snla_analyze(
             last_analysis=state.last_analysis,
             confirm_greylist=confirm_greylist,
             method=method,
-            grouping_variable=grouping_variable,
-            test_variable=test_variable,
+            grouping_variable=cloud_context.restore_reference(grouping_variable),
+            test_variable=cloud_context.restore_reference(test_variable),
             alpha=alpha,
             selection_source="user_selection" if method else "planner",
         )
