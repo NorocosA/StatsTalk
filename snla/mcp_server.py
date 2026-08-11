@@ -1,10 +1,11 @@
 """
 SNLA MCP Server — statistical analysis via natural language over MCP protocol.
 
-Exposes 7 tools for OpenClaw / Claude Desktop / any MCP client:
+Exposes 8 tools for OpenClaw / Claude Desktop / any MCP client:
 
     snla_status     — server health, trusted methods, SPSS availability
-    snla_upload     — upload .sav / .csv data file
+    snla_upload     — upload .sav / .csv / .xlsx data file
+    snla_select_worksheet — explicitly load one pending Excel worksheet
     snla_variables  — list variable metadata
     snla_analyze    — plan + execute statistical analysis
     snla_confirm    — confirm a pending greylist operation
@@ -50,7 +51,12 @@ from snla.analysis import (
 )
 from snla.capabilities import get_public_capabilities_payload
 from snla.config import STATS_BACKEND
-from snla.data.reader import read_and_extract
+from snla.data.reader import (
+    ExcelImportError,
+    inspect_xlsx,
+    read_and_extract,
+    read_xlsx_and_extract,
+)
 from snla.data.sanitizer import build_cloud_planning_context
 from snla.explainer.export import export_to_docx
 from snla.secrets import application_data_directory
@@ -81,6 +87,7 @@ class MCPState:
     last_method: str = ""
     last_query: str = ""
     last_backend: str = ""
+    pending_workbook: dict | None = None
 
     def __post_init__(self):
         if self.variables is None:
@@ -191,7 +198,7 @@ async def snla_upload(
     ctx: Context,
     file_path: str,
 ) -> dict:
-    """Upload a data file (.sav or .csv) for analysis.
+    """Upload a data file (.sav, .csv, or .xlsx) for analysis.
 
     Args:
         file_path: Absolute path to the local data file on the server.
@@ -203,6 +210,14 @@ async def snla_upload(
     if not fp.exists():
         return _mk_error(
             "user", f"文件不存在: {file_path}", "FILE_NOT_FOUND", "请检查文件路径后重试。"
+        )
+
+    if fp.suffix.lower() not in {".sav", ".csv", ".xlsx"}:
+        return _mk_error(
+            "user",
+            "不支持的文件类型，仅支持 .sav、.csv 和 .xlsx。",
+            "UNSUPPORTED_FILE_TYPE",
+            "请选择受支持的数据文件。",
         )
 
     size = fp.stat().st_size
@@ -220,13 +235,36 @@ async def snla_upload(
     session_dir.mkdir(parents=True, exist_ok=True)
     dest = session_dir / fp.name
     shutil.copy2(fp, dest)
-    state.file_path = str(dest)
+    if fp.suffix.lower() == ".xlsx":
+        try:
+            structure = inspect_xlsx(dest)
+        except ExcelImportError as exc:
+            dest.unlink(missing_ok=True)
+            return _mk_error("user", str(exc), exc.code, "请修复工作簿后重试。")
+        state.variables = []
+        state.dataset_meta = None
+        state.file_path = str(dest)
+        state.pending_workbook = {
+            "file_path": str(dest),
+            "filename": fp.name,
+            "structure": structure,
+        }
+        return {
+            "ok": True,
+            "filename": fp.name,
+            "format": "xlsx",
+            "requires_worksheet_selection": True,
+            "sheets": structure["sheets"],
+            "total_effective_cells": structure["total_effective_cells"],
+        }
 
     # Read metadata
     try:
         meta = read_and_extract(str(dest))
         state.variables = meta.get("variables", [])
         state.dataset_meta = meta
+        state.file_path = str(dest)
+        state.pending_workbook = None
     except Exception as e:
         return _mk_error(
             "system", f"文件解析失败: {e}", "PARSE_ERROR", "请确认文件格式正确（.sav 或 .csv）。"
@@ -240,6 +278,39 @@ async def snla_upload(
     return {
         "ok": True,
         "filename": fp.name,
+        "row_count": meta.get("row_count", 0),
+        "variable_count": len(state.variables),
+        "variables": cloud_vars,
+    }
+
+
+@mcp.tool()
+async def snla_select_worksheet(ctx: Context, worksheet: str) -> dict:
+    """Select and load exactly one worksheet from the pending .xlsx workbook."""
+
+    state = _session_state(ctx)
+    if state.pending_workbook is None:
+        return _mk_error(
+            "user",
+            "当前没有待选择的 Excel 工作簿。",
+            "NO_PENDING_WORKBOOK",
+            "请先上传 .xlsx 文件。",
+        )
+    try:
+        meta = read_xlsx_and_extract(state.pending_workbook["file_path"], worksheet)
+    except ExcelImportError as exc:
+        return _mk_error("user", str(exc), exc.code, "请选择列出的工作表或修复表头。")
+    meta["filename"] = state.pending_workbook["filename"]
+    state.variables = meta.get("variables", [])
+    state.dataset_meta = meta
+    state.file_path = meta["file_path"]
+    state.pending_workbook = None
+    cloud_vars = build_cloud_planning_context(state.variables).variables
+    await ctx.info(f"已选择工作表 {worksheet}（{len(state.variables)} 个变量）")
+    return {
+        "ok": True,
+        "filename": meta["filename"],
+        "worksheet": worksheet,
         "row_count": meta.get("row_count", 0),
         "variable_count": len(state.variables),
         "variables": cloud_vars,

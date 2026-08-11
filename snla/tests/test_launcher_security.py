@@ -136,6 +136,6 @@ def test_desktop_file_dialog_returns_only_an_explicit_user_selection():
     assert calls == [
         {
             "allow_multiple": False,
-            "file_types": ("SPSS and CSV datasets (*.sav;*.csv)",),
+            "file_types": ("StatsTalk datasets (*.sav;*.csv;*.xlsx)",),
         }
     ]

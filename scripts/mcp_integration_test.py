@@ -73,13 +73,13 @@ def test_import():
 
 
 def test_tool_count():
-    """Verify exactly 7 tools are registered with the FastMCP instance."""
+    """Verify exactly 8 tools are registered with the FastMCP instance."""
     from snla.mcp_server import mcp as mcp_server
 
     tools = _discover_tools(mcp_server)
     actual = len(tools)
     names = [t.name for t in tools]
-    assert actual == 7, f"Expected 7 tools, got {actual}: {names}"
+    assert actual == 8, f"Expected 8 tools, got {actual}: {names}"
     print(f"[OK] 7 tools registered: {names}")
 
 
@@ -90,6 +90,7 @@ def test_tool_names():
     expected = {
         "snla_status",
         "snla_upload",
+        "snla_select_worksheet",
         "snla_variables",
         "snla_analyze",
         "snla_confirm",
@@ -146,7 +147,7 @@ def test_engine_busy_format():
 
 def test_session_isolation():
     """Verify MCPState instances are independent per session_id."""
-    from snla.mcp_server import _session_states, MCPState
+    from snla.mcp_server import MCPState, _session_states
 
     _session_states.clear()
 
@@ -177,7 +178,7 @@ def test_status_tool():
     This is the only tool we call directly (others require data files or
     have side effects). It validates the async-call-with-mock-ctx pattern.
     """
-    from snla.mcp_server import snla_status, _session_states
+    from snla.mcp_server import _session_states, snla_status
 
     _session_states.clear()
     ctx = MockContext(session_id="test-status")
