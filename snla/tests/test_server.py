@@ -47,7 +47,7 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def reset_global_state():
+def reset_global_state(tmp_path, monkeypatch):
     """Reset all module-level state between tests.
 
     Clears:
@@ -56,7 +56,27 @@ def reset_global_state():
       - Planner pending greylist
     """
     import snla.ui.server as srv
+    from snla import config
+    from snla.data.retention import DatasetRetention
 
+    class FakeProvider:
+        def protect(self, plaintext):
+            return b"protected:" + plaintext[::-1]
+
+        def unprotect(self, ciphertext):
+            return ciphertext.removeprefix(b"protected:")[::-1]
+
+    monkeypatch.setattr(config, "SESSION_RESTORE_ENABLED", False)
+    monkeypatch.setattr(
+        srv,
+        "dataset_retention",
+        DatasetRetention(
+            reference_path=tmp_path / "restore" / "restore_reference.bin",
+            workspace_root=tmp_path / "workspaces",
+            provider=FakeProvider(),
+            restore_enabled=lambda: config.SESSION_RESTORE_ENABLED,
+        ),
+    )
     srv._executing = False
     srv._active_executor = None
     srv._was_cancelled = False
@@ -347,6 +367,7 @@ class TestSettingsEndpoint:
             "LLM_MODEL",
             "AI_POLISH_ENABLED",
             "AI_POLISH_FIELDS",
+            "SESSION_RESTORE_ENABLED",
             "SPSS_PATH",
             "STATS_BACKEND",
         ):
@@ -368,6 +389,21 @@ class TestSettingsEndpoint:
         assert resp.status_code == 200
         assert cfg.AI_POLISH_ENABLED is False
         assert "AI_POLISH_ENABLED" in resp.get_json()["changed"]
+
+    def test_disabling_session_restore_clears_the_encrypted_reference(self, client, monkeypatch):
+        import snla.config as cfg
+        from snla.ui import server
+
+        calls = []
+        monkeypatch.setattr(cfg, "SESSION_RESTORE_ENABLED", True)
+        monkeypatch.setattr(server.dataset_retention, "forget", lambda: calls.append("forgotten"))
+        monkeypatch.setattr(server, "_save_env_file", lambda: None)
+
+        response = client.post("/api/settings", json={"SESSION_RESTORE_ENABLED": False})
+
+        assert response.status_code == 200
+        assert cfg.SESSION_RESTORE_ENABLED is False
+        assert calls == ["forgotten"]
 
     def test_settings_post(self, client):
         """POST updates settings and returns changed keys."""
@@ -422,6 +458,152 @@ class TestSettingsEndpoint:
             assert cfg.LLM_ENDPOINT == "http://127.0.0.1:11434/v1/chat"
         finally:
             cfg.LLM_ENDPOINT = original_endpoint
+
+
+def test_restore_candidate_requires_explicit_http_consent(client, tmp_path, monkeypatch):
+    import snla.config as cfg
+    from snla.data.retention import DatasetRetention
+    from snla.ui import server
+
+    class FakeProvider:
+        def protect(self, plaintext):
+            return b"protected:" + plaintext[::-1]
+
+        def unprotect(self, ciphertext):
+            return ciphertext.removeprefix(b"protected:")[::-1]
+
+    source = tmp_path / "scores.csv"
+    source.write_text("score\n70\n80\n", encoding="utf-8")
+    monkeypatch.setattr(cfg, "SESSION_RESTORE_ENABLED", True)
+    retention = DatasetRetention(
+        reference_path=tmp_path / "restore" / "restore_reference.bin",
+        workspace_root=tmp_path / "workspaces",
+        provider=FakeProvider(),
+        restore_enabled=lambda: cfg.SESSION_RESTORE_ENABLED,
+    )
+    retention.remember(source)
+    monkeypatch.setattr(server, "dataset_retention", retention)
+    server.session.reset()
+
+    status = client.get("/api/status").get_json()
+    declined = client.post("/api/restore-dataset", json={"consent": False}).get_json()
+
+    assert status["has_data"] is False
+    assert status["restore"] == {
+        "state": "pending",
+        "available": True,
+        "filename": "scores.csv",
+        "format": "csv",
+    }
+    assert declined == {"ok": True, "restored": False}
+    assert server.session.has_data is False
+
+    restored = client.post("/api/restore-dataset", json={"consent": True}).get_json()
+
+    assert restored["ok"] is True
+    assert restored["restored"] is True
+    assert restored["filename"] == "scores.csv"
+    assert server.session.dataset_meta["file_path"] == str(source.resolve())
+
+
+def test_browser_upload_is_ephemeral_and_normal_exit_clears_data_and_history(
+    client, tmp_path, monkeypatch
+):
+    from snla.data.retention import DatasetRetention
+    from snla.ui import server
+
+    retention = DatasetRetention(
+        reference_path=tmp_path / "restore" / "restore_reference.bin",
+        workspace_root=tmp_path / "workspaces",
+        provider=object(),
+        restore_enabled=lambda: False,
+    )
+    monkeypatch.setattr(server, "dataset_retention", retention)
+    server.session.reset()
+
+    response = client.post(
+        "/api/upload",
+        data={"file": (io.BytesIO(b"score\n70\n80\n"), "scores.csv", "text/csv")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    working_file = Path(server.session.dataset_meta["file_path"])
+    assert working_file.is_file()
+    assert working_file.is_relative_to(retention.workspace_root)
+    assert retention.restore_status()["state"] == "disabled"
+    server.session.history.append({"role": "user", "content": "private question"})
+
+    server.cleanup_runtime_data()
+
+    assert not working_file.exists()
+    assert server.session.history == []
+    assert server.session.has_data is False
+
+
+def test_native_local_open_can_opt_in_to_encrypted_restore(client, tmp_path, monkeypatch):
+    import snla.config as cfg
+    from snla.data.retention import DatasetRetention
+    from snla.ui import server
+
+    class FakeProvider:
+        def protect(self, plaintext):
+            return b"protected:" + plaintext[::-1]
+
+        def unprotect(self, ciphertext):
+            return ciphertext.removeprefix(b"protected:")[::-1]
+
+    source = tmp_path / "private_scores.csv"
+    source.write_text("score\n70\n80\n", encoding="utf-8")
+    reference_path = tmp_path / "restore" / "restore_reference.bin"
+    monkeypatch.setattr(cfg, "SESSION_RESTORE_ENABLED", True)
+    retention = DatasetRetention(
+        reference_path=reference_path,
+        workspace_root=tmp_path / "workspaces",
+        provider=FakeProvider(),
+        restore_enabled=lambda: cfg.SESSION_RESTORE_ENABLED,
+    )
+    monkeypatch.setattr(server, "dataset_retention", retention)
+    server.session.reset()
+
+    response = client.post("/api/open-local-dataset", json={"path": str(source)})
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+    assert server.session.dataset_meta["file_path"] == str(source.resolve())
+    assert reference_path.is_file()
+    assert str(source).encode() not in reference_path.read_bytes()
+
+
+def test_local_data_api_inspects_and_clears_dataset_artifacts(client, tmp_path, monkeypatch):
+    from snla.data.retention import DatasetRetention
+    from snla.ui import server
+
+    retention = DatasetRetention(
+        reference_path=tmp_path / "restore" / "restore_reference.bin",
+        workspace_root=tmp_path / "workspaces",
+        provider=object(),
+        restore_enabled=lambda: False,
+    )
+    working_file = retention.allocate_upload("scores.csv")
+    working_file.write_bytes(b"private")
+    monkeypatch.setattr(server, "dataset_retention", retention)
+    server.session.variables = [{"name": "score", "type": "Numeric"}]
+    server.session.history = [{"role": "user", "content": "private question"}]
+
+    report = client.get("/api/local-data").get_json()
+
+    assert report["ok"] is True
+    assert report["retained"]["working_copies"] == {"files": 1, "bytes": 7}
+    assert report["current_session"] == {"has_data": True, "history_entries": 1}
+
+    cleared = client.delete("/api/local-data")
+
+    assert cleared.status_code == 200
+    assert cleared.get_json() == {"ok": True}
+    assert not working_file.exists()
+    assert server.session.has_data is False
+    assert server.session.history == []
 
 
 # ===========================================================================

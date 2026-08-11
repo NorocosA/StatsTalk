@@ -31,8 +31,11 @@ from snla.analysis import (
 )
 from snla.capabilities import get_public_capabilities_payload
 from snla.config import DEBUG, LLM_MOCK  # noqa: F401 — LLM_MOCK imported for test patching
-from snla.data.persistence import load_session, save_session
 from snla.data.reader import read_and_extract
+from snla.data.retention import (
+    DatasetRetentionError,
+    create_dataset_retention,
+)
 from snla.data.sanitizer import filter_for_cloud
 from snla.llm.transport import (
     EndpointPolicyError,
@@ -113,7 +116,7 @@ def _add_exact_origin_cors(response):
     if origin is not None and loopback_security.is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
         response.headers.add("Vary", "Origin")
     return response
 
@@ -129,9 +132,8 @@ MAX_QUERY_LENGTH = 2000  # max characters per user query
 
 # In-memory session (one user, one session)
 session = SessionState()
-_load_ok = load_session(session)
-if _load_ok:
-    logger.info("Restored previous session from SQLite")
+dataset_retention = create_dataset_retention()
+dataset_retention.cleanup_startup()
 UI_DIR = Path(__file__).resolve().parent
 
 # ── Rate limiting ─────────────────────────────────────────────────────
@@ -164,7 +166,7 @@ def status():
     return jsonify(
         {
             "ok": True,
-            "has_data": session.dataset_meta is not None,
+            "has_data": session.has_data,
             "variable_count": len(session.variables),
             "executing": analysis_service.is_active("default"),
             "spss_available": _spss_available(),
@@ -173,8 +175,111 @@ def status():
             "capabilities": get_public_capabilities_payload(),
             "trusted_methods": list(get_trusted_methods()),
             "trust_source": trust_loaded_from(),
+            "restore": dataset_retention.restore_status(),
         }
     )
+
+
+def _load_dataset_path(path: Path, *, filename: str) -> dict[str, object]:
+    """Load one local dataset into memory without persisting its contents."""
+
+    meta = read_and_extract(str(path))
+    meta["file_path"] = str(path)
+    meta["filename"] = filename
+    session.reset()
+    session.dataset_meta = meta
+    session.variables = meta.get("variables", [])
+    cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
+    return {
+        "ok": True,
+        "filename": filename,
+        "variables": cloud_vars,
+        "row_count": meta.get("row_count", 0),
+    }
+
+
+@app.post("/api/restore-dataset")
+def restore_dataset():
+    """Reopen the remembered original only after explicit confirmation."""
+
+    data = request.get_json(silent=True) or {}
+    if data.get("consent") is not True:
+        return jsonify({"ok": True, "restored": False})
+    try:
+        source = dataset_retention.restore(consent=True)
+        if source is None:
+            return jsonify({"ok": True, "restored": False})
+        payload = _load_dataset_path(source, filename=source.name)
+    except DatasetRetentionError as exc:
+        return jsonify({"error": exc.code, "code": exc.code, "message": str(exc)}), 409
+    except Exception:
+        logger.exception("Dataset restore failed")
+        return jsonify(
+            {
+                "error": "restore_read_failed",
+                "code": "restore_read_failed",
+                "message": "The original dataset could not be read. Choose it again.",
+            }
+        ), 422
+    payload["restored"] = True
+    return jsonify(payload)
+
+
+@app.post("/api/open-local-dataset")
+def open_local_dataset():
+    """Open an original path selected by the trusted desktop file dialog."""
+
+    data = request.get_json(silent=True) or {}
+    try:
+        source = Path(str(data.get("path", ""))).expanduser().resolve(strict=True)
+        if not source.is_file() or source.suffix.lower() not in ALLOWED_EXTENSIONS:
+            raise ValueError
+    except (OSError, ValueError):
+        return jsonify(
+            {
+                "error": "local_dataset_invalid",
+                "code": "local_dataset_invalid",
+                "message": "Choose an existing .sav or .csv dataset.",
+            }
+        ), 400
+    try:
+        restore = dataset_retention.remember(source)
+        payload = _load_dataset_path(source, filename=source.name)
+    except DatasetRetentionError as exc:
+        return jsonify({"error": exc.code, "code": exc.code, "message": str(exc)}), 409
+    except Exception:
+        dataset_retention.forget()
+        logger.exception("Local dataset open failed")
+        return jsonify(
+            {
+                "error": "local_dataset_read_failed",
+                "code": "local_dataset_read_failed",
+                "message": "The selected dataset could not be read.",
+            }
+        ), 422
+    payload["restore"] = restore
+    return jsonify(payload)
+
+
+@app.route("/api/local-data", methods=["GET", "DELETE"])
+def local_data():
+    """Inspect or clear locally retained dataset artifacts."""
+
+    if request.method == "GET":
+        return jsonify(
+            {
+                "ok": True,
+                "retained": dataset_retention.inspect_local_data(),
+                "current_session": {
+                    "has_data": session.has_data,
+                    "history_entries": len(session.history),
+                },
+            }
+        )
+    analysis_service.cancel("default")
+    session.reset()
+    dataset_retention.clear_local_data()
+    return jsonify({"ok": True})
 
 
 # ── File Upload ───────────────────────────────────────────────────────
@@ -198,36 +303,16 @@ def upload():
     if mime not in ALLOWED_MIME_TYPES and mime != "":
         return jsonify({"error": "文件类型无效"}), 400
 
-    # Save to persistent location so SPSS can access it later
-    from snla.config import P0_OUTPUT_DIR
-
-    os.makedirs(P0_OUTPUT_DIR, exist_ok=True)
-    dest = os.path.join(P0_OUTPUT_DIR, f"uploaded_{os.urandom(4).hex()}{suffix}")
+    dest = dataset_retention.allocate_upload(f.filename)
     f.save(dest)
 
     try:
-        meta = read_and_extract(dest)
-        meta["file_path"] = dest  # Store path for SPSS execution
-        meta["filename"] = f.filename
-        session.dataset_meta = meta
-        session.variables = meta.get("variables", [])
-
-        # Persist so a desktop restart doesn't lose the uploaded dataset
-        save_session(session)
-
-        # Sanitize for cloud safety
-        cloud_safe = filter_for_cloud(meta)
-        cloud_vars = cloud_safe.get("variables", session.variables)
-
-        return jsonify(
-            {
-                "ok": True,
-                "filename": f.filename,
-                "variables": cloud_vars,
-                "row_count": meta.get("row_count", 0),
-            }
-        )
+        payload = _load_dataset_path(dest, filename=f.filename)
+        session.register_temp_file(str(dest))
+        dataset_retention.forget()
+        return jsonify(payload)
     except Exception as e:
+        dest.unlink(missing_ok=True)
         logger.exception("Upload failed")
         return jsonify({"error": str(e)}), 500
 
@@ -357,7 +442,6 @@ def analyze():
                 }
             )
             session.last_analysis = payload["last_analysis"]
-            save_session(session)
         return jsonify(payload), getattr(outcome, "http_status", 200)
     except Exception:
         logger.exception("Analysis failed")
@@ -406,7 +490,6 @@ def confirm_greylist():
                 }
             )
             session.last_analysis = payload["last_analysis"]
-            save_session(session)
         return jsonify(payload), getattr(outcome, "http_status", 200)
     except Exception:
         logger.exception("Analysis confirmation failed")
@@ -452,7 +535,6 @@ def load_demo():
         session.dataset_meta = meta
         session.variables = meta.get("variables", [])
         cloud_vars = filter_for_cloud({"variables": session.variables}).get("variables", [])
-        save_session(session)
         return jsonify(
             {
                 "ok": True,
@@ -464,6 +546,14 @@ def load_demo():
     except Exception as e:
         logger.exception("Demo load failed")
         return jsonify({"error": str(e)}), 500
+
+
+def cleanup_runtime_data() -> None:
+    """Clear in-memory history and all session-owned working copies."""
+
+    analysis_service.cancel("default")
+    session.reset()
+    dataset_retention.cleanup_session()
 
 
 # ── Startup Warnings ────────────────────────────────────────────────────
@@ -534,6 +624,7 @@ def settings():
                 "LLM_MODEL": cfg.LLM_MODEL,
                 "AI_POLISH_ENABLED": cfg.AI_POLISH_ENABLED,
                 "AI_POLISH_FIELDS": list(POLISH_AGGREGATE_FIELDS),
+                "SESSION_RESTORE_ENABLED": cfg.SESSION_RESTORE_ENABLED,
                 "SPSS_PATH": cfg.SPSS_EXECUTABLE,
                 "SPSS_PYTHON_PATH": cfg.SPSS_PYTHON_PATH,
                 "STATS_BACKEND": cfg.STATS_BACKEND,
@@ -612,6 +703,11 @@ def settings():
     if "AI_POLISH_ENABLED" in data:
         cfg.AI_POLISH_ENABLED = data["AI_POLISH_ENABLED"] is True
         changed.append("AI_POLISH_ENABLED")
+    if "SESSION_RESTORE_ENABLED" in data:
+        cfg.SESSION_RESTORE_ENABLED = data["SESSION_RESTORE_ENABLED"] is True
+        if not cfg.SESSION_RESTORE_ENABLED:
+            dataset_retention.forget()
+        changed.append("SESSION_RESTORE_ENABLED")
 
     # ── Persist to local .env file (never uploaded) ────────
     if changed:
@@ -722,6 +818,7 @@ def _save_env_file():
         "LLM_ENDPOINT": "LLM_ENDPOINT",
         "LLM_MODEL": "LLM_MODEL",
         "AI_POLISH_ENABLED": "AI_POLISH_ENABLED",
+        "SESSION_RESTORE_ENABLED": "SESSION_RESTORE_ENABLED",
         "STATS_BACKEND": "STATS_BACKEND",
         "LLM_MOCK": "LLM_MOCK",
     }
@@ -970,4 +1067,8 @@ if __name__ == "__main__":
 
     waitress_server, launch = prepare_loopback_server(app)
     print(f"StatsTalk API bootstrap URL (one use only): {launch.bootstrap_url}")
-    waitress_server.run()
+    try:
+        waitress_server.run()
+    finally:
+        cleanup_runtime_data()
+        waitress_server.close()

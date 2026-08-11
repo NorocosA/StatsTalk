@@ -1,5 +1,7 @@
 """Tests for secure loopback server startup."""
 
+import sys
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 from snla.ui.security import LoopbackSecurity
@@ -77,3 +79,63 @@ def test_frontend_removes_bootstrap_secret_and_keeps_session_token_per_tab():
     assert "sessionStorage.setItem" in html
     assert 'headers.set("Authorization", `Bearer ${sessionToken}`)' in html
     assert 'apiFetch("/api/upload"' in html
+
+
+def test_desktop_exit_always_cleans_ephemeral_runtime_data(monkeypatch):
+    import launcher
+
+    events = []
+
+    class FakeServer:
+        effective_port = 43125
+
+        def run(self):
+            return None
+
+        def close(self):
+            events.append("server_closed")
+
+    fake_window = SimpleNamespace()
+    fake_webview = SimpleNamespace(
+        create_window=lambda *args, **kwargs: fake_window,
+        start=lambda: events.append("webview_closed"),
+    )
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
+    monkeypatch.setattr(
+        launcher,
+        "prepare_loopback_server",
+        lambda _app: (
+            FakeServer(),
+            SimpleNamespace(
+                origin="http://127.0.0.1:43125",
+                bootstrap_url="http://127.0.0.1:43125/#token",
+            ),
+        ),
+    )
+    monkeypatch.setattr(launcher, "_wait_for_port", lambda _port: True)
+    monkeypatch.setattr(launcher, "cleanup_runtime_data", lambda: events.append("cleaned"))
+
+    assert launcher.main([]) == 0
+    assert events[-2:] == ["cleaned", "server_closed"]
+
+
+def test_desktop_file_dialog_returns_only_an_explicit_user_selection():
+    import launcher
+
+    calls = []
+
+    class FakeWindow:
+        def create_file_dialog(self, **kwargs):
+            calls.append(kwargs)
+            return [r"C:\Research\scores.sav"]
+
+    api = launcher.DesktopApi()
+    api.attach_window(FakeWindow())
+
+    assert api.choose_dataset() == r"C:\Research\scores.sav"
+    assert calls == [
+        {
+            "allow_multiple": False,
+            "file_types": ("SPSS and CSV datasets (*.sav;*.csv)",),
+        }
+    ]

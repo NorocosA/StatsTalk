@@ -273,7 +273,6 @@ def test_http_confirm_preserves_original_query_for_word_export(monkeypatch):
         Path(output_path).write_bytes(b"docx")
 
     monkeypatch.setattr(server.analysis_service, "confirm", lambda request: outcome)
-    monkeypatch.setattr(server, "save_session", lambda session: None)
     monkeypatch.setattr("snla.explainer.export.export_to_docx", fake_export)
     server.session.reset()
     server.session.variables = [{"name": "gender", "type": "Numeric"}]

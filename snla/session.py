@@ -1,9 +1,8 @@
 """
 StatsTalk session state manager.
 
-Maintains the in-memory state for the single-user desktop session. The Flask
-server mirrors selected state to SQLite through snla.data.persistence so the
-latest dataset/session can survive a desktop restart.
+Maintains session-only state for the single-user desktop process. Dataset
+metadata and analysis history are not persisted across launches.
 """
 
 from dataclasses import dataclass, field

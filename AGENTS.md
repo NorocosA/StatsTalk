@@ -55,7 +55,8 @@ LLM_MOCK=true
 - Single-user guard: concurrent `/api/analyze` returns 409.
 - Rate limit: 10 `/api/analyze` requests per 60 seconds.
 - Upload limit: 500 MB, `.sav` and `.csv` only.
-- Session shadow persistence: `snla/data/persistence.py`.
+- Dataset working copies and history are session-only by default.
+- Optional restore stores only a purpose-separated DPAPI-encrypted original-file reference.
 - Config hot reload: `/api/reload-config`.
 
 ## API Endpoints
@@ -71,6 +72,9 @@ LLM_MOCK=true
 | POST | `/api/confirm` | Execute pending greylist operation |
 | GET | `/api/variables` | Cloud-safe variable list |
 | GET/POST | `/api/settings` | Read/update config |
+| POST | `/api/open-local-dataset` | Open a path selected by the desktop file dialog |
+| POST | `/api/restore-dataset` | Reopen an encrypted reference after consent |
+| GET/DELETE | `/api/local-data` | Inspect/clear retained dataset artifacts |
 | POST | `/api/api-key-backup/export` | Download a password-protected key backup |
 | POST | `/api/api-key-backup/import` | Restore and rebind a key backup to DPAPI |
 | POST | `/api/reload-config` | Reload `.env` |
@@ -88,7 +92,8 @@ LLM_MOCK=true
 | `snla/trust.py` | Trusted method whitelist |
 | `snla/data/reader.py` | `.sav`/`.csv` readers |
 | `snla/data/sanitizer.py` | Privacy filtering and variable desensitization |
-| `snla/data/persistence.py` | SQLite session shadow persistence |
+| `snla/data/retention.py` | Ephemeral workspaces and encrypted restore references |
+| `snla/data/persistence.py` | Legacy no-op/cleanup compatibility |
 | `snla/data/range_expander.py` | `Q1-Q10` style expansion |
 | `snla/llm/client.py` | LLM API wrapper and retry logic |
 | `snla/llm/prompts/` | Planner/syntax prompt builders |

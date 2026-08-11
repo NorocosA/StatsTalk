@@ -12,8 +12,28 @@ import webbrowser
 
 from snla.ui.launch import prepare_loopback_server
 from snla.ui.server import app as flask_app
+from snla.ui.server import cleanup_runtime_data
 
 APP_VERSION = "0.9.0-beta"
+
+
+class DesktopApi:
+    """Minimal trusted bridge for choosing an original dataset path."""
+
+    def __init__(self) -> None:
+        self._window = None
+
+    def attach_window(self, window) -> None:
+        self._window = window
+
+    def choose_dataset(self) -> str | None:
+        if self._window is None:
+            return None
+        selected = self._window.create_file_dialog(
+            allow_multiple=False,
+            file_types=("SPSS and CSV datasets (*.sav;*.csv)",),
+        )
+        return selected[0] if selected else None
 
 
 def _wait_for_port(port: int, timeout: int = 30) -> bool:
@@ -64,15 +84,18 @@ def main(argv=None):
         import webview
 
         print("  Opening desktop window...")
-        webview.create_window(
+        desktop_api = DesktopApi()
+        window = webview.create_window(
             "StatsTalk",
             launch.bootstrap_url,
+            js_api=desktop_api,
             width=1100,
             height=800,
             min_size=(800, 600),
             resizable=True,
             text_select=True,
         )
+        desktop_api.attach_window(window)
         webview.start()
     except ImportError:
         print("  pywebview not installed. Opening in browser instead...")
@@ -84,6 +107,7 @@ def main(argv=None):
         except KeyboardInterrupt:
             pass
     finally:
+        cleanup_runtime_data()
         waitress_server.close()
 
     print("Goodbye.")
