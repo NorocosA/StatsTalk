@@ -342,8 +342,32 @@ class TestSettingsEndpoint:
         resp = client.get("/api/settings")
         assert resp.status_code == 200
         data = json.loads(resp.data)
-        for key in ("LLM_ENDPOINT", "LLM_MODEL", "SPSS_PATH", "STATS_BACKEND"):
+        for key in (
+            "LLM_ENDPOINT",
+            "LLM_MODEL",
+            "AI_POLISH_ENABLED",
+            "AI_POLISH_FIELDS",
+            "SPSS_PATH",
+            "STATS_BACKEND",
+        ):
             assert key in data
+
+        assert isinstance(data["AI_POLISH_FIELDS"], list)
+        assert "analysis_type" in data["AI_POLISH_FIELDS"]
+        assert "raw_data" not in data["AI_POLISH_FIELDS"]
+
+    def test_settings_can_explicitly_disable_ai_polish(self, client, monkeypatch):
+        import snla.config as cfg
+        from snla.ui import server
+
+        monkeypatch.setattr(cfg, "AI_POLISH_ENABLED", True)
+        monkeypatch.setattr(server, "_save_env_file", lambda: None)
+
+        resp = client.post("/api/settings", json={"AI_POLISH_ENABLED": False})
+
+        assert resp.status_code == 200
+        assert cfg.AI_POLISH_ENABLED is False
+        assert "AI_POLISH_ENABLED" in resp.get_json()["changed"]
 
     def test_settings_post(self, client):
         """POST updates settings and returns changed keys."""

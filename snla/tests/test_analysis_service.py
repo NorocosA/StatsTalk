@@ -7,6 +7,7 @@ import threading
 import pandas as pd
 
 from snla.analysis import (
+    AnalysisAudit,
     AnalysisCancelled,
     AnalysisConfirmationRequest,
     AnalysisConfirmationRequired,
@@ -18,6 +19,59 @@ from snla.analysis import (
 from snla.executor.spss import ExecutionResult
 from snla.orchestrator import GreylistPending, PlanResult, planner
 from snla.parser.schema import AnalysisResult
+
+
+def test_ai_polish_is_opt_in_and_never_replaces_authoritative_explanation(
+    analysis_result_ttest, monkeypatch
+):
+    from snla import config
+    from snla.analysis.service import _explain_result
+    from snla.llm.client import LLMClient
+
+    calls = []
+
+    def capture_chat(self, messages, **kwargs):
+        calls.append(messages)
+        return {"content": "Optional polished wording"}
+
+    monkeypatch.setattr(config, "LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "LLM_MOCK", False)
+    monkeypatch.setattr(LLMClient, "chat", capture_chat)
+
+    monkeypatch.setattr(config, "AI_POLISH_ENABLED", False)
+    local_explanation, polish = _explain_result(analysis_result_ttest)
+    assert local_explanation
+    assert polish is None
+    assert calls == []
+
+    monkeypatch.setattr(config, "AI_POLISH_ENABLED", True)
+    same_local_explanation, polish = _explain_result(analysis_result_ttest)
+    assert same_local_explanation == local_explanation
+    assert polish == "Optional polished wording"
+    assert len(calls) == 1
+
+    outcome = AnalysisSuccess(
+        user_query="compare groups",
+        method="independent_t_test",
+        backend="python",
+        plan_explanation="",
+        result=analysis_result_ttest,
+        explanation=local_explanation,
+        ai_polish=polish,
+        audit=AnalysisAudit(
+            request_id="polish-contract",
+            started_at="2026-08-11T00:00:00+00:00",
+            completed_at="2026-08-11T00:00:01+00:00",
+            method="independent_t_test",
+            preferred_backend="python",
+            effective_backend="python",
+            parser_used="python_pingouin",
+        ),
+    )
+    payload = outcome.to_payload()
+    assert payload["explanation"] == local_explanation
+    assert payload["ai_polish"] == "Optional polished wording"
+    assert payload["authoritative_explanation"] == "explanation"
 
 
 def test_python_analysis_returns_typed_success_with_audit_metadata(tmp_path, sample_variables):

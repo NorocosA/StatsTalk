@@ -89,3 +89,18 @@ def test_api_key_backup_ui_requires_password_and_never_handles_plaintext_key():
         html.index("function openSecretBackupModal") : html.index("// ── Model Fetch")
     ]
     assert "LLM_API_KEY" not in backup_script
+
+
+def test_ai_polish_is_explicit_opt_in_with_disclosure_and_separate_output():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="s-ai-polish" type="checkbox"' in html
+    assert 'id="ai-polish-disclosure"' in html
+    for disclosure in ("原始数据", "变量名", "标签", "文件路径"):
+        assert disclosure in html
+    assert 'AI_POLISH_ENABLED: document.getElementById("s-ai-polish").checked' in html
+    assert "data.AI_POLISH_ENABLED === true" in html
+    assert "event.target.checked && !confirm(" in html
+    assert "data.ai_polish" in html
+    assert "data.explanation" in html
+    assert 'class="ai-polish-result"' in html

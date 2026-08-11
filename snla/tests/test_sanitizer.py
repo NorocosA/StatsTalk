@@ -1,7 +1,11 @@
 """Tests for snla.data.sanitizer — 4 test cases covering cloud filtering,
 sensitive-variable scanning, and normal variable pass-through."""
 
-from snla.data.sanitizer import filter_for_cloud, sanitize_variables
+from snla.data.sanitizer import (
+    build_cloud_planning_context,
+    filter_for_cloud,
+    sanitize_variables,
+)
 
 # ── Cloud-safe field filtering ──────────────────────────────────────────────
 
@@ -9,21 +13,24 @@ from snla.data.sanitizer import filter_for_cloud, sanitize_variables
 def test_filter_cloud_safe():
     """Only CLOUD_SAFE_FIELDS keys survive; unsafe keys (raw_data, identifiers) are dropped."""
     metadata = {
-        "name": ["gender", "score"],
+        "variables": [
+            {"name": "gender", "type": "Numeric", "label": "Gender"},
+            {"name": "score", "type": "Numeric", "label": "Score"},
+        ],
         "row_count": 200,
         "raw_data": [[1, 2], [3, 4]],
         "identifiers": ["id_001", "id_002"],
     }
     result = filter_for_cloud(metadata)
 
-    assert "name" in result
+    assert len(result["variables"]) == 2
     assert "row_count" in result
     assert "raw_data" not in result, f"raw_data should be filtered out, got keys={list(result)}"
     assert "identifiers" not in result, (
         f"identifiers should be filtered out, got keys={list(result)}"
     )
     # Ensure unsafe keys are the only ones missing
-    assert set(result.keys()) == {"name", "row_count"}, (
+    assert set(result.keys()) == {"variables", "row_count"}, (
         f"Unexpected result keys: {set(result.keys())}"
     )
 
@@ -68,11 +75,40 @@ def test_sanitize_sensitive_variable():
     # First sensitive → var_01
     assert output[0]["name"] == "var_01", f"Expected var_01, got {output[0]['name']}"
     assert output[0]["original_name"] == "患者姓名"
+    assert output[0]["label"] == "Sensitive variable 01"
+    assert output[0]["original_label"] == "Patient Name"
     assert output[0]["desensitized"] is True
     # Second sensitive → var_02
     assert output[1]["name"] == "var_02", f"Expected var_02, got {output[1]['name']}"
     assert output[1]["original_name"] == "email_addr"
-    assert output[1]["desensitized"] is True
+
+
+def test_cloud_planning_context_replaces_names_labels_and_restores_response_references():
+    context = build_cloud_planning_context(
+        [
+            {
+                "name": "patient_id",
+                "type": "String",
+                "label": "Patient Identifier",
+                "value_labels": {"P001": "Alice"},
+                "raw_values": ["P001"],
+            },
+            {"name": "score", "type": "Numeric", "label": "Score"},
+        ]
+    )
+
+    serialized = str(context.variables)
+    assert "patient_id" not in serialized
+    assert "Patient Identifier" not in serialized
+    assert "P001" not in serialized
+    assert "Alice" not in serialized
+    assert context.variables[0]["name"] == "var_01"
+    assert context.variables[0]["label"] == "Sensitive variable 01"
+    assert context.sanitize_text("分析 patient_id 与 Patient Identifier") == (
+        "分析 var_01 与 var_01"
+    )
+    assert context.restore_reference("var_01, score") == "patient_id, score"
+    assert context.restore_text("选择 var_01") == "选择 patient_id"
 
 
 def test_sanitize_no_sensitive():

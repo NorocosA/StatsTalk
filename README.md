@@ -32,6 +32,7 @@ Important `.env` keys:
 LLM_ENDPOINT=https://opencode.ai/zen/go/v1/chat/completions
 LLM_API_KEY_STORAGE=        # managed by StatsTalk; dpapi when configured
 LLM_MODEL=deepseek-v4-flash
+AI_POLISH_ENABLED=false     # explicit opt-in; aggregate result fields only
 STATS_BACKEND=python        # python | spss
 SPSS_PATH=...
 SPSS_PYTHON_PATH=...
@@ -46,6 +47,12 @@ Enter or replace cloud API keys in the StatsTalk settings panel. On Windows,
 StatsTalk encrypts the key for the current user with DPAPI and stores the
 ciphertext separately under `%APPDATA%\StatsTalk`; `.env` contains only the
 storage marker. Legacy plaintext keys require explicit migration consent.
+
+Cloud planning uses a strict metadata allowlist and replaces sensitive variable
+names and labels locally before a request is sent. Optional AI language polish
+is disabled by default. When enabled, it receives only the aggregate fields
+listed in settings and is returned separately from the authoritative,
+deterministic explanation.
 
 ## Core Flow
 
