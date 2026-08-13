@@ -1,5 +1,6 @@
 """Tests for secure loopback server startup."""
 
+import os
 import sys
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
@@ -139,3 +140,68 @@ def test_desktop_file_dialog_returns_only_an_explicit_user_selection():
             "file_types": ("StatsTalk datasets (*.sav;*.csv;*.xlsx)",),
         }
     ]
+
+
+def test_portable_marker_routes_application_data_beside_executable(tmp_path, monkeypatch):
+    import launcher
+    from snla.secrets import application_data_directory
+
+    executable = tmp_path / "StatsTalk.exe"
+    executable.touch()
+    (tmp_path / "portable.marker").touch()
+    monkeypatch.delenv("STATSTALK_PORTABLE_DATA_DIR", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(executable))
+
+    try:
+        launcher._configure_portable_data()
+        assert application_data_directory() == (tmp_path / "Data").resolve()
+    finally:
+        os.environ.pop("STATSTALK_PORTABLE_DATA_DIR", None)
+
+
+def test_webview_failure_uses_fresh_token_protected_browser_fallback(monkeypatch):
+    import launcher
+
+    opened = []
+    events = []
+
+    class FakeServer:
+        effective_port = 43125
+
+        def run(self):
+            return None
+
+        def close(self):
+            events.append("closed")
+
+    fake_webview = SimpleNamespace(
+        create_window=lambda *args, **kwargs: SimpleNamespace(),
+        start=lambda: (_ for _ in ()).throw(RuntimeError("WebView2 unavailable at C:\\Users\\x")),
+    )
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
+    monkeypatch.setattr(
+        launcher,
+        "prepare_loopback_server",
+        lambda _app: (
+            FakeServer(),
+            SimpleNamespace(
+                origin="http://127.0.0.1:43125",
+                bootstrap_url="http://127.0.0.1:43125/#bootstrap_token=old",
+            ),
+        ),
+    )
+    monkeypatch.setattr(launcher, "_wait_for_port", lambda _port: True)
+    monkeypatch.setattr(launcher.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(
+        launcher.time,
+        "sleep",
+        lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    monkeypatch.setattr(launcher, "cleanup_runtime_data", lambda: events.append("cleaned"))
+
+    assert launcher.main([]) == 0
+    assert len(opened) == 1
+    assert opened[0].startswith("http://127.0.0.1:43125/#bootstrap_token=")
+    assert "old" not in opened[0]
+    assert events[-2:] == ["cleaned", "closed"]

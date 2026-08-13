@@ -294,6 +294,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
                 <option value="python">Python (pingouin)</option>
             </select>
             <button id="save-settings">保存</button>
+            <button id="check-update-btn" type="button">检查更新</button>
+            <p id="update-status" role="status"></p>
         </div>
     </div>
 </aside>
@@ -1262,6 +1264,27 @@ document.getElementById("s-mcp-enabled").addEventListener("change", (event) => {
     if (event.target.checked && !confirm(
         "MCP 客户端可读取你明确选择的数据文件、变量结构和统计结果，并可发起分析与导出。是否启用？"
     )) event.target.checked = false;
+});
+
+document.getElementById("check-update-btn").addEventListener("click", async () => {
+    const button = document.getElementById("check-update-btn");
+    const status = document.getElementById("update-status");
+    button.disabled = true;
+    status.textContent = "正在检查...";
+    try {
+        const response = await apiFetch("/api/check-update", {method: "POST"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "检查更新失败");
+        if (data.update_available) {
+            status.innerHTML = `发现 ${esc(data.latest_version)}。<a href="${esc(data.release_url)}" target="_blank" rel="noopener noreferrer">打开 GitHub Releases</a>`;
+        } else {
+            status.textContent = `当前已是最新版本（${data.current_version}）。`;
+        }
+    } catch (error) {
+        status.textContent = error.message || "检查更新失败";
+    } finally {
+        button.disabled = false;
+    }
 });
 
 document.getElementById("s-crash-reporting").addEventListener("change", (event) => {

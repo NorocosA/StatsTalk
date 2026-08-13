@@ -4,16 +4,51 @@ Starts an embedded Flask server, then opens a native desktop window
 via the system WebView (Edge WebView2 on Windows). No browser needed.
 """
 
+import os
 import socket
 import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
+from urllib.parse import urlencode
 
-from snla.ui.launch import prepare_loopback_server
-from snla.ui.server import app as flask_app
-from snla.ui.server import cleanup_runtime_data
+
+def _configure_portable_data() -> None:
+    """Keep portable state beside the executable when the marker is present."""
+
+    root = (
+        Path(sys.executable).resolve().parent
+        if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parent
+    )
+    if (root / "portable.marker").is_file():
+        os.environ.setdefault("STATSTALK_PORTABLE_DATA_DIR", str(root / "Data"))
+
+
+_configure_portable_data()
+
+from snla.ui.security import loopback_security
 from snla.version import APP_VERSION
+
+prepare_loopback_server = None
+flask_app = None
+cleanup_runtime_data = None
+
+
+def _load_runtime() -> None:
+    """Import modules that initialize per-user state only for a real launch."""
+
+    global cleanup_runtime_data, flask_app, prepare_loopback_server
+    if prepare_loopback_server is not None:
+        return
+    from snla.ui.launch import prepare_loopback_server as prepare
+    from snla.ui.server import app
+    from snla.ui.server import cleanup_runtime_data as cleanup
+
+    prepare_loopback_server = prepare
+    flask_app = app
+    cleanup_runtime_data = cleanup
 
 
 class DesktopApi:
@@ -52,6 +87,8 @@ def main(argv=None):
     if "--version" in argv:
         print(f"StatsTalk {APP_VERSION}")
         return 0
+
+    _load_runtime()
 
     from snla import config
     from snla.telemetry import crash_reporter
@@ -105,9 +142,14 @@ def main(argv=None):
         )
         desktop_api.attach_window(window)
         webview.start()
-    except ImportError:
-        print("  pywebview not installed. Opening in browser instead...")
-        webbrowser.open(launch.bootstrap_url)
+    except Exception as exc:
+        print(
+            "  Desktop web view is unavailable "
+            f"({type(exc).__name__}). Opening the secure browser fallback..."
+        )
+        fallback_token = loopback_security.begin_launch(launch.origin)
+        fallback_url = f"{launch.origin}/#{urlencode({'bootstrap_token': fallback_token})}"
+        webbrowser.open(fallback_url)
         print("  Press Ctrl+C to stop.")
         try:
             while True:

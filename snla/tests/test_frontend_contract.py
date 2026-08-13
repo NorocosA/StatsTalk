@@ -169,3 +169,13 @@ def test_dataset_restore_is_opt_in_and_requires_startup_confirmation():
     assert 'method: "DELETE"' in html
     assert 'status.restore.state === "pending"' in html
     assert "confirm(" in html
+
+
+def test_update_check_is_manual_and_never_downloads_or_installs():
+    html = (Path(__file__).parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="check-update-btn"' in html
+    assert 'apiFetch("/api/check-update", {method: "POST"})' in html
+    assert "打开 GitHub Releases" in html
+    assert 'target="_blank" rel="noopener noreferrer"' in html
+    assert "automaticDownload" not in html

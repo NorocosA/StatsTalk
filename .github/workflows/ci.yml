@@ -154,9 +154,33 @@ jobs:
             throw "Unexpected version output: $output"
           }
 
-      - name: Upload executable
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer and portable package
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts\build_windows_release.ps1
+          -SkipExecutableBuild
+
+      - name: Verify release artifacts
+        shell: pwsh
+        run: |
+          $manifest = Get-Content release\release-manifest.json | ConvertFrom-Json
+          if ($manifest.version -ne '0.9.0-beta') { throw "Unexpected manifest version" }
+          if ($manifest.artifacts.Count -ne 2) { throw "Expected installer and portable ZIP" }
+          Get-Content release\SHA256SUMS.txt
+          Get-FileHash release\*.exe, release\*.zip -Algorithm SHA256
+
+      - name: Upload Windows release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: StatsTalk-windows-x64
-          path: dist/StatsTalk.exe
+          name: StatsTalk-0.9.0-beta-windows-x64
+          path: |
+            release/StatsTalk-0.9.0-beta-windows-x64-setup.exe
+            release/StatsTalk-0.9.0-beta-windows-x64-portable.zip
+            release/SHA256SUMS.txt
+            release/release-manifest.json
           if-no-files-found: error

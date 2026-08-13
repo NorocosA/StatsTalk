@@ -210,3 +210,41 @@ def test_spss_release_report_has_required_signoff_fields_and_no_account_judgment
         assert required in report
     for forbidden in ("license", "licence", "正版", "授权", "许可证"):
         assert forbidden.casefold() not in report.casefold()
+
+
+def test_inno_installer_is_per_user_and_cleanup_is_explicitly_consented():
+    installer = (PROJECT_ROOT / "packaging" / "StatsTalk.iss").read_text(encoding="utf-8")
+
+    assert "PrivilegesRequired=lowest" in installer
+    assert "PrivilegesRequiredOverridesAllowed" not in installer
+    assert "{localappdata}\\Programs\\StatsTalk" in installer
+    assert "InitializeUninstall" in installer
+    assert "RemoveUserData := MsgBox" in installer
+    assert "DelTree(ExpandConstant('{userappdata}\\StatsTalk')" in installer
+    assert (
+        "Your original datasets and exported API-key backup files will not be deleted" in installer
+    )
+    assert "WebView2Installed" in installer
+    assert "token-protected local interface" in installer
+
+
+def test_portable_package_documents_isolated_data_and_dpapi_migration():
+    readme = (PROJECT_ROOT / "packaging" / "PORTABLE_README.txt").read_text(encoding="utf-8")
+
+    assert "portable.marker" in readme
+    assert "Data folder next to StatsTalk.exe" in readme
+    assert "DPAPI-protected key remains bound to the Windows account" in readme
+    assert "export a password-protected key backup" in readme
+    assert "token-protected local interface" in readme
+
+
+def test_release_builder_generates_versioned_artifacts_and_sha256_manifest():
+    script = (PROJECT_ROOT / "scripts" / "build_windows_release.ps1").read_text(encoding="utf-8")
+
+    assert "from snla.version import APP_VERSION" in script
+    assert "PyInstaller snla.spec" in script
+    assert "StatsTalk-$version-windows-x64-portable" in script
+    assert "StatsTalk-$version-windows-x64-setup.exe" in script
+    assert "Get-FileHash -Algorithm SHA256" in script
+    assert "SHA256SUMS.txt" in script
+    assert "release-manifest.json" in script
