@@ -60,6 +60,7 @@ from snla.ui._helpers import (
     _spss_available,
 )
 from snla.ui.security import BootstrapError, loopback_security
+from snla.update import UpdateCheckError, check_for_update
 
 planner = planner_instance
 logger = logging.getLogger(__name__)
@@ -1105,6 +1106,17 @@ def list_models():
             models.append(model_id)
     models.sort()
     return jsonify({"ok": True, "models": models})
+
+
+@app.route("/api/check-update", methods=["POST"])
+def check_update():
+    """Run the fixed, metadata-minimal update check only after a user action."""
+
+    try:
+        status = check_for_update()
+    except UpdateCheckError as exc:
+        return jsonify({"ok": False, "error": "update_check_failed", "message": str(exc)}), 502
+    return jsonify({"ok": True, **status.as_dict()})
 
 
 # ── SPSS Auto-detect ───────────────────────────────────────────────────

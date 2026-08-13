@@ -655,6 +655,9 @@ class ApiKeyService:
 def application_data_directory() -> Path:
     """Return the per-user StatsTalk application-data directory."""
 
+    portable_root = os.getenv("STATSTALK_PORTABLE_DATA_DIR")
+    if portable_root:
+        return Path(portable_root).expanduser().resolve()
     configured_root = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA")
     if configured_root:
         return Path(configured_root) / "StatsTalk"

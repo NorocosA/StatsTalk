@@ -862,6 +862,42 @@ class TestGreylistFlow:
 # ===========================================================================
 
 
+class TestUpdateEndpoint:
+    def test_update_check_is_post_only(self, client):
+        assert client.get("/api/check-update").status_code == 405
+
+    def test_update_check_returns_release_metadata(self, client, monkeypatch):
+        from snla.ui import server
+
+        status = MagicMock()
+        status.as_dict.return_value = {
+            "current_version": "0.9.0-beta",
+            "latest_version": "0.9.1",
+            "update_available": True,
+            "release_url": "https://github.com/NorocosA/StatsTalk/releases/tag/0.9.1",
+        }
+        monkeypatch.setattr(server, "check_for_update", lambda: status)
+
+        response = client.post("/api/check-update")
+
+        assert response.status_code == 200
+        assert response.get_json()["update_available"] is True
+
+    def test_update_check_returns_safe_failure(self, client, monkeypatch):
+        from snla.ui import server
+
+        monkeypatch.setattr(
+            server,
+            "check_for_update",
+            MagicMock(side_effect=server.UpdateCheckError("GitHub is unavailable.")),
+        )
+
+        response = client.post("/api/check-update")
+
+        assert response.status_code == 502
+        assert response.get_json()["error"] == "update_check_failed"
+
+
 class TestModelsEndpoint:
     """POST /api/models — fetch model list from LLM endpoint."""
 

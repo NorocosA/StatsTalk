@@ -2,6 +2,9 @@
 
 StatsTalk lets users run common statistical analyses by describing the task in natural language. It supports a production SPSS backend and a no-SPSS Python backend powered by pandas/pingouin.
 
+The packaged desktop beta supports Windows 10/11 x64. SPSS, cloud LLM features, and
+experimental MCP integration are optional; raw datasets remain local.
+
 ## Quick Start
 
 ```powershell
@@ -75,7 +78,7 @@ User request
 - Natural-language analysis planning.
 - Complete no-API-key flow with local suggestions and structured controls.
 - SPSS execution through bundled SPSS Python or batch mode.
-- Python backend for 15 methods.
+- Eleven reviewed public statistical methods on the local Python path.
 - SPSS syntax templates with blacklist and greylist validation.
 - OMS XML parser with LST fallback.
 - Privacy filtering before LLM calls.
@@ -96,7 +99,9 @@ User request
 - Mann-Whitney U
 - Kruskal-Wallis
 - Wilcoxon
-- Logistic regression placeholder/fallback
+
+Logistic and multiple regression remain internal placeholders and are not exposed as
+reviewed 0.9 public capabilities.
 
 ## Tests
 
@@ -141,10 +146,13 @@ data/fixtures/             sample datasets and checklists
 ## Packaging
 
 ```powershell
-.venv\Scripts\python.exe -m PyInstaller snla.spec --noconfirm
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_windows_release.ps1
 ```
 
-Output: `dist/StatsTalk.exe`.
+This builds the per-user Inno Setup installer, portable ZIP, SHA-256 checksum list,
+and machine-readable release manifest under `release/`. Inno Setup 6 is required.
+The installer does not require administrator access. The portable package keeps its
+configuration and encrypted local state in the package's `Data` folder.
 
 Development, CI, and packaging all use the exact hashes in `requirements.lock`.
 See `docs/ci.md` for lock updates, coverage scope, and required checks.
